@@ -18,7 +18,7 @@
    - `GET /matches/:id`
    - `GET /champions`
  - Save real example responses for validation.
- 
+
  ---
  
  ## Phase 1 — Project Setup
