@@ -18,7 +18,14 @@
    - `GET /matches/:id`
    - `GET /champions`
  - Save real example responses for validation.
-
+- Phase 0 docs:
+  - `docs/PHASE0_ENDPOINTS.md`
+  - `docs/phase0-example-users-sign-in.json`
+  - `docs/phase0-example-users-sign-up.json`
+  - `docs/phase0-example-users-matches.json`
+  - `docs/phase0-example-match.json`
+  - `docs/phase0-example-champions.json`
+ 
  ---
  
  ## Phase 1 — Project Setup
