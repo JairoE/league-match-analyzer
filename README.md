@@ -4,6 +4,31 @@ FastAPI + SQLModel backend for League of Legends match analysis, replacing the l
 
 ---
 
+## Stack Overview
+
+- **API**: FastAPI (async) served by Uvicorn
+- **Data modeling**: SQLModel + SQLAlchemy Core
+- **Database**: PostgreSQL 16 with `pgvector`
+- **Migrations**: Alembic (async engine support)
+- **Cache/Queue**: Redis + ARQ workers
+- **Validation/Settings**: Pydantic v2 + pydantic-settings
+- **HTTP client**: httpx (async)
+- **Language**: Python 3.11+
+
+---
+
+## Tooling Used
+
+- **Docker Compose**: Postgres + Redis for local dev
+- **Makefile**: common dev commands
+- **Bun scripts**: helper scripts in `scripts/`
+- **Ruff**: linting
+- **Pytest**: tests
+- **Alembic CLI**: schema revisions and upgrades
+- **Uvicorn**: API dev server
+
+---
+
 ## Project Structure
 
 ```
