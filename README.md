@@ -75,6 +75,19 @@ league-match-analyzer/
 - `.env.example` files for both services
 - Makefile targets for common operations
 
+### Data Seeding + Reset (Latest)
+
+- Champion catalog now auto-seeds on API startup via a background task
+- Data Dragon client added for champion metadata fetches
+- Reset endpoints added for `champions` to clear and reseed in-place
+- `user_match` table name normalized to match migrations
+
+### Future Paths (Planned)
+
+- Move Riot API calls out of request handlers into ARQ jobs
+- Add `/reset/{resource}` pattern for other tables (matches, users, etc.)
+- Add cache + queue-driven sync flows for match details and ranks
+
 ---
 
 ## Prerequisites
@@ -160,6 +173,12 @@ cd services/api
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+**Startup Notes (Latest):**
+
+- API startup schedules a champion seed job (background task)
+- Requires outbound network access to Data Dragon
+- If you need immediate availability, call `POST /reset/champions`
+
 **Verify:**
 
 ```bash
@@ -177,6 +196,8 @@ curl http://localhost:8000/health
 | `GET /users/:id/matches` | User match history |
 | `GET /matches/:id` | Match details |
 | `GET /champions` | All champions |
+| `POST /reset/champions` | Clear + reseed champions |
+| `POST /reset/champions/:champ_id` | Reset one champion |
 
 ---
 
@@ -227,6 +248,12 @@ docker run -d -p 6379:6379 redis:7
 make db-up
 make db-migrate
 make api-dev
+```
+
+Wait for the startup seed job in logs:
+
+```
+champion_seed_job_done
 ```
 
 In another terminal:

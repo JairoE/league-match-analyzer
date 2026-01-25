@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.cors import add_cors_middleware
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestLoggingMiddleware
+from app.services.champion_seed import schedule_champion_seed_job
 
 
 setup_logging()
@@ -61,6 +62,7 @@ async def on_startup() -> None:
             "redis_url": settings.redis_url,
         },
     )
+    schedule_champion_seed_job(reason="startup", force_reset=False)
 
 
 @app.on_event("shutdown")
