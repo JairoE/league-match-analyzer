@@ -13,6 +13,8 @@ logger.debug("user_match_model_loaded")
 class UserMatch(SQLModel, table=True):
     """Join table for associating users with matches."""
 
+    __tablename__ = "user_match"
+
     id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="user.id", index=True, nullable=False)
     match_id: UUID = Field(foreign_key="match.id", index=True, nullable=False)
