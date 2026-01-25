@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import Column, String
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.logging import get_logger
@@ -27,5 +28,10 @@ class User(SQLModel, table=True):
     summoner_level: int | None = Field(default=None)
     email: str | None = Field(default=None)
 
-    matches: list["Match"] = Relationship(back_populates="users", link_model=UserMatch)
-    user_matches: list[UserMatch] = Relationship(back_populates="user")
+    matches: list["Match"] = Relationship(
+        sa_relationship=relationship(
+            "Match",
+            back_populates="users",
+            secondary=UserMatch.__table__,
+        )
+    )

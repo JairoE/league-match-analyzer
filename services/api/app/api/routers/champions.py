@@ -1,32 +1,57 @@
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.db.session import get_session
+from app.schemas.champion import ChampionPublic
+from app.services.champions import get_champion_by_id, list_champions
 
 
 router = APIRouter(prefix="/champions", tags=["champions"])
 logger = get_logger("league_api.champions")
 
 
-@router.get("", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-async def list_champions() -> dict[str, str]:
-    """Placeholder for champion listing.
+@router.get(
+    "",
+    response_model=list[ChampionPublic],
+    status_code=status.HTTP_200_OK,
+)
+async def list_champions_endpoint(
+    session: AsyncSession = Depends(get_session),
+) -> list[ChampionPublic]:
+    """Return all champion metadata.
 
     Returns:
-        A placeholder response while Phase 3 is pending.
+        List of champion payloads for the catalog.
     """
-    logger.info("list_champions_not_implemented")
-    return {"detail": "Not implemented"}
+    logger.info("list_champions_start")
+    champions = await list_champions(session)
+    logger.info("list_champions_done", extra={"count": len(champions)})
+    return [ChampionPublic.model_validate(champion) for champion in champions]
 
 
-@router.get("/{champ_id}", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-async def get_champion(champ_id: int) -> dict[str, str]:
-    """Placeholder for champion detail retrieval.
+@router.get(
+    "/{champ_id}",
+    response_model=ChampionPublic,
+    status_code=status.HTTP_200_OK,
+)
+async def get_champion(
+    champ_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> ChampionPublic:
+    """Return champion metadata by ID.
 
     Args:
         champ_id: Champion identifier from the route.
+        session: Async database session for queries.
 
     Returns:
-        A placeholder response while Phase 3 is pending.
+        Champion payload for the requested ID.
     """
-    logger.info("get_champion_not_implemented", extra={"champ_id": champ_id})
-    return {"detail": "Not implemented"}
+    logger.info("get_champion_start", extra={"champ_id": champ_id})
+    champion = await get_champion_by_id(session, champ_id)
+    if not champion:
+        logger.info("get_champion_missing", extra={"champ_id": champ_id})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Champion not found")
+    logger.info("get_champion_success", extra={"champ_id": champ_id})
+    return ChampionPublic.model_validate(champion)

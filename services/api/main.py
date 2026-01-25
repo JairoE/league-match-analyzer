@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, Response
 
 from app.api.routers import all_routers
 from app.core.config import get_settings
+from app.core.cors import add_cors_middleware
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestLoggingMiddleware
 
@@ -14,6 +15,7 @@ logger = get_logger("league_api.main")
 settings = get_settings()
 
 app = FastAPI(title=settings.service_name)
+add_cors_middleware(app, settings)
 app.add_middleware(RequestLoggingMiddleware)
 
 for router in all_routers:

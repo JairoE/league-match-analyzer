@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Column, String
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -24,8 +25,13 @@ class Match(SQLModel, table=True):
     game_id: str = Field(sa_column=Column(String, unique=True, nullable=False, index=True))
     game_info: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
-    users: list["User"] = Relationship(back_populates="matches", link_model=UserMatch)
-    user_matches: list[UserMatch] = Relationship(back_populates="match")
+    users: list["User"] = Relationship(
+        sa_relationship=relationship(
+            "User",
+            back_populates="matches",
+            secondary=UserMatch.__table__,
+        )
+    )
 
     def to_embedding_text(self) -> str:
         """Serialize match details into a natural language summary.

@@ -13,6 +13,10 @@ class Settings(BaseSettings):
         log_level: Logging verbosity for the service.
         service_name: Name used in logs and tracing.
         sql_echo: Enables SQL echo for debugging.
+        cors_allow_origins: Comma-separated list of allowed origins.
+        cors_allow_methods: Comma-separated list of allowed HTTP methods.
+        cors_allow_headers: Comma-separated list of allowed headers.
+        cors_allow_credentials: Whether to allow credentials for CORS.
     """
 
     database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
@@ -21,6 +25,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     service_name: str = "league-api"
     sql_echo: bool = False
+    cors_allow_origins: str = "http://localhost:3000"
+    cors_allow_methods: str = "*"
+    cors_allow_headers: str = "*"
+    cors_allow_credentials: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
