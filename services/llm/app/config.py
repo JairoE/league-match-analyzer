@@ -16,7 +16,7 @@ class Settings(BaseSettings):
         service_name: Name used in logs and tracing.
     """
 
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/league_api"
+    database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
     redis_url: str = "redis://localhost:6379/0"
     openai_api_key: str = "replace-me"
     log_level: str = "INFO"

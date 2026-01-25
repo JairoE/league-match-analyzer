@@ -14,6 +14,7 @@ dependencies = [
     "arq>=0.26.1",
     "openai>=1.58.0",
     "tiktoken>=0.8.0",
+    "league-shared @ file:../../packages/shared",
 ]
 
 [project.optional-dependencies]

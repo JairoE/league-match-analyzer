@@ -16,6 +16,7 @@ dependencies = [
     "arq>=0.26.1",
     "httpx>=0.28.0",
     "alembic>=1.14.0",
+    "league-shared @ file:../../packages/shared",
 ]
 
 [project.optional-dependencies]

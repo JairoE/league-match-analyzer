@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         sql_echo: Enables SQL echo for debugging.
     """
 
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/league_api"
+    database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
     redis_url: str = "redis://localhost:6379/0"
     riot_api_key: str = "replace-me"
     log_level: str = "INFO"

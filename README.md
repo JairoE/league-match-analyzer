@@ -21,7 +21,7 @@ league-match-analyzer/
 
 ---
 
-## Recent Changes (Phase 1)
+## Recent Changes (Phase 1.5)
 
 ### Services Created
 
@@ -31,10 +31,18 @@ league-match-analyzer/
 
 ### Infrastructure
 
+- Docker Compose for Postgres 16 + pgvector and Redis 7
+- Dockerfiles for `services/api` and `services/llm`
 - Async SQLAlchemy engine with `asyncpg` driver
 - Redis + ARQ wiring for background job queue
 - Alembic migrations setup with async support
 - pgvector extension enabled for future embeddings
+
+### Tooling
+
+- Bun scripts in `scripts/` for db + dev commands
+- Shared package path dependency in service `pyproject.toml`
+- Shared package setup doc in `docs/SHARED_PACKAGE.md`
 
 ### Configuration
 
@@ -47,8 +55,10 @@ league-match-analyzer/
 ## Prerequisites
 
 - Python 3.11+
-- PostgreSQL 14+ with pgvector extension
-- Redis 7+
+- Docker Desktop (for Compose-based Postgres + Redis)
+- PostgreSQL 14+ with pgvector extension (only if running DB locally)
+- Redis 7+ (only if running Redis locally)
+- Bun (only if using `scripts/*.ts`)
 
 ---
 
@@ -85,7 +95,7 @@ createdb league_api
 psql league_api -c "CREATE EXTENSION IF NOT EXISTS vector"
 ```
 
-**Option B — Docker (requires Phase 1.5):**
+**Option B — Docker (Phase 1.5):**
 
 ```bash
 make db-up
@@ -184,6 +194,37 @@ docker run -d -p 6379:6379 redis:7
 
 ---
 
+## Run + Test (Latest)
+
+### Run the Stack
+
+```bash
+make db-up
+make db-migrate
+make api-dev
+```
+
+In another terminal:
+
+```bash
+make llm-dev
+```
+
+### Smoke Test
+
+```bash
+curl http://localhost:8000/health
+```
+
+### Test Suite
+
+```bash
+make lint
+make test
+```
+
+---
+
 ## Makefile Commands
 
 | Command | Description |
@@ -206,7 +247,7 @@ docker run -d -p 6379:6379 redis:7
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/league_api` | Async Postgres connection |
+| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
 | `RIOT_API_KEY` | `replace-me` | Riot Games API key |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
@@ -217,7 +258,7 @@ docker run -d -p 6379:6379 redis:7
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/league_api` | Async Postgres connection |
+| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
 | `OPENAI_API_KEY` | `your-openai-api-key` | OpenAI API key |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
