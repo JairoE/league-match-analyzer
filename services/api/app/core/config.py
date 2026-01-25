@@ -10,6 +10,7 @@ class Settings(BaseSettings):
         database_url: Async database connection string.
         redis_url: Redis connection string for cache and queues.
         riot_api_key: Riot API key for outbound requests.
+        riot_api_timeout_seconds: Timeout for Riot API calls.
         log_level: Logging verbosity for the service.
         service_name: Name used in logs and tracing.
         sql_echo: Enables SQL echo for debugging.
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
     redis_url: str = "redis://localhost:6379/0"
     riot_api_key: str = "replace-me"
+    riot_api_timeout_seconds: float = 10.0
     log_level: str = "INFO"
     service_name: str = "league-api"
     sql_echo: bool = False

@@ -230,10 +230,10 @@ Response: Riot ranked payload for the summoner.
  ## Phase 4 — Riot API Integration
  
 - Centralized Riot API client (async wrapper or `cassiopeia` adapter).
-- Cache recent match lists and match details in Redis.
-- Rate limit calls to comply with Riot API policy.
+- Store match details in Postgres as-is (mirror Rails payload storage).
+- All FastAPI endpoints return a synchronous response.
 - Store API key in environment variables.
-- Push fetch/aggregation work into ARQ jobs.
+- Defer caching, rate limits, and worker jobs to a later phase.
  
  ---
  

@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.db.session import get_session
 from app.schemas.match import MatchListItem
-from app.services.matches import get_match_by_identifier, list_matches_for_user
+from app.services.matches import list_matches_for_user
+from app.services.riot_sync import fetch_match_detail, fetch_match_list_for_user
 from app.services.users import resolve_user_identifier
 
 
@@ -34,9 +35,14 @@ async def list_user_matches(
         List of match list items in stored association order.
     """
     logger.info("list_user_matches_start", extra={"user_id": user_id})
+    match_ids = await fetch_match_list_for_user(session, user_id, 0, 20)
+    if match_ids is None:
+        logger.info("list_user_matches_user_missing", extra={"user_id": user_id})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    logger.info("list_user_matches_synced", extra={"user_id": user_id, "match_count": len(match_ids)})
     user = await resolve_user_identifier(session, user_id)
     if not user:
-        logger.info("list_user_matches_user_missing", extra={"user_id": user_id})
+        logger.info("list_user_matches_user_missing_after_job", extra={"user_id": user_id})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     matches = await list_matches_for_user(session, user.id)
     logger.info("list_user_matches_done", extra={"user_id": user_id, "count": len(matches)})
@@ -58,9 +64,9 @@ async def get_match(
         Raw Riot match payload if stored.
     """
     logger.info("get_match_start", extra={"match_id": match_id})
-    match = await get_match_by_identifier(session, match_id)
-    if not match:
+    result = await fetch_match_detail(session, match_id)
+    if result is None:
         logger.info("get_match_missing", extra={"match_id": match_id})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
-    logger.info("get_match_success", extra={"match_id": match_id, "match_uuid": str(match.id)})
-    return match.game_info or {"metadata": {}, "info": {}}
+    logger.info("get_match_success", extra={"match_id": match_id})
+    return result

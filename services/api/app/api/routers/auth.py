@@ -6,7 +6,7 @@ from app.db.session import get_session
 from app.schemas.auth import UserSignInRequest, UserSignUpRequest
 from app.schemas.user import UserResponse
 from app.services.riot_id_parser import parse_riot_id
-from app.services.users import resolve_user_identifier
+from app.services.riot_sync import fetch_sign_in_user, fetch_user_profile
 
 
 router = APIRouter(prefix="/users", tags=["auth"])
@@ -39,16 +39,9 @@ async def sign_up(
         "sign_up_parsed_riot_id",
         extra={"canonical": parsed_riot_id.canonical, "summoner_name": parsed_riot_id.game_name},
     )
-    user = await resolve_user_identifier(
-        session,
-        payload.summoner_name,
-        parsed_riot_id=parsed_riot_id,
-    )
-    if not user:
-        logger.info("sign_up_user_missing", extra={"summoner_name": payload.summoner_name})
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user = await fetch_user_profile(session, parsed_riot_id.canonical, payload.email)
     logger.info("sign_up_success", extra={"user_id": str(user.id)})
-    return UserResponse.model_validate(user)
+    return user
 
 
 @router.post(
@@ -77,13 +70,9 @@ async def sign_in(
         "sign_in_parsed_riot_id",
         extra={"canonical": parsed_riot_id.canonical, "summoner_name": parsed_riot_id.game_name},
     )
-    user = await resolve_user_identifier(
-        session,
-        payload.summoner_name,
-        parsed_riot_id=parsed_riot_id,
-    )
+    user = await fetch_sign_in_user(session, parsed_riot_id.canonical, payload.email)
     if not user:
         logger.info("sign_in_user_missing", extra={"summoner_name": payload.summoner_name})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     logger.info("sign_in_success", extra={"user_id": str(user.id)})
-    return UserResponse.model_validate(user)
+    return user

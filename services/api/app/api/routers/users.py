@@ -7,7 +7,8 @@ from app.core.logging import get_logger
 from app.db.session import get_session
 from app.schemas.auth import UserFetchRequest
 from app.schemas.user import UserResponse
-from app.services.users import resolve_user_identifier
+from app.services.riot_id_parser import parse_riot_id
+from app.services.riot_sync import fetch_rank_for_user, fetch_user_profile
 
 
 router = APIRouter(tags=["users"])
@@ -31,12 +32,14 @@ async def fetch_user(
         User profile payload matching the stored record.
     """
     logger.info("fetch_user_start", extra={"summoner_name": payload.summoner_name})
-    user = await resolve_user_identifier(session, payload.summoner_name)
-    if not user:
-        logger.info("fetch_user_missing", extra={"summoner_name": payload.summoner_name})
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    try:
+        parsed_riot_id = parse_riot_id(payload.summoner_name)
+    except ValueError:
+        logger.info("fetch_user_invalid_riot_id", extra={"summoner_name": payload.summoner_name})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_riot_id")
+    user = await fetch_user_profile(session, parsed_riot_id.canonical, None)
     logger.info("fetch_user_success", extra={"user_id": str(user.id)})
-    return UserResponse.model_validate(user)
+    return user
 
 
 @router.get("/users/{user_id}/fetch_rank", status_code=status.HTTP_200_OK)
@@ -54,9 +57,9 @@ async def fetch_rank(
         Ranked payload stored for the user if available.
     """
     logger.info("fetch_rank_start", extra={"user_id": user_id})
-    user = await resolve_user_identifier(session, user_id)
-    if not user:
+    result = await fetch_rank_for_user(session, user_id)
+    if result is None:
         logger.info("fetch_rank_user_missing", extra={"user_id": user_id})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    logger.info("fetch_rank_empty", extra={"user_id": user_id})
-    return []
+    logger.info("fetch_rank_success", extra={"user_id": user_id, "count": len(result)})
+    return result
