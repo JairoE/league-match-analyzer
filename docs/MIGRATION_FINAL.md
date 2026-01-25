@@ -20,6 +20,10 @@
   - Add loading and error states for all requests (auth, matches, match detail).
   - Guard against missing champion data when mapping IDs to images.
   - Cache invalidation should be time-based and include a manual refresh path.
+  - Preserve current auth endpoints (`/users/sign_in`, `/users/sign_up`) or add aliases.
+  - Support rank fetch (`/users/:userId/fetch_rank`) for header stats.
+  - Match detail responses must include v5 fields (`info`, `participants`, `teams`).
+  - Champion fetch is per-card (`/champions/:championId`) rather than full list.
 
 ## Where to Begin
 
@@ -45,6 +49,7 @@
 - Start at **Phase 1 — Project Setup** after backend routing structure is defined.
 - Reason: the shared API surface (`/v1`, auth, matches, champions) needs to be stable.
 - If the backend API base URL is already known, you can start Phase 1 in parallel.
+ - Include session storage hydration and match v5 normalization in initial scaffolding.
 
 ## Testing Plan
 
