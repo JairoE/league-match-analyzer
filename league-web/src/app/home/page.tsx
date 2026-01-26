@@ -1,23 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import {useEffect, useMemo, useState} from "react";
+import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
 import MatchCard from "../../components/MatchCard";
-import { apiGet } from "../../lib/api";
-import { clearCache } from "../../lib/cache";
-import { loadSessionUser, clearSessionUser } from "../../lib/session";
-import { getUserDisplayName, getUserId } from "../../lib/user-utils";
-import { getMatchId } from "../../lib/match-utils";
-import type { MatchDetail, MatchSummary } from "../../lib/types/match";
-import type { RankInfo } from "../../lib/types/rank";
-import type { UserSession } from "../../lib/types/user";
+import {apiGet} from "../../lib/api";
+import {clearCache} from "../../lib/cache";
+import {loadSessionUser, clearSessionUser} from "../../lib/session";
+import {getUserDisplayName, getUserId} from "../../lib/user-utils";
+import {getMatchId} from "../../lib/match-utils";
+import type {MatchDetail, MatchSummary} from "../../lib/types/match";
+import type {RankInfo} from "../../lib/types/rank";
+import type {UserSession} from "../../lib/types/user";
 
 export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState<UserSession | null>(null);
   const [matches, setMatches] = useState<MatchSummary[]>([]);
-  const [matchDetails, setMatchDetails] = useState<Record<string, MatchDetail>>({});
+  const [matchDetails, setMatchDetails] = useState<Record<string, MatchDetail>>(
+    {}
+  );
   const [rank, setRank] = useState<RankInfo | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -48,19 +50,25 @@ export default function HomePage() {
       try {
         setIsLoading(true);
         setError(null);
-        console.debug("[home] fetching matches + rank", { userId });
+        console.debug("[home] fetching matches + rank", {userId});
         const [matchesResponse, rankResponse] = await Promise.all([
-          apiGet<MatchSummary[]>(`/users/${userId}/matches`, { cacheTtlMs: 60_000 }),
-          apiGet<RankInfo>(`/users/${userId}/fetch_rank`, { cacheTtlMs: 60_000 }),
+          apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
+            cacheTtlMs: 60_000,
+          }),
+          apiGet<RankInfo>(`/users/${userId}/fetch_rank`, {cacheTtlMs: 60_000}),
         ]);
 
         if (!isActive) return;
-        const nextMatches = Array.isArray(matchesResponse) ? matchesResponse : [];
+        const nextMatches = Array.isArray(matchesResponse)
+          ? matchesResponse
+          : [];
         setMatches(nextMatches);
         setRank(rankResponse ?? null);
-        console.debug("[home] overview loaded", { matchCount: nextMatches.length });
+        console.debug("[home] overview loaded", {
+          matchCount: nextMatches.length,
+        });
       } catch (err) {
-        console.debug("[home] overview failed", { err });
+        console.debug("[home] overview failed", {err});
         if (isActive) {
           setError("Failed to load matches. Please refresh.");
         }
@@ -91,14 +99,16 @@ export default function HomePage() {
 
     const loadDetails = async () => {
       try {
-        console.debug("[home] fetching match details", { count: matchIds.length });
+        console.debug("[home] fetching match details", {
+          count: matchIds.length,
+        });
         const responses = await Promise.all(
           matchIds.map(async (matchId) => {
             const detail = await apiGet<MatchDetail>(`/matches/${matchId}`, {
               cacheTtlMs: 120_000,
             });
             return [matchId, detail] as const;
-          }),
+          })
         );
 
         if (!isActive) return;
@@ -107,9 +117,9 @@ export default function HomePage() {
           detailMap[matchId] = detail;
         });
         setMatchDetails(detailMap);
-        console.debug("[home] match details loaded", { count: responses.length });
+        console.debug("[home] match details loaded", {count: responses.length});
       } catch (err) {
-        console.debug("[home] match detail failed", { err });
+        console.debug("[home] match detail failed", {err});
       }
     };
 
@@ -144,8 +154,8 @@ export default function HomePage() {
           <h1>{displayName}</h1>
           {rank ? (
             <p className={styles.rank}>
-              {rank.queueType ?? "Ranked"} · {rank.tier ?? "Unranked"} {rank.rank ?? ""} ·{" "}
-              {rank.leaguePoints ?? 0} LP
+              {rank.queueType ?? "Ranked"} · {rank.tier ?? "Unranked"}{" "}
+              {rank.rank ?? ""} · {rank.leaguePoints ?? 0} LP
             </p>
           ) : (
             <p className={styles.rank}>Rank data unavailable</p>
@@ -163,7 +173,9 @@ export default function HomePage() {
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
-      {isLoading ? <p className={styles.loadingInline}>Loading matches...</p> : null}
+      {isLoading ? (
+        <p className={styles.loadingInline}>Loading matches...</p>
+      ) : null}
 
       {!isLoading && matches.length === 0 ? (
         <p className={styles.empty}>No matches yet.</p>
@@ -171,7 +183,7 @@ export default function HomePage() {
         <section className={styles.matches}>
           {matches.map((match, index) => {
             const matchId = getMatchId(match);
-            const detail = matchId ? matchDetails[matchId] ?? null : null;
+            const detail = matchId ? (matchDetails[matchId] ?? null) : null;
             return (
               <MatchCard
                 key={matchId ?? `match-${index}`}

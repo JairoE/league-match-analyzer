@@ -76,26 +76,26 @@ class RiotApiClient:
         payload = await self._get_json("summoner", url)
         return payload
 
-    async def fetch_rank_by_puuid(self, puuid: str) -> list[dict[str, Any]]:
+    async def fetch_rank_by_puuid(self, puuid: str) -> dict[str, Any]:
         """Retrieve ranked payload by PUUID.
 
-        Retrieves: Ranked entries for a PUUID.
-        Transforms: Ensures list response shape.
+        Retrieves: Ranked entry object for a PUUID.
+        Transforms: Returns single ranked entry object.
         Why: Keeps rank requests synchronous with minimal shaping.
 
         Args:
             puuid: Riot PUUID.
 
         Returns:
-            Ranked entries payload.
+            Ranked entry payload object.
         """
         logger.info("riot_rank_fetch_start", extra={"puuid": puuid})
         url = self.RANK_BY_PUUID_URL + quote(puuid)
         payload = await self._get_json("rank", url)
         if not isinstance(payload, list):
             logger.info("riot_rank_payload_unexpected", extra={"puuid": puuid})
-            payload = []
-        return payload
+            raise RiotRequestError("unexpected_rank_payload_format", status=502)
+        return payload[0]
 
     async def fetch_match_ids_by_puuid(self, puuid: str, start: int, count: int) -> list[str]:
         """Retrieve match ids for a PUUID.

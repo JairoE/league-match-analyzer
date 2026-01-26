@@ -1,4 +1,4 @@
-import { getFromCache, setInCache } from "./cache";
+import {getFromCache, setInCache} from "./cache";
 
 type ApiFetchOptions = {
   cacheTtlMs?: number;
@@ -11,17 +11,19 @@ function buildUrl(path: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path;
   }
-  const base = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+  const base = API_BASE_URL.endsWith("/")
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
   const suffix = path.startsWith("/") ? path : `/${path}`;
   const url = `${base}${suffix}`;
-  console.debug("[api] buildUrl", { path, url });
+  console.debug("[api] buildUrl", {path, url});
   return url;
 }
 
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
-  options: ApiFetchOptions = {},
+  options: ApiFetchOptions = {}
 ): Promise<T> {
   const url = buildUrl(path);
   const method = init.method?.toUpperCase() ?? "GET";
@@ -31,12 +33,12 @@ export async function apiFetch<T>(
   if (useCache) {
     const cached = getFromCache<T>(cacheKey);
     if (cached) {
-      console.debug("[api] cache hit", { url, method });
+      console.debug("[api] cache hit", {url, method});
       return cached;
     }
   }
 
-  console.debug("[api] fetch", { url, method });
+  console.debug("[api] fetch", {url, method});
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -47,12 +49,12 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const body = await res.text();
-    console.debug("[api] error", { url, method, status: res.status, body });
+    console.debug("[api] error", {url, method, status: res.status, body});
     throw new Error(`Request failed: ${res.status} ${res.statusText}`);
   }
 
   const data = (await res.json()) as T;
-  console.debug("[api] success", { url, method });
+  console.debug("[api] success", {url, method});
 
   if (useCache) {
     setInCache(cacheKey, data, options.cacheTtlMs);
@@ -61,14 +63,17 @@ export async function apiFetch<T>(
   return data;
 }
 
-export async function apiGet<T>(path: string, options?: ApiFetchOptions): Promise<T> {
-  return apiFetch<T>(path, { method: "GET" }, options);
+export async function apiGet<T>(
+  path: string,
+  options?: ApiFetchOptions
+): Promise<T> {
+  return apiFetch<T>(path, {method: "GET"}, options);
 }
 
 export async function apiPost<TBody, TResponse>(
   path: string,
   body: TBody,
-  options?: ApiFetchOptions,
+  options?: ApiFetchOptions
 ): Promise<TResponse> {
   return apiFetch<TResponse>(
     path,
@@ -76,6 +81,6 @@ export async function apiPost<TBody, TResponse>(
       method: "POST",
       body: JSON.stringify(body),
     },
-    { ...options, useCache: false },
+    {...options, useCache: false}
   );
 }
