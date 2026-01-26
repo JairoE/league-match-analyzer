@@ -1,8 +1,8 @@
 .card {
-  border: 1px solid #30363d;
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   padding: 16px;
-  background: #0f1419;
+  background: var(--color-surface);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -36,7 +36,7 @@
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: #2d333b;
+  background: var(--color-chip);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -54,8 +54,8 @@
   align-self: flex-start;
   padding: 6px 10px;
   border-radius: 8px;
-  border: 1px solid #30363d;
-  background: transparent;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
   color: inherit;
   cursor: pointer;
 }
