@@ -1,0 +1,325 @@
+# League Match Analyzer
+
+FastAPI + SQLModel backend for League of Legends match analysis, replacing the legacy Rails API.
+
+---
+
+## Stack Overview
+
+- **API**: FastAPI (async) served by Uvicorn
+- **Data modeling**: SQLModel + SQLAlchemy Core
+- **Database**: PostgreSQL 16 with `pgvector`
+- **Migrations**: Alembic (async engine support)
+- **Cache/Queue**: Redis + ARQ workers
+- **Validation/Settings**: Pydantic v2 + pydantic-settings
+- **HTTP client**: httpx (async)
+- **Language**: Python 3.11+
+
+---
+
+## Tooling Used
+
+- **Docker Compose**: Postgres + Redis for local dev
+- **Makefile**: common dev commands
+- **Bun scripts**: helper scripts in `scripts/`
+- **Ruff**: linting
+- **Pytest**: tests
+- **Alembic CLI**: schema revisions and upgrades
+- **Uvicorn**: API dev server
+
+---
+
+## Project Structure
+
+```
+league-match-analyzer/
+├── Makefile                 # Development commands
+├── packages/
+│   └── shared/              # Shared models, schemas, utilities
+├── services/
+│   ├── api/                 # FastAPI service
+│   └── llm/                 # LLM worker service (ARQ)
+├── infra/
+│   └── compose/             # Docker Compose (Phase 1.5)
+└── docs/                    # Migration plans and specs
+```
+
+---
+
+## Recent Changes (Phase 1.5)
+
+### Services Created
+
+- **`services/api/`** — FastAPI service with async endpoints, structured logging, request ID middleware
+- **`services/llm/`** — ARQ worker for background LLM jobs (embeddings, summarization)
+- **`packages/shared/`** — Shared package for cross-service models and schemas
+
+### Infrastructure
+
+- Docker Compose for Postgres 16 + pgvector and Redis 7
+- Dockerfiles for `services/api` and `services/llm`
+- Async SQLAlchemy engine with `asyncpg` driver
+- Redis + ARQ wiring for background job queue
+- Alembic migrations setup with async support
+- pgvector extension enabled for future embeddings
+
+### Tooling
+
+- Bun scripts in `scripts/` for db + dev commands
+- Shared package path dependency in service `pyproject.toml`
+- Shared package setup doc in `docs/SHARED_PACKAGE.md`
+
+### Configuration
+
+- `pydantic-settings` for env-based configuration
+- `.env.example` files for both services
+- Makefile targets for common operations
+
+### Data Seeding + Reset (Latest)
+
+- Champion catalog now auto-seeds on API startup via a background task
+- Data Dragon client added for champion metadata fetches
+- Reset endpoints added for `champions` to clear and reseed in-place
+- `user_match` table name normalized to match migrations
+
+### Future Paths (Planned)
+
+- Move Riot API calls out of request handlers into ARQ jobs
+- Add `/reset/{resource}` pattern for other tables (matches, users, etc.)
+- Add cache + queue-driven sync flows for match details and ranks
+
+---
+
+## Prerequisites
+
+- Python 3.11+
+- Docker Desktop (for Compose-based Postgres + Redis)
+- PostgreSQL 14+ with pgvector extension (only if running DB locally)
+- Redis 7+ (only if running Redis locally)
+- Bun (only if using `scripts/*.ts`)
+
+---
+
+## Quick Start
+
+### 1. Create Virtual Environment
+
+```bash
+cd league-match-analyzer
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install Dependencies
+
+```bash
+make install
+```
+
+Or manually:
+
+```bash
+pip install -e packages/shared
+pip install -e services/api[dev]
+pip install -e services/llm[dev]
+```
+
+### 3. Setup Database
+
+**Option A — Manual:**
+
+```bash
+createdb league_api
+psql league_api -c "CREATE EXTENSION IF NOT EXISTS vector"
+```
+
+**Option B — Docker (Phase 1.5):**
+
+```bash
+make db-up
+```
+
+### 4. Configure Environment
+
+```bash
+cp services/api/.env.example services/api/.env
+cp services/llm/.env.example services/llm/.env
+```
+
+Edit `.env` files to match your local setup.
+
+### 5. Run Migrations
+
+```bash
+make db-migrate
+```
+
+---
+
+## Running Services
+
+### API Service
+
+Starts FastAPI with hot reload on `http://localhost:8000`.
+
+```bash
+make api-dev
+```
+
+Or manually:
+
+```bash
+cd services/api
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Startup Notes (Latest):**
+
+- API startup schedules a champion seed job (background task)
+- Requires outbound network access to Data Dragon
+- If you need immediate availability, call `POST /reset/champions`
+
+**Verify:**
+
+```bash
+curl http://localhost:8000/health
+# {"status": "ok"}
+```
+
+**Endpoints:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check |
+| `POST /users/sign_up` | User registration |
+| `POST /users/sign_in` | User login |
+| `GET /users/:id/matches` | User match history |
+| `GET /matches/:id` | Match details |
+| `GET /champions` | All champions |
+| `POST /reset/champions` | Clear + reseed champions |
+| `POST /reset/champions/:champ_id` | Reset one champion |
+
+---
+
+### LLM Worker Service
+
+Starts ARQ worker for background LLM jobs.
+
+```bash
+make llm-dev
+```
+
+Or manually:
+
+```bash
+cd services/llm
+python main.py
+```
+
+**Logs:**
+
+```
+{'level': 'INFO', 'message': 'llm_worker_startup', ...}
+```
+
+The worker listens for jobs on Redis. Currently no jobs are defined (Phase 4+).
+
+---
+
+### Redis
+
+Required for both services (caching + job queue).
+
+```bash
+# Via Homebrew
+redis-server
+
+# Or via Docker
+docker run -d -p 6379:6379 redis:7
+```
+
+---
+
+## Run + Test (Latest)
+
+### Run the Stack
+
+```bash
+make db-up
+make db-migrate
+make api-dev
+```
+
+Wait for the startup seed job in logs:
+
+```
+champion_seed_job_done
+```
+
+In another terminal:
+
+```bash
+make llm-dev
+```
+
+### Smoke Test
+
+```bash
+curl http://localhost:8000/health
+```
+
+### Test Suite
+
+```bash
+make lint
+make test
+```
+
+---
+
+## Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make install` | Install all packages in dev mode |
+| `make api-dev` | Start API with hot reload |
+| `make llm-dev` | Start LLM worker |
+| `make db-up` | Start Postgres + Redis (Docker) |
+| `make db-down` | Stop Docker services |
+| `make db-migrate` | Apply Alembic migrations |
+| `make db-revision` | Generate new migration |
+| `make lint` | Run ruff linter |
+| `make test` | Run pytest |
+
+---
+
+## Environment Variables
+
+### API Service (`services/api/.env`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
+| `RIOT_API_KEY` | `replace-me` | Riot Games API key |
+| `LOG_LEVEL` | `INFO` | Logging verbosity |
+| `SERVICE_NAME` | `league-api` | Service identifier in logs |
+| `SQL_ECHO` | `false` | Echo SQL queries |
+
+### LLM Service (`services/llm/.env`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
+| `OPENAI_API_KEY` | `your-openai-api-key` | OpenAI API key |
+| `LOG_LEVEL` | `INFO` | Logging verbosity |
+
+---
+
+## Documentation
+
+- [Migration Plan — Backend](docs/MIGRATION_PLAN_BACKEND.md)
+- [Migration Plan — Frontend](docs/MIGRATION_PLAN_FRONTEND.md)
+- [Database Setup](docs/DATABASE_SETUP.md)
+- [Phase 0 Endpoints](docs/PHASE0_ENDPOINTS.md)
