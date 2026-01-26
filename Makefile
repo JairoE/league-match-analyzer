@@ -18,7 +18,7 @@ install:
 	pip install -e services/llm[dev]
 
 api-dev:
-	cd services/api && .venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000
+	./.venv/bin/uvicorn --app-dir services/api main:app --reload --host 0.0.0.0 --port 8000
 
 llm-dev:
 	cd services/llm && python main.py
