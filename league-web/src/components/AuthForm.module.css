@@ -1,0 +1,50 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  background: rgba(20, 20, 20, 0.5);
+  min-width: 260px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #444c56;
+  background: #0f1419;
+  color: inherit;
+}
+
+.button {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: none;
+  background: #1f6feb;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.error {
+  color: #ff7b72;
+  font-size: 13px;
+}
