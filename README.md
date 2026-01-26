@@ -17,6 +17,34 @@ FastAPI + SQLModel backend for League of Legends match analysis, replacing the l
 
 ---
 
+## Frontend Overview
+
+- **App**: Next.js (App Router) + TypeScript in `league-web/`
+- **Routes**: `/` (sign in/up) and `/home` (matches dashboard)
+- **Data**: native `fetch` via `src/lib/api.ts` with in-memory TTL cache
+- **Session**: signed-in user stored in session storage and restored on reload
+- **Cards**: match list + detail fetch (up to 20), per-card champion fetch
+
+---
+
+## Running the Frontend
+
+```bash
+cd league-web
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+Set the API base URL in `league-web/.env.local`:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+---
+
 ## Tooling Used
 
 - **Docker Compose**: Postgres + Redis for local dev

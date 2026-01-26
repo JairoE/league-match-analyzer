@@ -98,11 +98,11 @@ async def fetch_sign_in_user(
 async def fetch_rank_for_user(
     session: AsyncSession,
     user_identifier: str,
-) -> list[dict[str, Any]] | None:
+) -> dict[str, Any] | None:
     """Fetch ranked data for a stored user.
 
-    Retrieves: Riot ranked entries for the user's PUUID.
-    Transforms: None, returns raw Riot payload list.
+    Retrieves: Riot ranked entry object for the user's PUUID.
+    Transforms: None, returns raw Riot payload object.
     Why: Keeps rank requests synchronous and aligned with Riot data.
 
     Args:
@@ -110,7 +110,7 @@ async def fetch_rank_for_user(
         user_identifier: User identifier from the route.
 
     Returns:
-        Ranked payload list from Riot, or None if user missing.
+        Ranked payload object from Riot, or None if user missing.
     """
     logger.info("riot_sync_fetch_rank_start", extra={"user_identifier": user_identifier})
     user = await resolve_user_identifier(session, user_identifier)
@@ -119,7 +119,7 @@ async def fetch_rank_for_user(
         return None
     client = RiotApiClient()
     payload = await client.fetch_rank_by_puuid(user.puuid)
-    logger.info("riot_sync_fetch_rank_done", extra={"user_identifier": user_identifier, "count": len(payload)})
+    logger.info("riot_sync_fetch_rank_done", extra={"user_identifier": user_identifier})
     return payload
 
 

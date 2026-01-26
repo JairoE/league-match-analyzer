@@ -1,0 +1,69 @@
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.matchId {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.championImage {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.championFallback {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--color-chip);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  font-size: 13px;
+}
+
+.toggle {
+  align-self: flex-start;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+  color: inherit;
+  cursor: pointer;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  font-size: 13px;
+  opacity: 0.9;
+}

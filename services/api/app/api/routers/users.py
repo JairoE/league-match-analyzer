@@ -46,7 +46,7 @@ async def fetch_user(
 async def fetch_rank(
     user_id: str,
     session: AsyncSession = Depends(get_session),
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Return cached ranked data for a user.
 
     Args:
@@ -54,12 +54,12 @@ async def fetch_rank(
         session: Async database session for queries.
 
     Returns:
-        Ranked payload stored for the user if available.
+        Ranked payload object stored for the user if available.
     """
     logger.info("fetch_rank_start", extra={"user_id": user_id})
     result = await fetch_rank_for_user(session, user_id)
     if result is None:
         logger.info("fetch_rank_user_missing", extra={"user_id": user_id})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    logger.info("fetch_rank_success", extra={"user_id": user_id, "count": len(result)})
+    logger.info("fetch_rank_success", extra={"user_id": user_id})
     return result
