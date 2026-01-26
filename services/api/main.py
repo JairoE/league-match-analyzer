@@ -6,7 +6,9 @@ from fastapi import FastAPI, Request, Response
 from app.api.routers import all_routers
 from app.core.config import get_settings
 from app.core.cors import add_cors_middleware
+from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
+from app.core.redaction import redact_url
 from app.core.middleware import RequestLoggingMiddleware
 from app.services.champion_seed import schedule_champion_seed_job
 
@@ -18,6 +20,7 @@ settings = get_settings()
 app = FastAPI(title=settings.service_name)
 add_cors_middleware(app, settings)
 app.add_middleware(RequestLoggingMiddleware)
+register_exception_handlers(app)
 
 for router in all_routers:
     app.include_router(router)
@@ -58,8 +61,8 @@ async def on_startup() -> None:
         extra={
             "service_name": settings.service_name,
             "log_level": settings.log_level,
-            "database_url": settings.database_url,
-            "redis_url": settings.redis_url,
+            "database_url": redact_url(settings.database_url),
+            "redis_url": redact_url(settings.redis_url),
         },
     )
     schedule_champion_seed_job(reason="startup", force_reset=False)
