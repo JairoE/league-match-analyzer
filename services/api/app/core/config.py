@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -32,7 +33,8 @@ class Settings(BaseSettings):
     cors_allow_headers: str = "*"
     cors_allow_credentials: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    _env_file = Path(__file__).resolve().parents[2] / ".env"
+    model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
 
 
 @lru_cache
