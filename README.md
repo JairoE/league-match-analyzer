@@ -2,6 +2,8 @@
 
 FastAPI + SQLModel backend for League of Legends match analysis, replacing the legacy Rails API.
 
+Frontend using the analyzer is available on https://league-match-analyzer.vercel.app/
+
 ---
 
 ## Stack Overview
@@ -216,16 +218,16 @@ curl http://localhost:8000/health
 
 **Endpoints:**
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Health check |
-| `POST /users/sign_up` | User registration |
-| `POST /users/sign_in` | User login |
-| `GET /users/:id/matches` | User match history |
-| `GET /matches/:id` | Match details |
-| `GET /champions` | All champions |
-| `POST /reset/champions` | Clear + reseed champions |
-| `POST /reset/champions/:champ_id` | Reset one champion |
+| Endpoint                          | Description              |
+| --------------------------------- | ------------------------ |
+| `GET /health`                     | Health check             |
+| `POST /users/sign_up`             | User registration        |
+| `POST /users/sign_in`             | User login               |
+| `GET /users/:id/matches`          | User match history       |
+| `GET /matches/:id`                | Match details            |
+| `GET /champions`                  | All champions            |
+| `POST /reset/champions`           | Clear + reseed champions |
+| `POST /reset/champions/:champ_id` | Reset one champion       |
 
 ---
 
@@ -307,17 +309,17 @@ make test
 
 ## Makefile Commands
 
-| Command | Description |
-|---------|-------------|
-| `make install` | Install all packages in dev mode |
-| `make api-dev` | Start API with hot reload |
-| `make llm-dev` | Start LLM worker |
-| `make db-up` | Start Postgres + Redis (Docker) |
-| `make db-down` | Stop Docker services |
-| `make db-migrate` | Apply Alembic migrations |
-| `make db-revision` | Generate new migration |
-| `make lint` | Run ruff linter |
-| `make test` | Run pytest |
+| Command            | Description                      |
+| ------------------ | -------------------------------- |
+| `make install`     | Install all packages in dev mode |
+| `make api-dev`     | Start API with hot reload        |
+| `make llm-dev`     | Start LLM worker                 |
+| `make db-up`       | Start Postgres + Redis (Docker)  |
+| `make db-down`     | Stop Docker services             |
+| `make db-migrate`  | Apply Alembic migrations         |
+| `make db-revision` | Generate new migration           |
+| `make lint`        | Run ruff linter                  |
+| `make test`        | Run pytest                       |
 
 ---
 
@@ -325,23 +327,23 @@ make test
 
 ### API Service (`services/api/.env`)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
-| `RIOT_API_KEY` | `replace-me` | Riot Games API key |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
-| `SERVICE_NAME` | `league-api` | Service identifier in logs |
-| `SQL_ECHO` | `false` | Echo SQL queries |
+| Variable       | Default                                                    | Description                |
+| -------------- | ---------------------------------------------------------- | -------------------------- |
+| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection  |
+| `REDIS_URL`    | `redis://localhost:6379/0`                                 | Redis connection           |
+| `RIOT_API_KEY` | `replace-me`                                               | Riot Games API key         |
+| `LOG_LEVEL`    | `INFO`                                                     | Logging verbosity          |
+| `SERVICE_NAME` | `league-api`                                               | Service identifier in logs |
+| `SQL_ECHO`     | `false`                                                    | Echo SQL queries           |
 
 ### LLM Service (`services/llm/.env`)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
-| `OPENAI_API_KEY` | `your-openai-api-key` | OpenAI API key |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
+| Variable         | Default                                                    | Description               |
+| ---------------- | ---------------------------------------------------------- | ------------------------- |
+| `DATABASE_URL`   | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection |
+| `REDIS_URL`      | `redis://localhost:6379/0`                                 | Redis connection          |
+| `OPENAI_API_KEY` | `your-openai-api-key`                                      | OpenAI API key            |
+| `LOG_LEVEL`      | `INFO`                                                     | Logging verbosity         |
 
 ---
 
