@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     """Centralized configuration for the FastAPI service.
 
     Attributes:
+        environment: Runtime environment (development, staging, production).
         database_url: Async database connection string.
         redis_url: Redis connection string for cache and queues.
         riot_api_key: Riot API key for outbound requests.
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
         cors_allow_credentials: Whether to allow credentials for CORS.
     """
 
+    environment: str = "development"
     database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
     redis_url: str = "redis://localhost:6379/0"
     riot_api_key: str = "replace-me"
