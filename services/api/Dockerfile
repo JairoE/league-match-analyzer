@@ -17,7 +17,6 @@ WORKDIR /workspace/services/api
 
 EXPOSE 8000
 
-COPY services/api/entrypoint.sh /workspace/services/api/entrypoint.sh
 RUN chmod +x /workspace/services/api/entrypoint.sh
 
 CMD ["/workspace/services/api/entrypoint.sh"]
