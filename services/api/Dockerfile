@@ -17,4 +17,7 @@ WORKDIR /workspace/services/api
 
 EXPOSE 8000
 
+# After RUN pip install commands, before CMD
+RUN cd /workspace/services/api && alembic upgrade head
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
