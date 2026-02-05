@@ -1,35 +1,99 @@
 # League Match Analyzer
 
-FastAPI + SQLModel backend for League of Legends match analysis, replacing the legacy Rails API.
+A full-stack League of Legends match analysis platform with AI-powered insights, real-time match tracking, and comprehensive performance analytics.
 
-Frontend using the analyzer is available on https://league-match-analyzer.vercel.app/
+**Live Application:** https://league-match-analyzer.vercel.app/
 
 ---
 
-## Stack Overview
+## What It Does
 
-- **API**: FastAPI (async) served by Uvicorn
-- **Data modeling**: SQLModel + SQLAlchemy Core
-- **Database**: PostgreSQL 16 with `pgvector`
-- **Migrations**: Alembic (async engine support)
-- **Cache/Queue**: Redis + ARQ workers
-- **Validation/Settings**: Pydantic v2 + pydantic-settings
-- **HTTP client**: httpx (async)
+- **Match History Tracking**: View detailed match history for any League of Legends summoner
+- **Performance Analytics**: Deep dive into KDA, CS/min, damage share, vision score, and more
+- **Champion Insights**: Champion-specific performance metrics and build recommendations
+- **On-demand Sync**: Fetches from Riot on request and persists results for reuse
+- **LLM-Powered Analysis**: Semantic search and natural language queries over match data (upcoming)
+
+---
+
+## Architecture Overview
+
+### Frontend — Next.js on Vercel
+
+**Deployment:** https://league-match-analyzer.vercel.app/
+
+**Stack:**
+
+- **Framework**: Next.js 16 (App Router) with TypeScript
+- **Styling**: CSS Modules + global CSS (no Tailwind currently)
+- **Data Fetching**: Native `fetch` with in-memory TTL cache
+- **State Management**: Session storage for user state
+- **Hosting**: Vercel (automatic deployments from `main` branch)
+
+**Key Features:**
+
+- `/` — Sign in/up flow
+- `/home` — Matches dashboard with card-based UI
+- Client-side caching for champion data and match details
+- Responsive design optimized for desktop and mobile
+
+**Environment Variables:**
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
+```
+
+### Backend — FastAPI on Railway
+
+**Deployment:** https://league-match-analyzer-production.up.railway.app
+
+**Stack:**
+
+- **API Framework**: FastAPI (async) with Uvicorn
+- **Database**: PostgreSQL 16 with `pgvector` extension (hosted on Supabase)
+- **Cache/Queue**: Redis 7 (available; caching/queueing not wired into request flows yet)
+- **ORM**: SQLModel models + SQLAlchemy `AsyncSession` (SQLAlchemy 2.x)
+- **Migrations**: Alembic with async engine support
+- **Background Jobs**: In-process `asyncio` tasks (champion seeding) + ARQ worker scaffolding (jobs TBD)
+- **Validation**: Pydantic v2 + pydantic-settings
+- **HTTP Client**: httpx (async)
 - **Language**: Python 3.11+
 
+**Infrastructure:**
+
+- **API Hosting**: Railway (automatic deployments from `main` branch)
+- **Database**: Supabase PostgreSQL with pgvector for semantic search
+- **Redis**: Railway Redis service (available; caching/job queue wiring in progress)
+- **Migrations**: Auto-run on deployment via `entrypoint.sh`
+
+**Key Features:**
+
+- Async-first architecture for high concurrency
+- Riot API integration via `httpx` (no caching/rate limiting implemented yet)
+- Champion auto-seeding on startup via Data Dragon
+- Background tasks for champion seed/reset via `asyncio.create_task`
+- Structured logging with request ID tracking
+- CORS-enabled for Vercel frontend
+
+**Production Environment:**
+
+- `DATABASE_URL`: Supabase PostgreSQL (Session mode, port 5432)
+- `REDIS_URL`: Railway Redis service
+- `RIOT_API_KEY`: Production Riot API key
+- `CORS_ALLOW_ORIGINS`: Vercel frontend URL
+
 ---
 
-## Frontend Overview
+## Local Development
 
-- **App**: Next.js (App Router) + TypeScript in `league-web/`
-- **Routes**: `/` (sign in/up) and `/home` (matches dashboard)
-- **Data**: native `fetch` via `src/lib/api.ts` with in-memory TTL cache
-- **Session**: signed-in user stored in session storage and restored on reload
-- **Cards**: match list + detail fetch (up to 20), per-card champion fetch
+### Prerequisites
 
----
+- Python 3.11+
+- Node.js 20.9+ (for frontend; required by Next.js 16)
+- Docker Desktop (for local Postgres + Redis)
+- Bun (optional, for helper scripts in `scripts/`)
 
-## Running the Frontend
+### Running the Frontend Locally
 
 ```bash
 cd league-web
@@ -39,175 +103,58 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-Set the API base URL in `league-web/.env.local`:
+**Configure API endpoint in `league-web/.env.local`:**
 
 ```bash
+# Point to local API
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+
+# Or point to production API
+NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
 ```
 
----
+### Running the Backend Locally
 
-## Tooling Used
-
-- **Docker Compose**: Postgres + Redis for local dev
-- **Makefile**: common dev commands
-- **Bun scripts**: helper scripts in `scripts/`
-- **Ruff**: linting
-- **Pytest**: tests
-- **Alembic CLI**: schema revisions and upgrades
-- **Uvicorn**: API dev server
-
----
-
-## Project Structure
-
-```
-league-match-analyzer/
-├── Makefile                 # Development commands
-├── packages/
-│   └── shared/              # Shared models, schemas, utilities
-├── services/
-│   ├── api/                 # FastAPI service
-│   └── llm/                 # LLM worker service (ARQ)
-├── infra/
-│   └── compose/             # Docker Compose (Phase 1.5)
-└── docs/                    # Migration plans and specs
-```
-
----
-
-## Recent Changes (Phase 1.5)
-
-### Services Created
-
-- **`services/api/`** — FastAPI service with async endpoints, structured logging, request ID middleware
-- **`services/llm/`** — ARQ worker for background LLM jobs (embeddings, summarization)
-- **`packages/shared/`** — Shared package for cross-service models and schemas
-
-### Infrastructure
-
-- Docker Compose for Postgres 16 + pgvector and Redis 7
-- Dockerfiles for `services/api` and `services/llm`
-- Async SQLAlchemy engine with `asyncpg` driver
-- Redis + ARQ wiring for background job queue
-- Alembic migrations setup with async support
-- pgvector extension enabled for future embeddings
-
-### Tooling
-
-- Bun scripts in `scripts/` for db + dev commands
-- Shared package path dependency in service `pyproject.toml`
-- Shared package setup doc in `docs/SHARED_PACKAGE.md`
-
-### Configuration
-
-- `pydantic-settings` for env-based configuration
-- `.env.example` files for both services
-- Makefile targets for common operations
-
-### Data Seeding + Reset (Latest)
-
-- Champion catalog now auto-seeds on API startup via a background task
-- Data Dragon client added for champion metadata fetches
-- Reset endpoints added for `champions` to clear and reseed in-place
-- `user_match` table name normalized to match migrations
-
-### Future Paths (Planned)
-
-- Move Riot API calls out of request handlers into ARQ jobs
-- Add `/reset/{resource}` pattern for other tables (matches, users, etc.)
-- Add cache + queue-driven sync flows for match details and ranks
-
----
-
-## Prerequisites
-
-- Python 3.11+
-- Docker Desktop (for Compose-based Postgres + Redis)
-- PostgreSQL 14+ with pgvector extension (only if running DB locally)
-- Redis 7+ (only if running Redis locally)
-- Bun (only if using `scripts/*.ts`)
-
----
-
-## Quick Start
-
-### 1. Create Virtual Environment
+**1. Create Virtual Environment:**
 
 ```bash
-cd league-match-analyzer
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 2. Install Dependencies
+**2. Install Dependencies:**
 
 ```bash
 make install
 ```
 
-Or manually:
-
-```bash
-pip install -e packages/shared
-pip install -e services/api[dev]
-pip install -e services/llm[dev]
-```
-
-### 3. Setup Database
-
-**Option A — Manual:**
-
-```bash
-createdb league_api
-psql league_api -c "CREATE EXTENSION IF NOT EXISTS vector"
-```
-
-**Option B — Docker (Phase 1.5):**
+**3. Start Database + Redis:**
 
 ```bash
 make db-up
 ```
 
-### 4. Configure Environment
+**4. Configure Environment:**
 
 ```bash
 cp services/api/.env.example services/api/.env
-cp services/llm/.env.example services/llm/.env
 ```
 
-Edit `.env` files to match your local setup.
+Edit `services/api/.env` with your Riot API key.
 
-### 5. Run Migrations
+**5. Run Migrations:**
 
 ```bash
 make db-migrate
 ```
 
----
-
-## Running Services
-
-### API Service
-
-Starts FastAPI with hot reload on `http://localhost:8000`.
+**6. Start API:**
 
 ```bash
 make api-dev
 ```
 
-Or manually:
-
-```bash
-cd services/api
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-**Startup Notes (Latest):**
-
-- API startup schedules a champion seed job (background task)
-- Requires outbound network access to Data Dragon
-- If you need immediate availability, call `POST /reset/champions`
+API will be available at `http://localhost:8000`.
 
 **Verify:**
 
@@ -216,93 +163,146 @@ curl http://localhost:8000/health
 # {"status": "ok"}
 ```
 
-**Endpoints:**
+---
 
-| Endpoint                          | Description              |
-| --------------------------------- | ------------------------ |
-| `GET /health`                     | Health check             |
-| `POST /users/sign_up`             | User registration        |
-| `POST /users/sign_in`             | User login               |
-| `GET /users/:id/matches`          | User match history       |
-| `GET /matches/:id`                | Match details            |
-| `GET /champions`                  | All champions            |
-| `POST /reset/champions`           | Clear + reseed champions |
-| `POST /reset/champions/:champ_id` | Reset one champion       |
+## Development Tooling
+
+- **Docker Compose**: Postgres + Redis for local dev
+- **Makefile**: Common development commands
+- **Bun scripts**: Helper scripts in `scripts/`
+- **Ruff**: Python linting and formatting
+- **Pytest**: Test suite
+- **Alembic CLI**: Database schema migrations
+- **Uvicorn**: FastAPI development server with hot reload
 
 ---
 
-### LLM Worker Service
-
-Starts ARQ worker for background LLM jobs.
-
-```bash
-make llm-dev
-```
-
-Or manually:
-
-```bash
-cd services/llm
-python main.py
-```
-
-**Logs:**
+## Monorepo Structure
 
 ```
-{'level': 'INFO', 'message': 'llm_worker_startup', ...}
-```
-
-The worker listens for jobs on Redis. Currently no jobs are defined (Phase 4+).
-
----
-
-### Redis
-
-Required for both services (caching + job queue).
-
-```bash
-# Via Homebrew
-redis-server
-
-# Or via Docker
-docker run -d -p 6379:6379 redis:7
+league-match-analyzer/
+├── Makefile                 # Development commands
+├── packages/
+│   └── shared/              # Shared models, schemas, utilities
+│       ├── __init__.py
+│       └── pyproject.toml
+├── services/
+│   ├── api/                 # FastAPI service
+│   │   ├── app/             # Application code
+│   │   ├── Dockerfile       # Multi-stage build
+│   │   ├── entrypoint.sh    # Migrations + startup
+│   │   ├── alembic.ini      # Migration config
+│   │   └── pyproject.toml   # Dependencies
+│   └── llm/                 # LLM worker service (ARQ)
+│       ├── main.py          # Worker entry point
+│       └── pyproject.toml   # Dependencies
+├── league-web/              # Next.js frontend
+│   ├── src/
+│   │   ├── app/             # App Router pages
+│   │   ├── components/      # React components
+│   │   └── lib/             # API client and utilities
+│   ├── package.json
+│   └── next.config.js
+├── infra/
+│   └── compose/             # Docker Compose for local dev
+├── docs/                    # Deployment and migration docs
+└── scripts/                 # Bun helper scripts
 ```
 
 ---
 
-## Run + Test (Latest)
+## Recent Updates
 
-### Run the Stack
+### Production Deployment ✅
+
+- **Frontend deployed to Vercel** — Automatic deployments from `main`
+- **Backend deployed to Railway** — Connected to Supabase PostgreSQL + Railway Redis
+- **Automatic migrations** — `entrypoint.sh` runs Alembic migrations on deploy
+- **Health checks enabled** — `/health` endpoint for Railway monitoring
+
+### Infrastructure
+
+- Supabase PostgreSQL with `pgvector` extension (Session pooler, port 5432)
+- Railway Redis (configured; caching/job queue wiring in progress)
+- CORS configured for Vercel frontend
+- Structured logging with request ID tracking
+
+### Data & Features
+
+- Champion catalog auto-seeds from Data Dragon on startup
+- Match history fetching with Riot API integration
+- User sign-in/up flows; frontend stores the returned user in `sessionStorage`
+- ARQ worker scaffold for future LLM jobs (functions list currently empty)
+
+---
+
+## API Endpoints
+
+**Base URL (Production):** `https://league-match-analyzer-production.up.railway.app`
+
+| Endpoint                      | Method | Description                     |
+| ----------------------------- | ------ | ------------------------------- |
+| `/health`                     | GET    | Health check                    |
+| `/users/sign_up`              | POST   | User registration               |
+| `/users/sign_in`              | POST   | User authentication             |
+| `/fetch_user`                 | POST   | Fetch/create user profile       |
+| `/users/{user_id}/fetch_rank` | GET    | Fetch ranked data for a user    |
+| `/users/{user_id}/matches`    | GET    | User match history (up to 20)   |
+| `/matches/{match_id}`         | GET    | Detailed match data             |
+| `/champions`                  | GET    | All champions                   |
+| `/champions/{champ_id}`       | GET    | Champion metadata by ID         |
+| `/reset/champions`            | POST   | Schedule clear+reseed champions |
+| `/reset/champions/{champ_id}` | POST   | Schedule reseed one champion    |
+
+**Authentication:** Stateless API; the frontend persists the returned user in `sessionStorage`
+
+**Rate Limiting / Caching:** Not implemented yet in the Riot client; Redis is present for future caching/queueing
+
+---
+
+## Services Architecture
+
+### API Service (`services/api/`)
+
+FastAPI application with async endpoints:
+
+- Riot API integration via `httpx`
+- Data Dragon client for champion metadata
+- Auto-seeding of champion catalog on startup
+- Structured logging with request ID middleware
+- CORS configuration for frontend
+
+### LLM Worker Service (`services/llm/`)
+
+ARQ worker scaffold for future AI background tasks (no jobs registered yet):
+
+- Embedding generation for semantic search (planned)
+- Match summarization and insights (planned)
+- Natural language query processing (planned)
+- Redis-backed job queue (configured)
+
+### Shared Package (`packages/shared/`)
+
+Common models and schemas:
+
+- SQLModel database models
+- Pydantic request/response schemas
+- Shared utilities and types
+- Used by both API and LLM services
+
+---
+
+## Testing and Quality
 
 ```bash
-make db-up
-make db-migrate
-make api-dev
-```
-
-Wait for the startup seed job in logs:
-
-```
-champion_seed_job_done
-```
-
-In another terminal:
-
-```bash
-make llm-dev
-```
-
-### Smoke Test
-
-```bash
-curl http://localhost:8000/health
-```
-
-### Test Suite
-
-```bash
+# Run linter
 make lint
+
+# Run test suite
 make test
+
+# Run specific test file
+pytest services/api/tests/test_users.py
 ```
 
 ---
@@ -323,20 +323,78 @@ make test
 
 ---
 
+## Deployment
+
+### Frontend (Vercel)
+
+**Live URL:** https://league-match-analyzer.vercel.app/
+
+**Configuration:**
+
+- Auto-deploys from `main` branch
+- Build command: `npm run build`
+- Output directory: `.next`
+- Environment variable: `NEXT_PUBLIC_API_BASE_URL`
+
+### Backend (Railway)
+
+**Live API:** https://league-match-analyzer-production.up.railway.app
+
+**Configuration:**
+
+- Auto-deploys from `main` branch
+- Dockerfile path: `services/api/Dockerfile`
+- Root directory: `/` (monorepo root)
+- Health check: `/health`
+- Automatic migrations via `entrypoint.sh`
+
+**Infrastructure:**
+
+- **Database:** Supabase PostgreSQL with pgvector extension
+- **Cache/Queue:** Railway Redis service
+- **Connection Mode:** Session pooler (port 5432, not transaction mode)
+
+**See [Railway Deployment Guide](docs/RAILWAY_API_DEPLOYMENT.md) for detailed configuration.**
+
+---
+
 ## Environment Variables
 
-### API Service (`services/api/.env`)
+### Production (Railway + Vercel)
 
-| Variable       | Default                                                    | Description                |
-| -------------- | ---------------------------------------------------------- | -------------------------- |
-| `DATABASE_URL` | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection  |
-| `REDIS_URL`    | `redis://localhost:6379/0`                                 | Redis connection           |
-| `RIOT_API_KEY` | `replace-me`                                               | Riot Games API key         |
-| `LOG_LEVEL`    | `INFO`                                                     | Logging verbosity          |
-| `SERVICE_NAME` | `league-api`                                               | Service identifier in logs |
-| `SQL_ECHO`     | `false`                                                    | Echo SQL queries           |
+**Frontend (Vercel):**
 
-### LLM Service (`services/llm/.env`)
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
+```
+
+**Backend (Railway):**
+
+```bash
+DATABASE_URL=postgresql+asyncpg://postgres.[ref]:[password]@aws-0-us-west-2.pooler.supabase.com:5432/postgres
+REDIS_URL=redis://[railway-host]:[port]  # Auto-generated by Railway
+RIOT_API_KEY=RGAPI-your-production-key
+LOG_LEVEL=INFO
+SERVICE_NAME=league-api
+SQL_ECHO=false
+CORS_ALLOW_ORIGINS=https://league-match-analyzer.vercel.app
+```
+
+### Local Development
+
+**API Service (`services/api/.env`):**
+
+| Variable             | Default                                                    | Description                |
+| -------------------- | ---------------------------------------------------------- | -------------------------- |
+| `DATABASE_URL`       | `postgresql+asyncpg://league:league@localhost:5432/league` | Async Postgres connection  |
+| `REDIS_URL`          | `redis://localhost:6379/0`                                 | Redis connection           |
+| `RIOT_API_KEY`       | `replace-me`                                               | Riot Games API key         |
+| `LOG_LEVEL`          | `INFO`                                                     | Logging verbosity          |
+| `SERVICE_NAME`       | `league-api`                                               | Service identifier in logs |
+| `SQL_ECHO`           | `false`                                                    | Echo SQL queries           |
+| `CORS_ALLOW_ORIGINS` | `http://localhost:3000`                                    | Frontend URL for CORS      |
+
+**LLM Service (`services/llm/.env`):**
 
 | Variable         | Default                                                    | Description               |
 | ---------------- | ---------------------------------------------------------- | ------------------------- |
@@ -347,9 +405,80 @@ make test
 
 ---
 
+## Future Features
+
+### Planned Enhancements
+
+- **LLM-Powered Insights**: Natural language queries over match history using semantic search
+- **Vector Embeddings**: Match context embeddings for similarity search and recommendations
+- **Advanced Analytics**: Percentile rankings, trend analysis, and performance predictions
+- **Real-time Match Tracking**: Live game updates and play-by-play analysis
+- **Champion Build Recommendations**: AI-driven item build suggestions based on match context
+- **Queue-Driven Architecture**: Move Riot API calls from request handlers to background jobs
+- **Cache Optimization**: Tiered caching strategy (hot/warm/cold paths)
+- **Rate Limit Management**: Advanced rate limit handling with backoff strategies
+
+### Architecture Improvements
+
+- Background job processing for all Riot API calls
+- `/reset/{resource}` pattern for all database tables
+- Enhanced logging and observability
+- GraphQL API layer (optional)
+- Websocket support for real-time updates
+
+---
+
 ## Documentation
 
-- [Migration Plan — Backend](docs/MIGRATION_PLAN_BACKEND.md)
-- [Migration Plan — Frontend](docs/MIGRATION_PLAN_FRONTEND.md)
-- [Database Setup](docs/DATABASE_SETUP.md)
-- [Phase 0 Endpoints](docs/PHASE0_ENDPOINTS.md)
+### Deployment Guides
+
+- [Railway API Deployment](docs/RAILWAY_API_DEPLOYMENT.md) — Complete Railway deployment configuration (Supabase + Railway)
+- [Migration Plan — Backend](docs/MIGRATION_PLAN_BACKEND.md) — Backend migration strategy
+- [Migration Plan — Frontend](docs/MIGRATION_PLAN_FRONTEND.md) — Frontend architecture
+
+### Development Docs
+
+- [Database Setup](docs/DATABASE_SETUP.md) — Local database configuration
+- [Shared Package](docs/SHARED_PACKAGE.md) — Shared package architecture
+- [Phase 0 Endpoints](docs/PHASE0_ENDPOINTS.md) — API endpoint specifications
+
+### Important Notes
+
+- **Supabase Connection**: Use **Session pooler (port 5432)**, not Transaction pooler (port 6543)
+- **Database URL Format**: Must include `+asyncpg` suffix: `postgresql+asyncpg://...`
+- **Railway Root Directory**: Set to `/` (monorepo root), not `services/api/`
+- **Dockerfile Path**: `services/api/Dockerfile` (relative to root)
+
+---
+
+## Contributing
+
+This is an active development project. Key areas for contribution:
+
+- LLM integration and semantic search
+- Performance optimization
+- API endpoint expansion
+- Frontend UI/UX improvements
+- Documentation and testing
+
+**Development Workflow:**
+
+1. Fork and clone the repository
+2. Create a feature branch
+3. Run tests: `make test`
+4. Submit pull request to `main`
+
+**Code Quality:**
+
+- Run `make lint` before committing
+- Follow existing code structure and patterns
+- Add tests for new features
+- Update documentation as needed
+
+---
+
+## License
+
+This project is for educational and portfolio purposes.
+
+**Riot Games:** League of Legends and all related content are trademarks of Riot Games, Inc.
