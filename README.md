@@ -3,7 +3,7 @@
 A full-stack League of Legends match analysis platform with AI-powered insights, real-time match tracking, and comprehensive performance analytics.
 
 **Live Application:** https://league-match-analyzer.vercel.app/
-
+- currently needs a daily riot api key, contact @jairoE to update on the backend
 ---
 
 ## What It Does
