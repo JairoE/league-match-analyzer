@@ -79,18 +79,18 @@ Final deployment configuration for `services/api` on Railway, based on monorepo 
 **Supabase Connection String Format:**
 
 ```
-postgresql://postgres.[project-ref]:[password]@aws-0-us-west-1.pooler.supabase.com:6543/postgres
+postgresql://postgres.[project-ref]:[password]@aws-0-us-west-1.pooler.supabase.com:5432/postgres
 ```
 
 **Required Modification for FastAPI/SQLModel:**
 
 ```
-postgresql+asyncpg://postgres.[project-ref]:[password]@aws-0-us-west-1.pooler.supabase.com:6543/postgres
+postgresql+asyncpg://postgres.[project-ref]:[password]@aws-0-us-west-1.pooler.supabase.com:5432/postgres
 ```
 
 **Key Change:** Add `+asyncpg` after `postgresql` for async driver support.
 
-**Connection Mode:** Use Session mode (port 6543) for Railway, not Transaction mode.
+**Connection Mode:** Use **Session mode (port 5432)** for Railway, NOT Transaction mode (port 6543). Transaction pooler cannot run Alembic migrations.
 
 ### Enable pgvector
 
@@ -115,8 +115,8 @@ SELECT * FROM pg_extension WHERE extname = 'vector';
 Configure these in Railway Dashboard → Service → Variables:
 
 ```bash
-# Database (Supabase connection string with +asyncpg)
-DATABASE_URL=postgresql+asyncpg://postgres.[ref]:[password]@[host]:6543/postgres
+# Database (Supabase connection string with +asyncpg, Session mode port 5432)
+DATABASE_URL=postgresql+asyncpg://postgres.[ref]:[password]@[host]:5432/postgres
 
 # Redis (Railway auto-generates when you add Redis service)
 REDIS_URL=redis://[host]:[port]
@@ -329,6 +329,18 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 
 **Solution:** Remove railway.toml entirely, configure via dashboard.
 
+### Issue: "Connection timeout or migration failures"
+
+**Cause:** Using Transaction pooler (port 6543) instead of Session pooler (port 5432).
+
+**Solution:**
+
+- In Supabase Dashboard → Database → Connection String
+- Select **"Session pooler"** (shows port 5432)
+- NOT "Transaction pooler" (port 6543)
+- Transaction mode breaks Alembic migrations and prepared statements
+- Update `DATABASE_URL` in Railway to use port 5432
+
 ---
 
 ## File Structure Reference
@@ -383,8 +395,10 @@ league-match-analyzer/
 - [ ] Dockerfile Path: `services/api/Dockerfile`
 - [ ] Start Command: `/workspace/services/api/entrypoint.sh`
 - [ ] Watch Paths: `services/api/**,packages/shared/**`
-- [ ] Supabase PostgreSQL provisioned with pgvector
+- [ ] Supabase PostgreSQL provisioned with pgvector extension
+- [ ] Supabase connection uses **Session mode (port 5432)**, NOT Transaction mode
 - [ ] DATABASE_URL uses `postgresql+asyncpg://` prefix
+- [ ] DATABASE_URL uses port 5432 (Session pooler)
 - [ ] Redis added and REDIS_URL auto-generated
 - [ ] RIOT_API_KEY environment variable set
 - [ ] CORS_ALLOW_ORIGINS configured for frontend
@@ -392,4 +406,6 @@ league-match-analyzer/
 - [ ] entrypoint.sh uses `${PORT:-8000}` for dynamic port
 - [ ] No railway.toml file (configure via dashboard only)
 
-**Deployment Status:** Ready for production after checklist completion.
+**Deployment Status:** ✅ Production deployment successful
+
+**Live API:** https://league-match-analyzer-production.up.railway.app
