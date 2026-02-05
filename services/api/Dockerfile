@@ -17,7 +17,7 @@ WORKDIR /workspace/services/api
 
 EXPOSE 8000
 
-# After RUN pip install commands, before CMD
-RUN cd /workspace/services/api && alembic upgrade head
+COPY services/api/entrypoint.sh /workspace/services/api/entrypoint.sh
+RUN chmod +x /workspace/services/api/entrypoint.sh
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/workspace/services/api/entrypoint.sh"]
