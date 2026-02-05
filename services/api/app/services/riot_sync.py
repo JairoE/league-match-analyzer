@@ -196,6 +196,13 @@ async def fetch_match_detail(
         match = Match(game_id=stored_match_id)
         session.add(match)
     match.game_info = payload
+    # Extract gameStartTimestamp for indexed ordering
+    if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:
+        match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+        logger.info(
+            "riot_sync_extracted_timestamp",
+            extra={"match_id": str(match.id), "timestamp": match.game_start_timestamp},
+        )
     await session.commit()
     await session.refresh(match)
 

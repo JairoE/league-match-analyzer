@@ -23,6 +23,12 @@ class Match(SQLModel, table=True):
 
     id: UUID | None = Field(default_factory=uuid4, primary_key=True, index=True)
     game_id: str = Field(sa_column=Column(String, unique=True, nullable=False, index=True))
+    game_start_timestamp: int | None = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        description="Game start timestamp in milliseconds (from Riot info.gameStartTimestamp)",
+    )
     game_info: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
     users: list["User"] = Relationship(
