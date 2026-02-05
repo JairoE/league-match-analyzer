@@ -95,6 +95,11 @@ class RiotApiClient:
         if not isinstance(payload, list):
             logger.info("riot_rank_payload_unexpected", extra={"puuid": puuid})
             raise RiotRequestError("unexpected_rank_payload_format", status=502)
+
+        if not payload:  # Empty list check
+            logger.info("riot_rank_not_found", extra={"puuid": puuid})
+            return {}
+    
         return payload[0]
 
     async def fetch_match_ids_by_puuid(self, puuid: str, start: int, count: int) -> list[str]:
