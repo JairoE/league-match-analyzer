@@ -131,6 +131,7 @@ export default function HomePage() {
             const detail = await apiGet<MatchDetail>(`/matches/${matchId}`, {
               cacheTtlMs: 120_000,
             });
+            if (!isActive) return;
             pendingDetailsRef.current[matchId] = detail;
           } catch (err) {
             console.debug("[home] match detail failed", {matchId, err});
