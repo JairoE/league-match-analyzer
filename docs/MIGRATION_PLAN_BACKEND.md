@@ -14,36 +14,36 @@
 - Keep endpoint behavior compatible with the existing frontend flow.
 - Remove unsafe patterns (e.g., `eval`), store match data as JSONB.
 - Add caching and rate limiting for Riot API calls.
- 
- ---
- 
- ## Phase 0 — Baseline
- 
- - Document existing Rails endpoints and payloads:
-  - `POST /users/sign_in`
-  - `POST /users/sign_up`
-  - `POST /fetch_user`
-  - `GET /users/:id/fetch_rank`
-  - `GET /users/:id/matches`
-  - `GET /matches/:id`
-  - `GET /champions`
-  - `GET /champions/:id`
- - Save real example responses for validation.
+
+  ***
+
+## Phase 0 — Baseline
+
+- Document existing Rails endpoints and payloads:
+- `POST /users/sign_in`
+- `POST /users/sign_up`
+- `POST /fetch_user`
+- `GET /users/:id/fetch_rank`
+- `GET /users/:id/matches`
+- `GET /matches/:id`
+- `GET /champions`
+- `GET /champions/:id`
+- Save real example responses for validation.
 - Phase 0 docs:
+
   - `docs/PHASE0_ENDPOINTS.md`
   - `docs/phase0-example-users-sign-in.json`
   - `docs/phase0-example-users-sign-up.json`
   - `docs/phase0-example-users-matches.json`
   - `docs/phase0-example-match.json`
   - `docs/phase0-example-champions.json`
- 
- ---
- 
+
+  ***
+
 ## Phase 1 — Project Setup
 
 - Create a `league-match-analyzer/services/api` FastAPI service with async endpoints.
 - Create a `league-match-analyzer/services/llm` worker service for LLM jobs.
-- Add a shared package at `league-match-analyzer/packages/shared`.
 - Configure SQLModel with async SQLAlchemy engine + session in the API service.
 - Enable Postgres extensions:
   - `pgvector`
@@ -73,18 +73,15 @@
   - `db-migrate` — run Alembic migrations
   - `api-dev` — start API with hot reload
   - `llm-dev` — start LLM worker
-- Document `packages/shared` import strategy:
-  - Use `pip install -e ../../packages/shared` from each service
-  - Add shared package to each service's `pyproject.toml` as path dependency
 
 ---
 
 ## Phase 2 — Data Model
- 
+
 Create SQLModel models and Alembic migrations:
- 
- ### User
- 
+
+### User
+
 - `id` UUID (PK)
 - `summonerName` STRING (required)
 - `riot_id` STRING (unique, required, `gameName#tagLine`)
@@ -92,28 +89,28 @@ Create SQLModel models and Alembic migrations:
 - `profileIconId` INTEGER (nullable)
 - `summonerLevel` INTEGER (nullable)
 - `email` STRING (nullable)
- 
- ### Match
- 
+
+### Match
+
 - `id` UUID (PK)
 - `game_id` STRING (unique)
 - `game_info` JSONB (nullable, Riot match payload)
- 
- ### UserMatch (join table)
- 
- - `id` UUID (PK)
- - `userId` FK → User
- - `matchId` FK → Match
- 
- ### Champion
- 
+
+### UserMatch (join table)
+
+- `id` UUID (PK)
+- `userId` FK → User
+- `matchId` FK → Match
+
+### Champion
+
 - `id` UUID (PK)
 - `champ_id` INTEGER (unique)
 - `name` STRING
 - `nickname` STRING (title)
 - `image_url` STRING
- 
- ### Associations
+
+### Associations
 
 - User ⇄ Match via UserMatch (many-to-many)
 
@@ -134,36 +131,36 @@ Create request/response schemas alongside each model:
 ---
 
 ## Phase 3 — Endpoint Structure
- 
+
 Base: `/`
- 
+
 ### Auth / User
 
 `POST /users/sign_up`
- 
- ```json
+
+```json
 {"summonerName": "Faker#NA1", "email": "faker@example.com"}
- ```
- 
+```
+
 `POST /users/sign_in`
- 
- ```json
+
+```json
 {"summonerName": "Faker#NA1", "email": "faker@example.com"}
- ```
- 
- Response (both):
- 
- ```json
- {
-   "id": "uuid",
-   "summonerName": "Faker",
+```
+
+Response (both):
+
+```json
+{
+  "id": "uuid",
+  "summonerName": "Faker",
   "riot_id": "Faker#NA1",
   "puuid": "riot-puuid",
   "profileIconId": 1234,
   "summonerLevel": 540,
   "email": "faker@example.com"
- }
- ```
+}
+```
 
 `POST /fetch_user`
 
@@ -176,76 +173,76 @@ Response: same as sign-up.
 `GET /users/:id/fetch_rank`
 
 Response: Riot ranked payload for the summoner.
- 
- ### Matches
- 
- `GET /users/:userId/matches`
- 
- ```json
- [
-   {
+
+### Matches
+
+`GET /users/:userId/matches`
+
+```json
+[
+  {
     "id": "uuid",
     "game_id": "123456789"
-   }
- ]
- ```
- 
- `GET /matches/:matchId`
- 
- ```json
- {
+  }
+]
+```
+
+`GET /matches/:matchId`
+
+```json
+{
   "metadata": {},
   "info": {}
- }
- ```
- 
- ### Champions
- 
- `GET /champions`
- 
- ```json
- [
-   {
+}
+```
+
+### Champions
+
+`GET /champions`
+
+```json
+[
+  {
     "champ_id": 266,
     "name": "Aatrox",
     "nickname": "the Darkin Blade",
     "image_url": "https://..."
-   }
- ]
- ```
- 
- `GET /champions/:champId`
- 
- ```json
- {
+  }
+]
+```
+
+`GET /champions/:champId`
+
+```json
+{
   "champ_id": 266,
   "name": "Aatrox",
   "nickname": "the Darkin Blade",
   "image_url": "https://..."
- }
- ```
- 
- ---
- 
- ## Phase 4 — Riot API Integration
- 
+}
+```
+
+---
+
+## Phase 4 — Riot API Integration
+
 - Centralized Riot API client (async wrapper or `cassiopeia` adapter).
 - Store match details in Postgres as-is (mirror Rails payload storage).
 - All FastAPI endpoints return a synchronous response.
 - Store API key in environment variables.
 - Defer caching, rate limits, and worker jobs to a later phase.
- 
- ---
- 
+
+  ***
+
 ## Phase 5 — Cutover
 
 - Run FastAPI alongside Rails API.
- - Verify endpoint parity and data shape.
- - Switch frontend base URL to new API.
- - Retire Rails.
- 
- ---
- 
+- Verify endpoint parity and data shape.
+- Switch frontend base URL to new API.
+- Retire Rails.
+
+---
+
 ## Target Layout
 
 ```

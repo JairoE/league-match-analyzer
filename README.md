@@ -3,7 +3,9 @@
 A full-stack League of Legends match analysis platform with AI-powered insights, real-time match tracking, and comprehensive performance analytics.
 
 **Live Application:** https://league-match-analyzer.vercel.app/
+
 - currently needs a daily riot api key, contact @jairoE to update on the backend
+
 ---
 
 ## What It Does
@@ -281,15 +283,6 @@ ARQ worker scaffold for future AI background tasks (no jobs registered yet):
 - Natural language query processing (planned)
 - Redis-backed job queue (configured)
 
-### Shared Package (`packages/shared/`)
-
-Common models and schemas:
-
-- SQLModel database models
-- Pydantic request/response schemas
-- Shared utilities and types
-- Used by both API and LLM services
-
 ---
 
 ## Testing and Quality
@@ -439,7 +432,6 @@ CORS_ALLOW_ORIGINS=https://league-match-analyzer.vercel.app
 ### Development Docs
 
 - [Database Setup](docs/DATABASE_SETUP.md) — Local database configuration
-- [Shared Package](docs/SHARED_PACKAGE.md) — Shared package architecture
 - [Phase 0 Endpoints](docs/PHASE0_ENDPOINTS.md) — API endpoint specifications
 
 ### Important Notes

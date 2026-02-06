@@ -13,7 +13,6 @@ help:
 	@echo "  test         Run pytest on all services"
 
 install:
-	pip install -e packages/shared
 	pip install -e services/api[dev]
 	pip install -e services/llm[dev]
 
@@ -37,7 +36,7 @@ db-revision:
 	cd services/api && alembic revision --autogenerate -m "$$msg"
 
 lint:
-	ruff check packages/shared services/api services/llm
+	ruff check services/api services/llm
 
 test:
 	pytest services/api services/llm
