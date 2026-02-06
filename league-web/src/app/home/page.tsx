@@ -112,15 +112,17 @@ export default function HomePage() {
       const flushToState = () => {
         if (!isActive) return;
         const pending = pendingDetailsRef.current;
-        if (Object.keys(pending).length === 0) return;
+        const pendingCount = Object.keys(pending).length;
+        if (pendingCount === 0) return;
 
         console.debug("[home] flushing match details batch", {
-          count: Object.keys(pending).length,
+          count: pendingCount,
         });
         setMatchDetails((prev) => ({...prev, ...pending}));
         pendingDetailsRef.current = {};
       };
 
+      if (matchIds.length === 0) return;
       flushInterval = setInterval(flushToState, 100);
 
       await Promise.all(
