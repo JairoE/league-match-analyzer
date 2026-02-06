@@ -31,12 +31,13 @@ export default function MatchCard({match, detail, user}: MatchCardProps) {
   const championId = participant?.championId ?? null;
 
   const gameStartDate = useMemo(() => {
-    const timestamp = match.game_info?.info?.gameStartTimestamp;
-    if (!timestamp) return null;
+    const gameInfo = match.game_info as any;
+    const timestamp = gameInfo?.info?.gameStartTimestamp;
+    if (!timestamp || typeof timestamp !== "number") return null;
     return new Date(timestamp);
-  }, [match.game_info?.info?.gameStartTimestamp]);
+  }, [match.game_info]);
 
-  const formattedDate = useMemo(() => {
+  const formattedDate = useMemo<string | null>(() => {
     if (!gameStartDate) return null;
     return gameStartDate.toLocaleDateString("en-US", {
       weekday: "short",
@@ -46,7 +47,7 @@ export default function MatchCard({match, detail, user}: MatchCardProps) {
     });
   }, [gameStartDate]);
 
-  const formattedTime = useMemo(() => {
+  const formattedTime = useMemo<string | null>(() => {
     if (!gameStartDate) return null;
     return gameStartDate.toLocaleTimeString("en-US", {
       hour: "2-digit",
@@ -95,12 +96,15 @@ export default function MatchCard({match, detail, user}: MatchCardProps) {
     champion?.iconUrl ??
     champion?.icon_url ??
     null;
+  const gameMode = (detail?.info as any)?.gameMode as string | undefined;
 
   return (
     <article className={styles.card}>
       <header className={styles.header}>
         <div>
-          <p className={styles.matchId}>Match {matchId ?? "Unknown"}</p>
+          <p className={styles.matchId}>
+            {gameMode ? `${gameMode} Match` : `Match ${matchId ?? "Unknown"}`}
+          </p>
           {formattedDate && formattedTime && (
             <p className={styles.matchId}>
               {formattedDate} at {formattedTime}
