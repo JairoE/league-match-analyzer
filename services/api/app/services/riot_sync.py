@@ -182,6 +182,17 @@ async def fetch_match_detail(
     logger.info("riot_sync_fetch_match_detail_start", extra={"match_identifier": match_identifier})
     match = await get_match_by_identifier(session, match_identifier)
     if match and match.game_info:
+        # Lazy backfill: extract timestamp from cached JSONB when column is NULL
+        if match.game_start_timestamp is None:
+            ts = match.game_info.get("info", {}).get("gameStartTimestamp")
+            if ts is not None:
+                match.game_start_timestamp = ts
+                await session.commit()
+                await session.refresh(match)
+                logger.info(
+                    "riot_sync_backfill_timestamp",
+                    extra={"match_id": str(match.id), "timestamp": ts},
+                )
         logger.info("riot_sync_fetch_match_detail_cached", extra={"match_id": str(match.id)})
         return match.game_info
 
@@ -196,6 +207,13 @@ async def fetch_match_detail(
         match = Match(game_id=stored_match_id)
         session.add(match)
     match.game_info = payload
+    # Extract gameStartTimestamp for indexed ordering
+    if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:
+        match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+        logger.info(
+            "riot_sync_extracted_timestamp",
+            extra={"match_id": str(match.id), "timestamp": match.game_start_timestamp},
+        )
     await session.commit()
     await session.refresh(match)
 

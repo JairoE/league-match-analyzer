@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, String
+from sqlalchemy import BigInteger, Column, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
@@ -23,6 +23,11 @@ class Match(SQLModel, table=True):
 
     id: UUID | None = Field(default_factory=uuid4, primary_key=True, index=True)
     game_id: str = Field(sa_column=Column(String, unique=True, nullable=False, index=True))
+    game_start_timestamp: int | None = Field(
+        default=None,
+        sa_column=Column(BigInteger, index=True, nullable=True),
+        description="Game start timestamp in milliseconds (from Riot info.gameStartTimestamp)",
+    )
     game_info: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
     users: list["User"] = Relationship(

@@ -29,21 +29,22 @@ def parse_match_uuid(identifier: str) -> UUID | None:
 
 
 async def list_matches_for_user(session: AsyncSession, user_id: UUID) -> list[Match]:
-    """List matches for a given user ID.
+    """List matches for a given user ID, ordered by most recently played first.
 
     Args:
         session: Async database session for queries.
         user_id: UUID of the user.
 
     Returns:
-        List of Match records associated with the user.
+        List of Match records associated with the user, sorted by game_start_timestamp DESC.
+        Matches without timestamps appear last.
     """
     logger.info("list_matches_for_user_start", extra={"user_id": str(user_id)})
     result = await session.execute(
         select(Match)
         .join(UserMatch, UserMatch.match_id == Match.id)
         .where(UserMatch.user_id == user_id)
-        .order_by(UserMatch.id),
+        .order_by(Match.game_start_timestamp.desc().nulls_last()),
     )
     matches = list(result.scalars().all())
     logger.info(
