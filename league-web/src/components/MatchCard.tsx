@@ -31,11 +31,10 @@ export default function MatchCard({match, detail, user}: MatchCardProps) {
   const championId = participant?.championId ?? null;
 
   const gameStartDate = useMemo(() => {
-    const gameInfo = match.game_info as any;
-    const timestamp = gameInfo?.info?.gameStartTimestamp;
-    if (!timestamp || typeof timestamp !== "number") return null;
+    const timestamp = match.game_start_timestamp;
+    if (!timestamp) return null;
     return new Date(timestamp);
-  }, [match.game_info]);
+  }, [match.game_start_timestamp]);
 
   const formattedDate = useMemo<string | null>(() => {
     if (!gameStartDate) return null;

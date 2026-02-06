@@ -6,6 +6,7 @@ export type MatchSummary = {
   queueId?: number;
   gameCreation?: number;
   gameStartTimestamp?: number;
+  game_start_timestamp?: number;
   [key: string]: unknown;
 };
 
