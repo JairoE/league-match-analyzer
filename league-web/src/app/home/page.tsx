@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
 import MatchCard from "../../components/MatchCard";
@@ -25,6 +25,9 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
+
+  // Ref to accumulate match details before batched flush to state
+  const pendingDetailsRef = useRef<Record<string, MatchDetail>>({});
 
   const userId = useMemo(() => getUserId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
@@ -92,41 +95,63 @@ export default function HomePage() {
       return;
     }
     let isActive = true;
+    let flushInterval: ReturnType<typeof setInterval> | null = null;
+
     const matchIds = matches
       .map((match) => getMatchId(match))
       .filter((matchId): matchId is string => Boolean(matchId))
       .slice(0, 20);
 
     const loadDetails = async () => {
-      try {
-        console.debug("[home] fetching match details", {
-          count: matchIds.length,
+      pendingDetailsRef.current = {};
+      console.debug("[home] fetching match details progressively", {
+        count: matchIds.length,
+      });
+
+      // Flush accumulated results to state every 100ms
+      const flushToState = () => {
+        if (!isActive) return;
+        const pending = pendingDetailsRef.current;
+        if (Object.keys(pending).length === 0) return;
+
+        console.debug("[home] flushing match details batch", {
+          count: Object.keys(pending).length,
         });
-        const responses = await Promise.all(
-          matchIds.map(async (matchId) => {
+        setMatchDetails((prev) => ({...prev, ...pending}));
+        pendingDetailsRef.current = {};
+      };
+
+      flushInterval = setInterval(flushToState, 100);
+
+      await Promise.all(
+        matchIds.map(async (matchId) => {
+          try {
             const detail = await apiGet<MatchDetail>(`/matches/${matchId}`, {
               cacheTtlMs: 120_000,
             });
-            return [matchId, detail] as const;
-          })
-        );
+            pendingDetailsRef.current[matchId] = detail;
+          } catch (err) {
+            console.debug("[home] match detail failed", {matchId, err});
+          }
+        })
+      );
 
-        if (!isActive) return;
-        const detailMap: Record<string, MatchDetail> = {};
-        responses.forEach(([matchId, detail]) => {
-          detailMap[matchId] = detail;
-        });
-        setMatchDetails(detailMap);
-        console.debug("[home] match details loaded", {count: responses.length});
-      } catch (err) {
-        console.debug("[home] match detail failed", {err});
+      // Clear interval and final flush for any remaining
+      if (flushInterval) {
+        clearInterval(flushInterval);
+        flushInterval = null;
       }
+      flushToState();
+      console.debug("[home] all match details loaded");
     };
 
     void loadDetails();
 
     return () => {
       isActive = false;
+      if (flushInterval) {
+        clearInterval(flushInterval);
+      }
     };
   }, [matches, refreshIndex]);
 
@@ -183,7 +208,7 @@ export default function HomePage() {
         <section className={styles.matches}>
           {matches.map((match, index) => {
             const matchId = getMatchId(match);
-            const detail = matchId ? (matchDetails[matchId] ?? null) : null;
+            const detail = matchId ? matchDetails[matchId] ?? null : null;
             return (
               <MatchCard
                 key={matchId ?? `match-${index}`}
