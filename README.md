@@ -56,7 +56,7 @@ NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
 - **Cache/Queue**: Redis 7 (available; caching/queueing not wired into request flows yet)
 - **ORM**: SQLModel models + SQLAlchemy `AsyncSession` (SQLAlchemy 2.x)
 - **Migrations**: Alembic with async engine support
-- **Background Jobs**: In-process `asyncio` tasks (champion seeding) + ARQ worker scaffolding (jobs TBD)
+- **Background Jobs**: ARQ worker for match ingestion + scheduled sync, plus in-process `asyncio` tasks (champion seeding)
 - **Validation**: Pydantic v2 + pydantic-settings
 - **HTTP Client**: httpx (async)
 - **Language**: Python 3.11+
@@ -120,7 +120,7 @@ NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
 **1. Create Virtual Environment:**
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -164,6 +164,38 @@ API will be available at `http://localhost:8000`.
 curl http://localhost:8000/health
 # {"status": "ok"}
 ```
+
+**7. Start Background Worker (separate terminal):**
+
+The ARQ worker handles background match ingestion and scheduled sync jobs. It requires Redis to be running (started in step 3).
+
+```bash
+cd services/api
+../../.venv/bin/arq app.services.background_jobs.WorkerSettings
+```
+
+You should see output like:
+
+```
+Starting worker for 2 functions: fetch_user_matches_job, fetch_match_details_job
+redis_version=7.x.x mem_usage=...
+```
+
+The worker starts a cron job (`sync_all_users_matches`) on startup that enqueues match sync for all users. On-demand jobs are enqueued by the API when users sign in or request match refreshes.
+
+> **Troubleshooting: Worker starts with wrong/stale functions**
+>
+> If the worker output shows unexpected function names (e.g. old functions that no longer exist in the codebase), the installed `app` package in site-packages is stale. The `app/` package is installed as a Python package via `pyproject.toml`, and ARQ resolves imports from the **installed** copy, not your local source files.
+>
+> Fix by reinstalling in editable mode (from the repo root):
+>
+> ```bash
+> .venv/bin/pip install --no-cache-dir -e services/api[dev]
+> ```
+>
+> The `-e` flag creates a symlink so future code changes are picked up without reinstalling. The `--no-cache-dir` flag prevents pip from reusing a cached wheel from an older build.
+>
+> **Always use `make install` (which uses `-e`) instead of `pip install .`** when setting up the project. A bare `pip install .` copies a snapshot of the code into site-packages, which goes stale as you edit.
 
 ---
 
@@ -234,7 +266,7 @@ league-match-analyzer/
 - Champion catalog auto-seeds from Data Dragon on startup
 - Match history fetching with Riot API integration
 - User sign-in/up flows; frontend stores the returned user in `sessionStorage`
-- ARQ worker scaffold for future LLM jobs (functions list currently empty)
+- ARQ worker with match ingestion jobs (`fetch_user_matches_job`, `fetch_match_details_job`) and scheduled sync (`sync_all_users_matches`)
 
 ---
 
@@ -274,9 +306,18 @@ FastAPI application with async endpoints:
 - Structured logging with request ID middleware
 - CORS configuration for frontend
 
+### Background Worker (`services/api/`)
+
+ARQ worker for match data ingestion and scheduled syncing:
+
+- `fetch_user_matches_job` — Fetches match IDs from Riot API for a user
+- `fetch_match_details_job` — Batch-fetches match detail payloads from Riot API
+- `sync_all_users_matches` — Cron job that enqueues match sync for all users
+- Redis-backed job queue
+
 ### LLM Worker Service (`services/llm/`)
 
-ARQ worker scaffold for future AI background tasks (no jobs registered yet):
+ARQ worker for future AI background tasks:
 
 - Embedding generation for semantic search (planned)
 - Match summarization and insights (planned)
@@ -302,17 +343,18 @@ pytest services/api/tests/test_users.py
 
 ## Makefile Commands
 
-| Command            | Description                      |
-| ------------------ | -------------------------------- |
-| `make install`     | Install all packages in dev mode |
-| `make api-dev`     | Start API with hot reload        |
-| `make llm-dev`     | Start LLM worker                 |
-| `make db-up`       | Start Postgres + Redis (Docker)  |
-| `make db-down`     | Stop Docker services             |
-| `make db-migrate`  | Apply Alembic migrations         |
-| `make db-revision` | Generate new migration           |
-| `make lint`        | Run ruff linter                  |
-| `make test`        | Run pytest                       |
+| Command            | Description                                 |
+| ------------------ | ------------------------------------------- |
+| `make install`     | Install all packages in editable (dev) mode |
+| `make api-dev`     | Start API with hot reload                   |
+| `make worker-dev`  | Start ARQ background worker                 |
+| `make llm-dev`     | Start LLM worker                            |
+| `make db-up`       | Start Postgres + Redis (Docker)             |
+| `make db-down`     | Stop Docker services                        |
+| `make db-migrate`  | Apply Alembic migrations                    |
+| `make db-revision` | Generate new migration                      |
+| `make lint`        | Run ruff linter                             |
+| `make test`        | Run pytest                                  |
 
 ---
 
