@@ -101,7 +101,7 @@ async def fetch_user_matches_job(
                 extra={
                     "user_id": user_id,
                     "status": exc.status,
-                    "message": exc.message,
+                    "error_message": exc.message,
                 },
             )
             return {

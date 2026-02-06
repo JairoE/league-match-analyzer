@@ -55,7 +55,6 @@ class WorkerSettings:
         cron(
             sync_all_users_matches,
             hour={0, 6, 12, 18},
-            minute=0,
             run_at_startup=False,
         ),
     ]
