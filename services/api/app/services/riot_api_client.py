@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import random
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -8,6 +10,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.services.rate_limiter import RiotRateLimiter, get_rate_limiter
 
 logger = get_logger("league_api.services.riot_api_client")
 
@@ -22,11 +25,11 @@ class RiotRequestError(Exception):
 
 
 class RiotApiClient:
-    """Async Riot API client without caching or rate limiting.
+    """Async Riot API client with rate limiting and retry logic.
 
     Retrieves: Riot account, summoner, rank, and match payloads.
     Transforms: Minimal mapping, returns raw JSON payloads.
-    Why: Keeps synchronous API handlers simple until async workers return.
+    Why: Provides rate-limited access for both sync handlers and background jobs.
     """
 
     ACCOUNT_BY_RIOT_ID_URL = "https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
@@ -35,8 +38,18 @@ class RiotApiClient:
     MATCH_IDS_BY_PUUID_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/"
     MATCH_DETAIL_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/"
 
-    def __init__(self) -> None:
+    # Retry configuration
+    MAX_RETRIES = 3
+    BASE_BACKOFF_SECONDS = 1.0
+
+    def __init__(self, rate_limiter: RiotRateLimiter | None = None) -> None:
+        """Initialize API client with optional rate limiter.
+
+        Args:
+            rate_limiter: Optional rate limiter. Uses singleton if not provided.
+        """
         self._settings = get_settings()
+        self._rate_limiter = rate_limiter or get_rate_limiter()
 
     async def fetch_account_by_riot_id(self, game_name: str, tag_line: str) -> dict[str, Any]:
         """Retrieve Riot account payload by Riot ID.
@@ -143,30 +156,147 @@ class RiotApiClient:
         return payload
 
     async def _get_json(self, bucket: str, url: str) -> dict[str, Any] | list[Any]:
+        """Make rate-limited GET request with retry logic.
+
+        Retrieves: JSON payload from Riot API.
+        Transforms: Handles 429 responses with Retry-After header.
+        Why: Ensures graceful rate limit handling for background jobs.
+
+        Args:
+            bucket: Rate limit bucket name for this endpoint.
+            url: Full URL to request.
+
+        Returns:
+            Parsed JSON response.
+
+        Raises:
+            RiotRequestError: On API errors after retries exhausted.
+        """
         api_key = self._settings.riot_api_key
-        # logger.info("riot_api_key", extra={"api_key": api_key})
         if not api_key or api_key == "replace-me":
             logger.info("riot_api_missing_key", extra={"url": url})
             raise RiotRequestError("missing_riot_api_key", status=401)
+
         headers = {"X-Riot-Token": api_key}
         timeout = httpx.Timeout(self._settings.riot_api_timeout_seconds)
-        logger.info("riot_request_start", extra={"url": url, "bucket": bucket})
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                logger.info(
-                    "riot_request_failed",
-                    extra={"url": url, "status": exc.response.status_code, "body": exc.response.text},
-                )
-                raise RiotRequestError(
-                    "riot_api_failed",
-                    status=exc.response.status_code,
-                    body=exc.response.text,
-                ) from exc
-            except httpx.RequestError as exc:
-                logger.info("riot_request_error", extra={"url": url, "detail": str(exc)})
-                raise RiotRequestError("riot_api_failed", status=502, body=str(exc)) from exc
-        logger.info("riot_request_ok", extra={"url": url, "status": response.status_code})
-        return response.json()
+
+        retries = 0
+        while retries <= self.MAX_RETRIES:
+            # Wait for rate limit slot
+            await self._rate_limiter.wait_if_needed(bucket)
+
+            logger.info(
+                "riot_request_start",
+                extra={"url": url, "bucket": bucket, "retry": retries},
+            )
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                try:
+                    response = await client.get(url, headers=headers)
+
+                    # Handle 429 rate limit response
+                    if response.status_code == 429:
+                        retry_after = self._parse_retry_after(response)
+                        self._rate_limiter.set_retry_after(retry_after)
+                        logger.warning(
+                            "riot_request_429",
+                            extra={
+                                "url": url,
+                                "retry_after": retry_after,
+                                "retry": retries,
+                            },
+                        )
+                        retries += 1
+                        await asyncio.sleep(retry_after)
+                        continue
+
+                    response.raise_for_status()
+
+                except httpx.HTTPStatusError as exc:
+                    # Retry on server errors (5xx)
+                    if exc.response.status_code >= 500 and retries < self.MAX_RETRIES:
+                        backoff = self.BASE_BACKOFF_SECONDS * (2**retries)
+                        jitter = backoff * 0.5 * random.random()
+                        sleep_time = backoff + jitter
+                        logger.warning(
+                            "riot_request_retry",
+                            extra={
+                                "url": url,
+                                "status": exc.response.status_code,
+                                "retry": retries,
+                                "sleep": sleep_time,
+                            },
+                        )
+                        retries += 1
+                        await asyncio.sleep(sleep_time)
+                        continue
+
+                    logger.info(
+                        "riot_request_failed",
+                        extra={
+                            "url": url,
+                            "status": exc.response.status_code,
+                            "body": exc.response.text,
+                        },
+                    )
+                    raise RiotRequestError(
+                        "riot_api_failed",
+                        status=exc.response.status_code,
+                        body=exc.response.text,
+                    ) from exc
+
+                except httpx.RequestError as exc:
+                    # Retry on network errors
+                    if retries < self.MAX_RETRIES:
+                        backoff = self.BASE_BACKOFF_SECONDS * (2**retries)
+                        logger.warning(
+                            "riot_request_network_retry",
+                            extra={"url": url, "error": str(exc), "retry": retries},
+                        )
+                        retries += 1
+                        await asyncio.sleep(backoff)
+                        continue
+
+                    logger.info(
+                        "riot_request_error",
+                        extra={"url": url, "detail": str(exc)},
+                    )
+                    raise RiotRequestError(
+                        "riot_api_failed", status=502, body=str(exc)
+                    ) from exc
+
+            logger.info(
+                "riot_request_ok",
+                extra={"url": url, "status": response.status_code},
+            )
+            return response.json()
+
+        # Max retries exceeded
+        logger.error(
+            "riot_request_max_retries",
+            extra={"url": url, "retries": retries},
+        )
+        raise RiotRequestError(
+            "riot_api_max_retries_exceeded",
+            status=429,
+            body=f"Max retries ({self.MAX_RETRIES}) exceeded",
+        )
+
+    def _parse_retry_after(self, response: httpx.Response) -> float:
+        """Parse Retry-After header from 429 response.
+
+        Args:
+            response: HTTP response with 429 status.
+
+        Returns:
+            Seconds to wait before retrying.
+        """
+        retry_after = response.headers.get("Retry-After", "1")
+        try:
+            return float(retry_after)
+        except ValueError:
+            logger.warning(
+                "riot_retry_after_parse_error",
+                extra={"retry_after": retry_after},
+            )
+            return 1.0
