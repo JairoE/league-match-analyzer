@@ -5,6 +5,8 @@ Contains orchestrator jobs that run on a schedule.
 
 from __future__ import annotations
 
+import time
+
 from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.services.users import list_all_active_users
@@ -45,7 +47,7 @@ async def sync_all_users_matches(ctx: dict) -> dict:
             await redis.enqueue_job(
                 "fetch_user_matches_job",
                 str(user.id),
-                _job_id=f"sync_matches_{user.id}",
+                _job_id=f"sync_matches_{user.id}_{int(time.time())}",
             )
             enqueued += 1
             logger.info(
