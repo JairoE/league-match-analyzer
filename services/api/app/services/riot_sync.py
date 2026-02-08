@@ -12,6 +12,7 @@ from app.services.match_sync import upsert_matches_for_user
 from app.services.matches import get_match_by_identifier
 from app.services.riot_api_client import RiotApiClient
 from app.services.riot_id_parser import parse_riot_id
+from app.services.riot_match_id import normalize_match_id
 from app.services.riot_user_upsert import upsert_user_from_riot
 from app.services.users import resolve_user_identifier
 
@@ -197,9 +198,12 @@ async def fetch_match_detail(
         return match.game_info
 
     stored_match_id = match.game_id if match else match_identifier
-    riot_match_id = stored_match_id
-    if "_" not in riot_match_id:
-        riot_match_id = f"NA1_{riot_match_id}"
+    riot_match_id, was_normalized = normalize_match_id(stored_match_id)
+    if was_normalized:
+        logger.info(
+            "riot_sync_normalized_match_id",
+            extra={"match_id": stored_match_id, "riot_match_id": riot_match_id},
+        )
     client = RiotApiClient()
     payload = await client.fetch_match_by_id(riot_match_id)
 

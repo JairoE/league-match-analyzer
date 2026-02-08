@@ -49,6 +49,9 @@ class RiotRateLimiter:
 
     # Method-specific limits (some endpoints have stricter limits)
     METHOD_LIMITS: dict[str, RateLimitConfig] = {
+        "account": RateLimitConfig(max_requests=20, window_seconds=1),
+        "summoner": RateLimitConfig(max_requests=20, window_seconds=1),
+        "rank": RateLimitConfig(max_requests=20, window_seconds=1),
         "match_ids": RateLimitConfig(max_requests=2000, window_seconds=10),
         "match_detail": RateLimitConfig(max_requests=2000, window_seconds=10),
     }
@@ -94,29 +97,35 @@ class RiotRateLimiter:
         """
         return f"rl:{bucket}"
 
-    async def _count_requests_in_window(
-        self, key: str, window_start: float, now: float
-    ) -> int:
-        """Count requests in the sliding window.
+    async def _get_window_state(
+        self, key: str, window_start: float
+    ) -> tuple[int, float | None]:
+        """Get request count and oldest timestamp in the window.
 
         Args:
             key: Redis key for the bucket.
             window_start: Start timestamp of the window.
-            now: Current timestamp.
 
         Returns:
-            Number of requests in the window.
+            Tuple of (count, oldest_timestamp) in the window.
         """
         r = await self._get_redis()
-        # Remove expired entries
-        await r.zremrangebyscore(key, "-inf", window_start)
-        # Count remaining entries
-        count = await r.zcard(key)
+        pipe = r.pipeline(transaction=False)
+        pipe.zremrangebyscore(key, "-inf", window_start)
+        pipe.zcard(key)
+        pipe.zrange(key, 0, 0, withscores=True)
+        _, count, oldest = await pipe.execute()
+        oldest_score = oldest[0][1] if oldest else None
         logger.debug(
-            "rate_limit_count",
-            extra={"key": key, "count": count, "window_start": window_start},
+            "rate_limit_window_state",
+            extra={
+                "key": key,
+                "count": count,
+                "window_start": window_start,
+                "oldest_score": oldest_score,
+            },
         )
-        return count
+        return int(count), oldest_score
 
     async def _record_request(self, key: str, now: float, ttl_seconds: int) -> None:
         """Record a request in the sliding window.
@@ -127,11 +136,11 @@ class RiotRateLimiter:
             ttl_seconds: TTL for the key.
         """
         r = await self._get_redis()
-        # Add request with current timestamp as score
         request_id = f"{now}:{random.random()}"
-        await r.zadd(key, {request_id: now})
-        # Set expiry on the key
-        await r.expire(key, ttl_seconds + 1)
+        pipe = r.pipeline(transaction=False)
+        pipe.zadd(key, {request_id: now})
+        pipe.expire(key, ttl_seconds + 1)
+        await pipe.execute()
         logger.debug("rate_limit_record", extra={"key": key, "request_id": request_id})
 
     async def check_limit(self, bucket: str) -> tuple[bool, float]:
@@ -165,11 +174,14 @@ class RiotRateLimiter:
         key = self._get_key(bucket)
         window_start = now - limit.window_seconds
 
-        count = await self._count_requests_in_window(key, window_start, now)
+        count, oldest_score = await self._get_window_state(key, window_start)
 
         if count >= limit.max_requests:
-            # Calculate wait time (time until oldest request expires)
-            wait = limit.window_seconds / limit.max_requests
+            # Calculate wait time until oldest request expires
+            if oldest_score is not None:
+                wait = max(0.0, oldest_score + limit.window_seconds - now)
+            else:
+                wait = limit.window_seconds / limit.max_requests
             logger.info(
                 "rate_limit_exceeded",
                 extra={
@@ -177,6 +189,7 @@ class RiotRateLimiter:
                     "count": count,
                     "max": limit.max_requests,
                     "wait_seconds": wait,
+                    "oldest_score": oldest_score,
                 },
             )
             return False, wait
@@ -307,6 +320,84 @@ class RiotRateLimiter:
             "rate_limit_429_received",
             extra={"retry_after_seconds": seconds},
         )
+
+    def update_from_headers(self, bucket: str, headers: dict[str, str]) -> None:
+        """Update rate limit configs from Riot response headers.
+
+        Retrieves: X-Rate-Limit and X-Rate-Limit-Count headers.
+        Transforms: Applies most restrictive window for method buckets.
+        Why: Keeps limiter aligned with Riot-provided limits.
+
+        Args:
+            bucket: Rate limit bucket name for this endpoint.
+            headers: Response headers from Riot API.
+        """
+        limit_header = headers.get("X-Rate-Limit")
+        count_header = headers.get("X-Rate-Limit-Count")
+        limit_type = headers.get("X-Rate-Limit-Type")
+
+        if count_header:
+            logger.debug(
+                "rate_limit_counts_seen",
+                extra={"bucket": bucket, "counts": count_header, "type": limit_type},
+            )
+
+        if not limit_header:
+            return
+
+        parsed = self._parse_rate_limit_header(limit_header)
+        if not parsed:
+            return
+
+        # Apply most restrictive window for method buckets
+        parsed.sort(key=lambda item: item[1])
+        max_requests, window_seconds = parsed[0]
+
+        if limit_type == "application":
+            # Map to app_short/app_long using smallest/largest windows
+            smallest = parsed[0]
+            largest = parsed[-1]
+            self.DEFAULT_LIMITS["app_short"] = RateLimitConfig(
+                max_requests=smallest[0], window_seconds=smallest[1]
+            )
+            self.DEFAULT_LIMITS["app_long"] = RateLimitConfig(
+                max_requests=largest[0], window_seconds=largest[1]
+            )
+            logger.info(
+                "rate_limit_app_updated",
+                extra={
+                    "short": smallest,
+                    "long": largest,
+                    "bucket": bucket,
+                },
+            )
+            return
+
+        self.METHOD_LIMITS[bucket] = RateLimitConfig(
+            max_requests=max_requests, window_seconds=window_seconds
+        )
+        logger.info(
+            "rate_limit_method_updated",
+            extra={"bucket": bucket, "limit": (max_requests, window_seconds)},
+        )
+
+    @staticmethod
+    def _parse_rate_limit_header(value: str) -> list[tuple[int, int]]:
+        """Parse X-Rate-Limit header into (max, window) pairs."""
+        parsed: list[tuple[int, int]] = []
+        for part in value.split(","):
+            chunk = part.strip()
+            if not chunk or ":" not in chunk:
+                continue
+            max_str, window_str = chunk.split(":", 1)
+            try:
+                parsed.append((int(max_str), int(window_str)))
+            except ValueError:
+                logger.warning(
+                    "rate_limit_header_parse_error",
+                    extra={"value": value, "chunk": chunk},
+                )
+        return parsed
 
     async def close(self) -> None:
         """Close Redis connection."""

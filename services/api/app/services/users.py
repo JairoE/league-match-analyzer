@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from uuid import UUID
 
 from sqlalchemy import func
@@ -7,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.logging import get_logger
+from app.models.match import Match
 from app.models.user import User
+from app.models.user_match import UserMatch
 from app.services.riot_id_parser import ParsedRiotId, parse_riot_id
 
 
@@ -149,4 +152,41 @@ async def list_all_users(session: AsyncSession) -> list[User]:
     result = await session.execute(select(User))
     users = list(result.scalars().all())
     logger.info("list_all_users_done", extra={"user_count": len(users)})
+    return users
+
+
+async def list_all_active_users(
+    session: AsyncSession,
+    active_window_days: int = 7,
+) -> list[User]:
+    """List users with match activity in the last N days.
+
+    Retrieves: Users linked to matches within the active window.
+    Transforms: De-duplicates user records via DISTINCT.
+    Why: Limits scheduled ingestion to recently active users.
+
+    Args:
+        session: Async database session for queries.
+        active_window_days: Number of days to consider a user active.
+
+    Returns:
+        List of active User records.
+    """
+    now_ms = int(time.time() * 1000)
+    window_ms = active_window_days * 24 * 60 * 60 * 1000
+    cutoff_ms = now_ms - window_ms
+    logger.info(
+        "list_all_active_users_start",
+        extra={"active_window_days": active_window_days, "cutoff_ms": cutoff_ms},
+    )
+    result = await session.execute(
+        select(User)
+        .join(UserMatch, UserMatch.user_id == User.id)
+        .join(Match, Match.id == UserMatch.match_id)
+        .where(Match.game_start_timestamp.is_not(None))
+        .where(Match.game_start_timestamp >= cutoff_ms)
+        .distinct()
+    )
+    users = list(result.scalars().all())
+    logger.info("list_all_active_users_done", extra={"user_count": len(users)})
     return users

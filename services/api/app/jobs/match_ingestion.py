@@ -10,6 +10,7 @@ from uuid import UUID
 from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.models.match import Match
+from app.services.riot_match_id import normalize_match_id
 from app.services.match_sync import upsert_matches_for_user
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.users import get_user_by_id
@@ -174,12 +175,15 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
 
         client = RiotApiClient()
 
+        pending_commit = False
         for match_id in match_ids:
             try:
-                # Ensure match_id has region prefix
-                riot_match_id = match_id
-                if "_" not in riot_match_id:
-                    riot_match_id = f"NA1_{riot_match_id}"
+                riot_match_id, was_normalized = normalize_match_id(match_id)
+                if was_normalized:
+                    logger.info(
+                        "fetch_match_details_job_normalized_id",
+                        extra={"match_id": match_id, "riot_match_id": riot_match_id},
+                    )
 
                 payload = await client.fetch_match_by_id(riot_match_id)
 
@@ -200,8 +204,8 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
                             "gameStartTimestamp"
                         ]
 
-                    await session.commit()
                     fetched += 1
+                    pending_commit = True
                     logger.info(
                         "fetch_match_details_job_fetched",
                         extra={"match_id": match_id},
@@ -223,6 +227,8 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
                 )
                 errors.append({"match_id": match_id, "error": exc.message})
 
+    if pending_commit:
+        await session.commit()
     logger.info(
         "fetch_match_details_job_done",
         extra={"fetched": fetched, "errors": len(errors)},
