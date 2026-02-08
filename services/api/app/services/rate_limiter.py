@@ -196,6 +196,53 @@ class RiotRateLimiter:
 
         return True, 0.0
 
+    async def _check_all_buckets(self, bucket: str) -> tuple[bool, float]:
+        """Check the method bucket and all app-level buckets.
+
+        Args:
+            bucket: Rate limit bucket name for the endpoint.
+
+        Returns:
+            Tuple of (allowed, max_wait_seconds) across all applicable buckets.
+        """
+        allowed, wait_seconds = await self.check_limit(bucket)
+        if not allowed:
+            return False, wait_seconds
+
+        for app_bucket in ["app_short", "app_long"]:
+            if app_bucket != bucket:
+                app_allowed, app_wait = await self.check_limit(app_bucket)
+                if not app_allowed:
+                    return False, max(wait_seconds, app_wait)
+
+        return True, 0.0
+
+    async def _record_all_buckets(self, bucket: str) -> None:
+        """Record a request in the method bucket and all app-level buckets.
+
+        Avoids double-counting when the bucket itself is an app-level bucket.
+
+        Args:
+            bucket: Rate limit bucket name for the endpoint.
+        """
+        now = time.time()
+        recorded: set[str] = set()
+
+        # Record in the method bucket
+        limit = self.DEFAULT_LIMITS.get(bucket) or self.METHOD_LIMITS.get(bucket)
+        if limit:
+            await self._record_request(
+                self._get_key(bucket), now, limit.window_seconds
+            )
+            recorded.add(bucket)
+
+        # Record in app-level buckets (skip if already recorded above)
+        for app_bucket, app_limit in self.DEFAULT_LIMITS.items():
+            if app_bucket not in recorded:
+                await self._record_request(
+                    self._get_key(app_bucket), now, app_limit.window_seconds
+                )
+
     async def acquire(self, bucket: str) -> bool:
         """Check and acquire a rate limit slot.
 
@@ -205,31 +252,11 @@ class RiotRateLimiter:
         Returns:
             True if slot acquired, False if rate limited.
         """
-        allowed, _ = await self.check_limit(bucket)
+        allowed, _ = await self._check_all_buckets(bucket)
         if not allowed:
             return False
 
-        # Check app-level limits too
-        for app_bucket in ["app_short", "app_long"]:
-            if app_bucket != bucket:
-                app_allowed, _ = await self.check_limit(app_bucket)
-                if not app_allowed:
-                    return False
-
-        # Record the request in all applicable buckets
-        now = time.time()
-        limit = self.DEFAULT_LIMITS.get(bucket) or self.METHOD_LIMITS.get(bucket)
-        if limit:
-            await self._record_request(
-                self._get_key(bucket), now, limit.window_seconds
-            )
-
-        # Always record in app-level buckets
-        for app_bucket, app_limit in self.DEFAULT_LIMITS.items():
-            await self._record_request(
-                self._get_key(app_bucket), now, app_limit.window_seconds
-            )
-
+        await self._record_all_buckets(bucket)
         logger.debug("rate_limit_acquired", extra={"bucket": bucket})
         return True
 
@@ -247,34 +274,10 @@ class RiotRateLimiter:
         retries = 0
 
         while retries < self.MAX_RETRIES:
-            allowed, wait_seconds = await self.check_limit(bucket)
-
-            # Also check app-level limits
-            if allowed:
-                for app_bucket in ["app_short", "app_long"]:
-                    if app_bucket != bucket:
-                        app_allowed, app_wait = await self.check_limit(app_bucket)
-                        if not app_allowed:
-                            allowed = False
-                            wait_seconds = max(wait_seconds, app_wait)
-                            break
+            allowed, wait_seconds = await self._check_all_buckets(bucket)
 
             if allowed:
-                # Record the request
-                now = time.time()
-                limit = (
-                    self.DEFAULT_LIMITS.get(bucket) or self.METHOD_LIMITS.get(bucket)
-                )
-                if limit:
-                    await self._record_request(
-                        self._get_key(bucket), now, limit.window_seconds
-                    )
-
-                for app_bucket, app_limit in self.DEFAULT_LIMITS.items():
-                    await self._record_request(
-                        self._get_key(app_bucket), now, app_limit.window_seconds
-                    )
-
+                await self._record_all_buckets(bucket)
                 logger.debug(
                     "rate_limit_wait_complete",
                     extra={"bucket": bucket, "retries": retries},

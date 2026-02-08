@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlmodel import select
+
 from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.models.match import Match
@@ -63,7 +65,7 @@ async def fetch_user_matches_job(
             return {"user_id": user_id, "status": "error", "error": "user_not_found"}
 
         try:
-            client = RiotApiClient()
+            client = ctx.get("riot_client") or RiotApiClient()
             match_ids = await client.fetch_match_ids_by_puuid(
                 user.puuid, start=start, count=count
             )
@@ -127,8 +129,6 @@ async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
 
     # Check which matches need detail fetching
     async with async_session_factory() as session:
-        from sqlmodel import select
-
         result = await session.execute(
             select(Match.game_id).where(
                 Match.game_id.in_(match_ids),
@@ -171,9 +171,7 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
     errors = []
 
     async with async_session_factory() as session:
-        from sqlmodel import select
-
-        client = RiotApiClient()
+        client = ctx.get("riot_client") or RiotApiClient()
 
         pending_commit = False
         for match_id in match_ids:
@@ -227,8 +225,9 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
                 )
                 errors.append({"match_id": match_id, "error": exc.message})
 
-    if pending_commit:
-        await session.commit()
+        if pending_commit:
+            await session.commit()
+
     logger.info(
         "fetch_match_details_job_done",
         extra={"fetched": fetched, "errors": len(errors)},
