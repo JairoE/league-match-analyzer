@@ -356,7 +356,33 @@ pytest services/api/tests/test_users.py
 | `make lint`        | Run ruff linter                             |
 | `make test`        | Run pytest                                  |
 
----
+### Monitoring & Debugging
+
+**Quick Status Check:**
+
+```bash
+# See all Redis keys
+docker exec league_redis redis-cli KEYS '*'
+
+# Watch Redis in real-time (Ctrl+C to stop)
+docker exec league_redis redis-cli MONITOR
+
+# Check worker logs
+# (Run this in the terminal where worker-dev is running)
+```
+
+**Check Job Queue:**
+
+```bash
+# Get all keys with counts
+docker exec league_redis redis-cli --scan --pattern '*'
+
+# Get specific job queue info
+docker exec league_redis redis-cli LLEN arq:queue
+
+# See job results (if any)
+docker exec league_redis redis-cli KEYS 'arq:result:*'
+```
 
 ## Deployment
 
