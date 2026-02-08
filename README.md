@@ -384,6 +384,108 @@ docker exec league_redis redis-cli LLEN arq:queue
 docker exec league_redis redis-cli KEYS 'arq:result:*'
 ```
 
+**PostgreSQL Database Monitoring:**
+
+```bash
+# Connect to PostgreSQL database
+docker exec -it league_postgres psql -U league -d league
+
+# Quick connection check (one-liner)
+docker exec league_postgres psql -U league -d league -c "SELECT version();"
+
+# List all tables with row counts
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    schemaname,
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size,
+    (SELECT count(*) FROM (SELECT 1 FROM pg_class WHERE relname = tablename LIMIT 1) s) as exists
+  FROM pg_tables
+  WHERE schemaname = 'public'
+  ORDER BY tablename;
+"
+
+# Check table row counts (fast estimate)
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    relname AS table_name,
+    n_live_tup AS row_count
+  FROM pg_stat_user_tables
+  ORDER BY n_live_tup DESC;
+"
+
+# View active database connections
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    pid,
+    usename,
+    application_name,
+    client_addr,
+    state,
+    query_start,
+    LEFT(query, 50) as query
+  FROM pg_stat_activity
+  WHERE datname = 'league';
+"
+
+# Check specific table contents (example: user table)
+docker exec league_postgres psql -U league -d league -c "SELECT * FROM \"user\" LIMIT 10;"
+
+# Check user table with specific columns
+docker exec league_postgres psql -U league -d league -c "SELECT id, summoner_name, riot_id, puuid FROM \"user\" LIMIT 10;"
+
+# Check match table
+docker exec league_postgres psql -U league -d league -c "SELECT id, game_id, game_start_timestamp FROM match LIMIT 10;"
+
+# Check champion table
+docker exec league_postgres psql -U league -d league -c "SELECT id, champ_id, name, nickname FROM champion LIMIT 10;"
+
+# View table schema
+docker exec league_postgres psql -U league -d league -c "\d+ \"user\""
+docker exec league_postgres psql -U league -d league -c "\d+ match"
+docker exec league_postgres psql -U league -d league -c "\d+ champion"
+
+# Check Alembic migration history
+docker exec league_postgres psql -U league -d league -c "SELECT * FROM alembic_version;"
+```
+
+**Database Performance:**
+
+```bash
+# Check database size
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    pg_database.datname,
+    pg_size_pretty(pg_database_size(pg_database.datname)) AS size
+  FROM pg_database
+  WHERE datname = 'league';
+"
+
+# Check table sizes with indexes
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS total_size,
+    pg_size_pretty(pg_relation_size(schemaname||'.'||tablename)) AS table_size,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename) - pg_relation_size(schemaname||'.'||tablename)) AS indexes_size
+  FROM pg_tables
+  WHERE schemaname = 'public'
+  ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+"
+
+# Check for slow queries (if pg_stat_statements is enabled)
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    calls,
+    mean_exec_time::numeric(10,2) as avg_ms,
+    max_exec_time::numeric(10,2) as max_ms,
+    LEFT(query, 80) as query
+  FROM pg_stat_statements
+  ORDER BY mean_exec_time DESC
+  LIMIT 10;
+"
+```
+
 ## Deployment
 
 ### Frontend (Vercel)
