@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import cast, or_, String
 from sqlmodel import select
 
 from app.core.logging import get_logger
@@ -132,7 +133,10 @@ async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
         result = await session.execute(
             select(Match.game_id).where(
                 Match.game_id.in_(match_ids),
-                Match.game_info.is_(None),
+                or_(
+                    Match.game_info.is_(None),
+                    cast(Match.game_info, String) == 'null'
+                ),
             )
         )
         missing_details = [row[0] for row in result.fetchall()]
