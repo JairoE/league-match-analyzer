@@ -135,26 +135,6 @@ async def resolve_user_identifier(
     return await get_user_by_summoner_name(session, parsed_riot_id.game_name)
 
 
-async def list_all_users(session: AsyncSession) -> list[User]:
-    """List all users in the database.
-
-    Retrieves: All user records for background sync jobs.
-    Transforms: Returns list of User objects.
-    Why: Enables batch processing of match ingestion for all users.
-
-    Args:
-        session: Async database session for queries.
-
-    Returns:
-        List of all User records.
-    """
-    logger.info("list_all_users_start")
-    result = await session.execute(select(User))
-    users = list(result.scalars().all())
-    logger.info("list_all_users_done", extra={"user_count": len(users)})
-    return users
-
-
 async def list_all_active_users(
     session: AsyncSession,
     active_window_days: int = 7,
