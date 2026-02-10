@@ -310,39 +310,88 @@ class RiotRateLimiter:
     def update_from_headers(self, bucket: str, headers: dict[str, str]) -> None:
         """Update rate limit configs from Riot response headers.
 
-        Retrieves: X-Rate-Limit and X-Rate-Limit-Count headers.
-        Transforms: Applies most restrictive window for method buckets.
+        Retrieves: Riot app/method rate limit headers from responses.
+        Transforms: Applies smallest and largest app windows, and most
+            restrictive method window for the requested bucket.
         Why: Keeps limiter aligned with Riot-provided limits.
 
         Args:
             bucket: Rate limit bucket name for this endpoint.
             headers: Response headers from Riot API.
         """
-        limit_header = headers.get("X-Rate-Limit")
-        count_header = headers.get("X-Rate-Limit-Count")
-        limit_type = headers.get("X-Rate-Limit-Type")
+        normalized_headers = {key.lower(): value for key, value in headers.items()}
 
-        if count_header:
+        app_limit_header = normalized_headers.get("x-app-rate-limit")
+        app_count_header = normalized_headers.get("x-app-rate-limit-count")
+        method_limit_header = normalized_headers.get("x-method-rate-limit")
+        method_count_header = normalized_headers.get("x-method-rate-limit-count")
+
+        # Backward-compatible fallback for legacy/non-Riot header names.
+        legacy_limit_header = normalized_headers.get("x-rate-limit")
+        legacy_count_header = normalized_headers.get("x-rate-limit-count")
+        legacy_limit_type = normalized_headers.get("x-rate-limit-type")
+
+        if app_count_header or method_count_header or legacy_count_header:
             logger.debug(
                 "rate_limit_counts_seen",
-                extra={"bucket": bucket, "counts": count_header, "type": limit_type},
+                extra={
+                    "bucket": bucket,
+                    "app_counts": app_count_header,
+                    "method_counts": method_count_header,
+                    "legacy_counts": legacy_count_header,
+                    "legacy_type": legacy_limit_type,
+                },
             )
 
-        if not limit_header:
+        # Riot application headers: e.g. X-App-Rate-Limit: 20:1,100:120
+        if app_limit_header:
+            parsed_app = self._parse_rate_limit_header(app_limit_header)
+            if parsed_app:
+                parsed_app.sort(key=lambda item: item[1])
+                smallest = parsed_app[0]
+                largest = parsed_app[-1]
+                self.DEFAULT_LIMITS["app_short"] = RateLimitConfig(
+                    max_requests=smallest[0], window_seconds=smallest[1]
+                )
+                self.DEFAULT_LIMITS["app_long"] = RateLimitConfig(
+                    max_requests=largest[0], window_seconds=largest[1]
+                )
+                logger.info(
+                    "rate_limit_app_updated",
+                    extra={
+                        "short": smallest,
+                        "long": largest,
+                        "bucket": bucket,
+                    },
+                )
+
+        # Riot method headers: e.g. X-Method-Rate-Limit: 1000:60
+        if method_limit_header:
+            parsed_method = self._parse_rate_limit_header(method_limit_header)
+            if parsed_method:
+                parsed_method.sort(key=lambda item: item[1])
+                max_requests, window_seconds = parsed_method[0]
+                self.METHOD_LIMITS[bucket] = RateLimitConfig(
+                    max_requests=max_requests, window_seconds=window_seconds
+                )
+                logger.info(
+                    "rate_limit_method_updated",
+                    extra={"bucket": bucket, "limit": (max_requests, window_seconds)},
+                )
+
+        # Legacy fallback when app/method headers are not present.
+        if app_limit_header or method_limit_header or not legacy_limit_header:
             return
 
-        parsed = self._parse_rate_limit_header(limit_header)
-        if not parsed:
+        parsed_legacy = self._parse_rate_limit_header(legacy_limit_header)
+        if not parsed_legacy:
             return
+        parsed_legacy.sort(key=lambda item: item[1])
+        max_requests, window_seconds = parsed_legacy[0]
 
-        # Apply most restrictive window for method buckets
-        parsed.sort(key=lambda item: item[1])
-        max_requests, window_seconds = parsed[0]
-
-        if limit_type == "application":
-            # Map to app_short/app_long using smallest/largest windows
-            smallest = parsed[0]
-            largest = parsed[-1]
+        if legacy_limit_type == "application":
+            smallest = parsed_legacy[0]
+            largest = parsed_legacy[-1]
             self.DEFAULT_LIMITS["app_short"] = RateLimitConfig(
                 max_requests=smallest[0], window_seconds=smallest[1]
             )
@@ -350,12 +399,8 @@ class RiotRateLimiter:
                 max_requests=largest[0], window_seconds=largest[1]
             )
             logger.info(
-                "rate_limit_app_updated",
-                extra={
-                    "short": smallest,
-                    "long": largest,
-                    "bucket": bucket,
-                },
+                "rate_limit_app_updated_legacy",
+                extra={"short": smallest, "long": largest, "bucket": bucket},
             )
             return
 
@@ -363,7 +408,7 @@ class RiotRateLimiter:
             max_requests=max_requests, window_seconds=window_seconds
         )
         logger.info(
-            "rate_limit_method_updated",
+            "rate_limit_method_updated_legacy",
             extra={"bucket": bucket, "limit": (max_requests, window_seconds)},
         )
 
