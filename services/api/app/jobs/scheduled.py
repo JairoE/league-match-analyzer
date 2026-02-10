@@ -10,6 +10,7 @@ import time
 from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.services.users import list_all_active_users
+from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.jobs.scheduled")
 
@@ -28,10 +29,15 @@ async def sync_all_users_matches(ctx: dict) -> dict:
         Dict with user count and enqueue status.
     """
     logger.info("sync_all_users_matches_start")
+    await increment_metric_safe("jobs.sync_all_users_matches.started")
 
     redis = ctx.get("redis")
     if not redis:
         logger.error("sync_all_users_matches_no_redis")
+        await increment_metric_safe(
+            "jobs.sync_all_users_matches.failed",
+            tags={"reason": "no_redis"},
+        )
         return {"status": "error", "error": "no_redis_context"}
 
     async with async_session_factory() as session:
@@ -39,6 +45,7 @@ async def sync_all_users_matches(ctx: dict) -> dict:
 
     if not users:
         logger.info("sync_all_users_matches_no_users")
+        await increment_metric_safe("jobs.sync_all_users_matches.success")
         return {"status": "ok", "users_queued": 0}
 
     enqueued = 0
@@ -59,10 +66,18 @@ async def sync_all_users_matches(ctx: dict) -> dict:
                 "sync_all_users_matches_enqueue_error",
                 extra={"user_id": str(user.id), "error": str(exc)},
             )
+            await increment_metric_safe(
+                "jobs.sync_all_users_matches.enqueue_failed",
+                tags={"reason": "enqueue_exception"},
+            )
 
     logger.info(
         "sync_all_users_matches_done",
         extra={"total_users": len(users), "enqueued": enqueued},
+    )
+    await increment_metric_safe("jobs.sync_all_users_matches.success")
+    await increment_metric_safe(
+        "jobs.sync_all_users_matches.users_enqueued", amount=enqueued
     )
 
     return {

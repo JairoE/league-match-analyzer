@@ -7,16 +7,17 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import cast, or_, String
+from sqlalchemy import String, cast, or_
 from sqlmodel import select
 
 from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.models.match import Match
-from app.services.riot_match_id import normalize_match_id
 from app.services.match_sync import upsert_matches_for_user
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
+from app.services.riot_match_id import normalize_match_id
 from app.services.users import get_user_by_id
+from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.jobs.match_ingestion")
 
@@ -49,11 +50,16 @@ async def fetch_user_matches_job(
         "fetch_user_matches_job_start",
         extra={"user_id": user_id, "start": start, "count": count},
     )
+    await increment_metric_safe("jobs.fetch_user_matches.started")
 
     try:
         user_uuid = UUID(user_id)
     except ValueError:
         logger.error("fetch_user_matches_job_invalid_uuid", extra={"user_id": user_id})
+        await increment_metric_safe(
+            "jobs.fetch_user_matches.failed",
+            tags={"reason": "invalid_uuid"},
+        )
         return {"user_id": user_id, "status": "error", "error": "invalid_uuid"}
 
     async with async_session_factory() as session:
@@ -62,6 +68,10 @@ async def fetch_user_matches_job(
             logger.warning(
                 "fetch_user_matches_job_user_not_found",
                 extra={"user_id": user_id},
+            )
+            await increment_metric_safe(
+                "jobs.fetch_user_matches.failed",
+                tags={"reason": "user_not_found"},
             )
             return {"user_id": user_id, "status": "error", "error": "user_not_found"}
 
@@ -76,6 +86,7 @@ async def fetch_user_matches_job(
                     "fetch_user_matches_job_no_matches",
                     extra={"user_id": user_id},
                 )
+                await increment_metric_safe("jobs.fetch_user_matches.success")
                 return {"user_id": user_id, "status": "ok", "new_matches": 0}
 
             new_links = await upsert_matches_for_user(session, user.id, match_ids)
@@ -91,6 +102,10 @@ async def fetch_user_matches_job(
 
             # Enqueue detail fetch jobs for matches without game_info
             await _enqueue_detail_jobs(ctx, match_ids)
+            await increment_metric_safe("jobs.fetch_user_matches.success")
+            await increment_metric_safe(
+                "jobs.fetch_user_matches.matches_fetched", amount=len(match_ids)
+            )
 
             return {
                 "user_id": user_id,
@@ -107,6 +122,10 @@ async def fetch_user_matches_job(
                     "status": exc.status,
                     "error_message": exc.message,
                 },
+            )
+            await increment_metric_safe(
+                "jobs.fetch_user_matches.failed",
+                tags={"reason": "riot_api_error", "status": str(exc.status or 0)},
             )
             return {
                 "user_id": user_id,
@@ -126,6 +145,10 @@ async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
     redis = ctx.get("redis")
     if not redis:
         logger.warning("fetch_user_matches_job_no_redis_context")
+        await increment_metric_safe(
+            "jobs.fetch_match_details.enqueue_failed",
+            tags={"reason": "no_redis"},
+        )
         return
 
     # Check which matches need detail fetching
@@ -135,7 +158,7 @@ async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
                 Match.game_id.in_(match_ids),
                 or_(
                     Match.game_info.is_(None),
-                    cast(Match.game_info, String) == 'null'
+                    cast(Match.game_info, String) == "null",
                 ),
             )
         )
@@ -150,6 +173,10 @@ async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
         for i in range(0, len(missing_details), 5):
             batch = missing_details[i : i + 5]
             await redis.enqueue_job("fetch_match_details_job", batch)
+            await increment_metric_safe(
+                "jobs.fetch_match_details.enqueued",
+                amount=len(batch),
+            )
 
 
 async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
@@ -170,6 +197,7 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
         "fetch_match_details_job_start",
         extra={"match_count": len(match_ids)},
     )
+    await increment_metric_safe("jobs.fetch_match_details.started")
 
     fetched = 0
     errors = []
@@ -228,6 +256,10 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
                     },
                 )
                 errors.append({"match_id": match_id, "error": exc.message})
+                await increment_metric_safe(
+                    "jobs.fetch_match_details.failed",
+                    tags={"reason": "riot_api_error", "status": str(exc.status or 0)},
+                )
 
         if pending_commit:
             await session.commit()
@@ -236,6 +268,11 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
         "fetch_match_details_job_done",
         extra={"fetched": fetched, "errors": len(errors)},
     )
+    if errors:
+        await increment_metric_safe("jobs.fetch_match_details.partial")
+    else:
+        await increment_metric_safe("jobs.fetch_match_details.success")
+    await increment_metric_safe("jobs.fetch_match_details.records_fetched", amount=fetched)
 
     return {
         "status": "ok" if not errors else "partial",
