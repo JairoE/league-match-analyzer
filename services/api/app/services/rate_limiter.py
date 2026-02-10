@@ -71,6 +71,18 @@ class RiotRateLimiter:
         self._settings = get_settings()
         self._redis: redis.Redis | None = redis_client
         self._retry_after: float = 0.0
+        self._instance_default_limits = {
+            name: RateLimitConfig(
+                max_requests=config.max_requests, window_seconds=config.window_seconds
+            )
+            for name, config in self.DEFAULT_LIMITS.items()
+        }
+        self._instance_method_limits = {
+            name: RateLimitConfig(
+                max_requests=config.max_requests, window_seconds=config.window_seconds
+            )
+            for name, config in self.METHOD_LIMITS.items()
+        }
 
     async def _get_redis(self) -> redis.Redis:
         """Lazy initialization of Redis client.
@@ -165,7 +177,9 @@ class RiotRateLimiter:
             return False, wait
 
         # Get limit config for bucket
-        limit = self.DEFAULT_LIMITS.get(bucket) or self.METHOD_LIMITS.get(bucket)
+        limit = self._instance_default_limits.get(bucket) or self._instance_method_limits.get(
+            bucket
+        )
         if not limit:
             # Unknown bucket, allow but log warning
             logger.warning("rate_limit_unknown_bucket", extra={"bucket": bucket})
@@ -229,7 +243,9 @@ class RiotRateLimiter:
         recorded: set[str] = set()
 
         # Record in the method bucket
-        limit = self.DEFAULT_LIMITS.get(bucket) or self.METHOD_LIMITS.get(bucket)
+        limit = self._instance_default_limits.get(bucket) or self._instance_method_limits.get(
+            bucket
+        )
         if limit:
             await self._record_request(
                 self._get_key(bucket), now, limit.window_seconds
@@ -237,7 +253,7 @@ class RiotRateLimiter:
             recorded.add(bucket)
 
         # Record in app-level buckets (skip if already recorded above)
-        for app_bucket, app_limit in self.DEFAULT_LIMITS.items():
+        for app_bucket, app_limit in self._instance_default_limits.items():
             if app_bucket not in recorded:
                 await self._record_request(
                     self._get_key(app_bucket), now, app_limit.window_seconds
@@ -350,10 +366,10 @@ class RiotRateLimiter:
                 parsed_app.sort(key=lambda item: item[1])
                 smallest = parsed_app[0]
                 largest = parsed_app[-1]
-                self.DEFAULT_LIMITS["app_short"] = RateLimitConfig(
+                self._instance_default_limits["app_short"] = RateLimitConfig(
                     max_requests=smallest[0], window_seconds=smallest[1]
                 )
-                self.DEFAULT_LIMITS["app_long"] = RateLimitConfig(
+                self._instance_default_limits["app_long"] = RateLimitConfig(
                     max_requests=largest[0], window_seconds=largest[1]
                 )
                 logger.info(
@@ -371,7 +387,7 @@ class RiotRateLimiter:
             if parsed_method:
                 parsed_method.sort(key=lambda item: item[1])
                 max_requests, window_seconds = parsed_method[0]
-                self.METHOD_LIMITS[bucket] = RateLimitConfig(
+                self._instance_method_limits[bucket] = RateLimitConfig(
                     max_requests=max_requests, window_seconds=window_seconds
                 )
                 logger.info(
@@ -392,10 +408,10 @@ class RiotRateLimiter:
         if legacy_limit_type == "application":
             smallest = parsed_legacy[0]
             largest = parsed_legacy[-1]
-            self.DEFAULT_LIMITS["app_short"] = RateLimitConfig(
+            self._instance_default_limits["app_short"] = RateLimitConfig(
                 max_requests=smallest[0], window_seconds=smallest[1]
             )
-            self.DEFAULT_LIMITS["app_long"] = RateLimitConfig(
+            self._instance_default_limits["app_long"] = RateLimitConfig(
                 max_requests=largest[0], window_seconds=largest[1]
             )
             logger.info(
@@ -404,7 +420,7 @@ class RiotRateLimiter:
             )
             return
 
-        self.METHOD_LIMITS[bucket] = RateLimitConfig(
+        self._instance_method_limits[bucket] = RateLimitConfig(
             max_requests=max_requests, window_seconds=window_seconds
         )
         logger.info(
