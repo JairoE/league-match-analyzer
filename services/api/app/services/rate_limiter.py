@@ -243,23 +243,6 @@ class RiotRateLimiter:
                     self._get_key(app_bucket), now, app_limit.window_seconds
                 )
 
-    async def acquire(self, bucket: str) -> bool:
-        """Check and acquire a rate limit slot.
-
-        Args:
-            bucket: Rate limit bucket name.
-
-        Returns:
-            True if slot acquired, False if rate limited.
-        """
-        allowed, _ = await self._check_all_buckets(bucket)
-        if not allowed:
-            return False
-
-        await self._record_all_buckets(bucket)
-        logger.debug("rate_limit_acquired", extra={"bucket": bucket})
-        return True
-
     async def wait_if_needed(self, bucket: str) -> None:
         """Block until a rate limit slot is available.
 
