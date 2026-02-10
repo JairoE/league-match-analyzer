@@ -97,15 +97,38 @@ export default function HomePage() {
     let isActive = true;
     let flushInterval: ReturnType<typeof setInterval> | null = null;
 
-    const matchIds = matches
-      .map((match) => getMatchId(match))
-      .filter((matchId): matchId is string => Boolean(matchId))
-      .slice(0, 20);
+    // Seed details from game_info already present in the match list response
+    // and identify which matches still need a detail fetch.
+    const seeded: Record<string, MatchDetail> = {};
+    const missingIds: string[] = [];
+
+    for (const match of matches) {
+      const matchId = getMatchId(match);
+      if (!matchId) continue;
+      if (match.game_info?.info) {
+        seeded[matchId] = match.game_info;
+      } else {
+        missingIds.push(matchId);
+      }
+    }
+
+    // Immediately surface any details we already have from the list payload.
+    if (Object.keys(seeded).length > 0) {
+      setMatchDetails((prev) => ({...prev, ...seeded}));
+    }
 
     const loadDetails = async () => {
       pendingDetailsRef.current = {};
+
+      const idsToFetch = missingIds.slice(0, 20);
+      if (idsToFetch.length === 0) {
+        console.debug("[home] all match details seeded from list response");
+        return;
+      }
+
       console.debug("[home] fetching match details progressively", {
-        count: matchIds.length,
+        count: idsToFetch.length,
+        seeded: Object.keys(seeded).length,
       });
 
       // Flush accumulated results to state every 100ms
@@ -122,19 +145,31 @@ export default function HomePage() {
         pendingDetailsRef.current = {};
       };
 
-      if (matchIds.length === 0) return;
       flushInterval = setInterval(flushToState, 100);
 
       await Promise.all(
-        matchIds.map(async (matchId) => {
-          try {
-            const detail = await apiGet<MatchDetail>(`/matches/${matchId}`, {
-              cacheTtlMs: 120_000,
-            });
-            if (!isActive) return;
-            pendingDetailsRef.current[matchId] = detail;
-          } catch (err) {
-            console.debug("[home] match detail failed", {matchId, err});
+        idsToFetch.map(async (matchId) => {
+          const maxRetries = 2;
+          for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+              const detail = await apiGet<MatchDetail>(`/matches/${matchId}`, {
+                cacheTtlMs: 120_000,
+              });
+              if (!isActive) return;
+              pendingDetailsRef.current[matchId] = detail;
+              return;
+            } catch (err) {
+              if (attempt < maxRetries) {
+                await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+                if (!isActive) return;
+                continue;
+              }
+              console.debug("[home] match detail failed after retries", {
+                matchId,
+                attempts: attempt + 1,
+                err,
+              });
+            }
           }
         })
       );

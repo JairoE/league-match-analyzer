@@ -19,7 +19,7 @@ async def upsert_matches_for_user(
 ) -> int:
     """Upsert match records and link them to a user.
 
-    Retrieves: Existing matches and user-match links.
+    Retrieves: Existing matches and user-match links in batch.
     Transforms: Creates missing matches and links to the user.
     Why: Keeps match list sync lightweight while persisting IDs.
 
@@ -31,38 +31,44 @@ async def upsert_matches_for_user(
     Returns:
         Number of new user-match links created.
     """
-    created = 0
+    if not match_ids:
+        return 0
+
+    # Batch fetch existing matches
+    result = await session.execute(
+        select(Match).where(Match.game_id.in_(match_ids))
+    )
+    existing_matches = {m.game_id: m for m in result.scalars().all()}
+
+    # Create missing match records
     for match_id in match_ids:
-        match = await _get_or_create_match(session, match_id)
-        linked = await _ensure_user_match(session, user_id, match.id)
-        created += int(linked)
+        if match_id not in existing_matches:
+            match = Match(game_id=match_id)
+            session.add(match)
+            existing_matches[match_id] = match
+
+    await session.flush()
+
+    # Batch fetch existing user-match links
+    all_match_uuids = [m.id for m in existing_matches.values()]
+    result = await session.execute(
+        select(UserMatch.match_id).where(
+            UserMatch.user_id == user_id,
+            UserMatch.match_id.in_(all_match_uuids),
+        )
+    )
+    already_linked = {row[0] for row in result.fetchall()}
+
+    # Create missing links
+    created = 0
+    for match in existing_matches.values():
+        if match.id not in already_linked:
+            session.add(UserMatch(user_id=user_id, match_id=match.id))
+            created += 1
+
     await session.commit()
     logger.info(
         "match_sync_upsert_done",
         extra={"user_id": str(user_id), "match_count": len(match_ids), "linked": created},
     )
     return created
-
-
-async def _get_or_create_match(session: AsyncSession, match_id: str) -> Match:
-    result = await session.execute(select(Match).where(Match.game_id == match_id))
-    match = result.scalar_one_or_none()
-    if match:
-        return match
-    match = Match(game_id=match_id)
-    session.add(match)
-    await session.flush()
-    logger.info("match_sync_created", extra={"match_id": str(match.id), "game_id": match_id})
-    return match
-
-
-async def _ensure_user_match(session: AsyncSession, user_id: UUID, match_id: UUID) -> bool:
-    result = await session.execute(
-        select(UserMatch).where(UserMatch.user_id == user_id, UserMatch.match_id == match_id),
-    )
-    existing = result.scalar_one_or_none()
-    if existing:
-        return False
-    link = UserMatch(user_id=user_id, match_id=match_id)
-    session.add(link)
-    return True

@@ -1,6 +1,6 @@
 # Railway API Service Deployment Guide
 
-Final deployment configuration for `services/api` on Railway, based on monorepo setup with shared packages.
+Final deployment configuration for `services/api` on Railway, based on monorepo setup.
 
 ---
 
@@ -27,7 +27,7 @@ Final deployment configuration for `services/api` on Railway, based on monorepo 
 
 **Setting:** `/` (monorepo root)
 
-**Critical:** Must be root, not `services/api/`, because Dockerfile needs access to `packages/shared/`.
+**Critical:** Must be root, not `services/api/`, because Dockerfile is built from repo root.
 
 **Location:** Railway Dashboard → Service Settings → Root Directory
 
@@ -39,11 +39,11 @@ Final deployment configuration for `services/api` on Railway, based on monorepo 
 
 **Dockerfile Path:** `services/api/Dockerfile`
 
-**Watch Paths:** `services/api/**,packages/shared/**`
+**Watch Paths:** `services/api/**`
 
 **Location:** Railway Dashboard → Settings → Build
 
-**Why Watch Paths Matter:** Triggers rebuild only when API or shared package changes, not on LLM changes.
+**Why Watch Paths Matter:** Triggers rebuild only when API changes, not on LLM changes.
 
 ---
 
@@ -317,12 +317,6 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 
 **Solution:** Use `${PORT:-8000}` to read Railway's dynamic port.
 
-### Issue: "Cannot find packages/shared"
-
-**Cause:** Root Directory not set to `/`.
-
-**Solution:** Set Root Directory to monorepo root (`/`).
-
 ### Issue: "Migrations not running"
 
 **Cause:** `startCommand` in railway.toml overriding Dockerfile CMD.
@@ -347,18 +341,14 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 
 ```
 league-match-analyzer/
-├── packages/
-│   └── shared/              # Shared models/schemas
-│       ├── __init__.py
-│       └── pyproject.toml
 ├── services/
 │   ├── api/
 │   │   ├── app/             # FastAPI application
-│   │   ├── Dockerfile       # Multi-stage build with shared package
+│   │   ├── Dockerfile       # Service build
 │   │   ├── entrypoint.sh    # Migrations + start command
 │   │   ├── alembic.ini      # Migration config
 │   │   ├── main.py          # FastAPI entry point
-│   │   └── pyproject.toml   # Dependencies (includes shared package)
+│   │   └── pyproject.toml   # Dependencies
 │   └── llm/                 # LLM worker (separate Railway service)
 └── docs/
     └── RAILWAY_API_DEPLOYMENT.md  # This file
@@ -374,7 +364,7 @@ league-match-analyzer/
 2. **Configure independently:**
    - Root Directory: `/`
    - Dockerfile Path: `services/llm/Dockerfile`
-   - Watch Paths: `services/llm/**,packages/shared/**`
+   - Watch Paths: `services/llm/**`
 3. **Share database/redis variables** between services
 4. **No config file conflicts** - each service configured via dashboard
 
@@ -385,7 +375,6 @@ league-match-analyzer/
 - [README.md](../README.md) - Project overview and local development
 - [MIGRATION_PLAN_BACKEND.md](./MIGRATION_PLAN_BACKEND.md) - Backend migration strategy
 - [DATABASE_SETUP.md](./DATABASE_SETUP.md) - Local database setup
-- [SHARED_PACKAGE.md](./SHARED_PACKAGE.md) - Shared package architecture
 
 ---
 
@@ -394,7 +383,7 @@ league-match-analyzer/
 - [ ] Root Directory set to `/` in Railway
 - [ ] Dockerfile Path: `services/api/Dockerfile`
 - [ ] Start Command: `/workspace/services/api/entrypoint.sh`
-- [ ] Watch Paths: `services/api/**,packages/shared/**`
+- [ ] Watch Paths: `services/api/**`
 - [ ] Supabase PostgreSQL provisioned with pgvector extension
 - [ ] Supabase connection uses **Session mode (port 5432)**, NOT Transaction mode
 - [ ] DATABASE_URL uses `postgresql+asyncpg://` prefix

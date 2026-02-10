@@ -7,10 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /workspace
 
-COPY packages/shared /workspace/packages/shared
 COPY services/llm /workspace/services/llm
 
-RUN pip install -e /workspace/packages/shared
 RUN pip install -e /workspace/services/llm
 
 WORKDIR /workspace/services/llm

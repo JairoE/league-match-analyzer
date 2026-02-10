@@ -20,6 +20,9 @@ AsyncSessionLocal = sessionmaker(
     expire_on_commit=False,
 )
 
+# Alias used by background jobs (app.jobs.match_ingestion, app.jobs.scheduled)
+async_session_factory = AsyncSessionLocal
+
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Yield an async SQLAlchemy session for request handling.

@@ -3,7 +3,9 @@
 A full-stack League of Legends match analysis platform with AI-powered insights, real-time match tracking, and comprehensive performance analytics.
 
 **Live Application:** https://league-match-analyzer.vercel.app/
+
 - currently needs a daily riot api key, contact @jairoE to update on the backend
+
 ---
 
 ## What It Does
@@ -54,7 +56,7 @@ NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
 - **Cache/Queue**: Redis 7 (available; caching/queueing not wired into request flows yet)
 - **ORM**: SQLModel models + SQLAlchemy `AsyncSession` (SQLAlchemy 2.x)
 - **Migrations**: Alembic with async engine support
-- **Background Jobs**: In-process `asyncio` tasks (champion seeding) + ARQ worker scaffolding (jobs TBD)
+- **Background Jobs**: ARQ worker for match ingestion + scheduled sync, plus in-process `asyncio` tasks (champion seeding)
 - **Validation**: Pydantic v2 + pydantic-settings
 - **HTTP Client**: httpx (async)
 - **Language**: Python 3.11+
@@ -118,7 +120,7 @@ NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
 **1. Create Virtual Environment:**
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -162,6 +164,38 @@ API will be available at `http://localhost:8000`.
 curl http://localhost:8000/health
 # {"status": "ok"}
 ```
+
+**7. Start Background Worker (separate terminal):**
+
+The ARQ worker handles background match ingestion and scheduled sync jobs. It requires Redis to be running (started in step 3).
+
+```bash
+cd services/api
+../../.venv/bin/arq app.services.background_jobs.WorkerSettings
+```
+
+You should see output like:
+
+```
+Starting worker for 2 functions: fetch_user_matches_job, fetch_match_details_job
+redis_version=7.x.x mem_usage=...
+```
+
+The worker starts a cron job (`sync_all_users_matches`) on startup that enqueues match sync for all users. On-demand jobs are enqueued by the API when users sign in or request match refreshes.
+
+> **Troubleshooting: Worker starts with wrong/stale functions**
+>
+> If the worker output shows unexpected function names (e.g. old functions that no longer exist in the codebase), the installed `app` package in site-packages is stale. The `app/` package is installed as a Python package via `pyproject.toml`, and ARQ resolves imports from the **installed** copy, not your local source files.
+>
+> Fix by reinstalling in editable mode (from the repo root):
+>
+> ```bash
+> .venv/bin/pip install --no-cache-dir -e services/api[dev]
+> ```
+>
+> The `-e` flag creates a symlink so future code changes are picked up without reinstalling. The `--no-cache-dir` flag prevents pip from reusing a cached wheel from an older build.
+>
+> **Always use `make install` (which uses `-e`) instead of `pip install .`** when setting up the project. A bare `pip install .` copies a snapshot of the code into site-packages, which goes stale as you edit.
 
 ---
 
@@ -232,7 +266,7 @@ league-match-analyzer/
 - Champion catalog auto-seeds from Data Dragon on startup
 - Match history fetching with Riot API integration
 - User sign-in/up flows; frontend stores the returned user in `sessionStorage`
-- ARQ worker scaffold for future LLM jobs (functions list currently empty)
+- ARQ worker with match ingestion jobs (`fetch_user_matches_job`, `fetch_match_details_job`) and scheduled sync (`sync_all_users_matches`)
 
 ---
 
@@ -272,23 +306,23 @@ FastAPI application with async endpoints:
 - Structured logging with request ID middleware
 - CORS configuration for frontend
 
+### Background Worker (`services/api/`)
+
+ARQ worker for match data ingestion and scheduled syncing:
+
+- `fetch_user_matches_job` — Fetches match IDs from Riot API for a user
+- `fetch_match_details_job` — Batch-fetches match detail payloads from Riot API
+- `sync_all_users_matches` — Cron job that enqueues match sync for all users
+- Redis-backed job queue
+
 ### LLM Worker Service (`services/llm/`)
 
-ARQ worker scaffold for future AI background tasks (no jobs registered yet):
+ARQ worker for future AI background tasks:
 
 - Embedding generation for semantic search (planned)
 - Match summarization and insights (planned)
 - Natural language query processing (planned)
 - Redis-backed job queue (configured)
-
-### Shared Package (`packages/shared/`)
-
-Common models and schemas:
-
-- SQLModel database models
-- Pydantic request/response schemas
-- Shared utilities and types
-- Used by both API and LLM services
 
 ---
 
@@ -309,19 +343,148 @@ pytest services/api/tests/test_users.py
 
 ## Makefile Commands
 
-| Command            | Description                      |
-| ------------------ | -------------------------------- |
-| `make install`     | Install all packages in dev mode |
-| `make api-dev`     | Start API with hot reload        |
-| `make llm-dev`     | Start LLM worker                 |
-| `make db-up`       | Start Postgres + Redis (Docker)  |
-| `make db-down`     | Stop Docker services             |
-| `make db-migrate`  | Apply Alembic migrations         |
-| `make db-revision` | Generate new migration           |
-| `make lint`        | Run ruff linter                  |
-| `make test`        | Run pytest                       |
+| Command            | Description                                 |
+| ------------------ | ------------------------------------------- |
+| `make install`     | Install all packages in editable (dev) mode |
+| `make api-dev`     | Start API with hot reload                   |
+| `make worker-dev`  | Start ARQ background worker                 |
+| `make llm-dev`     | Start LLM worker                            |
+| `make db-up`       | Start Postgres + Redis (Docker)             |
+| `make db-down`     | Stop Docker services                        |
+| `make db-migrate`  | Apply Alembic migrations                    |
+| `make db-revision` | Generate new migration                      |
+| `make lint`        | Run ruff linter                             |
+| `make test`        | Run pytest                                  |
 
----
+### Monitoring & Debugging
+
+**Quick Status Check:**
+
+```bash
+# See all Redis keys
+docker exec league_redis redis-cli KEYS '*'
+
+# Watch Redis in real-time (Ctrl+C to stop)
+docker exec league_redis redis-cli MONITOR
+
+# Check worker logs
+# (Run this in the terminal where worker-dev is running)
+```
+
+**Check Job Queue:**
+
+```bash
+# Get all keys with counts
+docker exec league_redis redis-cli --scan --pattern '*'
+
+# Get specific job queue info
+docker exec league_redis redis-cli LLEN arq:queue
+
+# See job results (if any)
+docker exec league_redis redis-cli KEYS 'arq:result:*'
+```
+
+**PostgreSQL Database Monitoring:**
+
+```bash
+# Connect to PostgreSQL database
+docker exec -it league_postgres psql -U league -d league
+
+# Quick connection check (one-liner)
+docker exec league_postgres psql -U league -d league -c "SELECT version();"
+
+# List all tables with row counts
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    schemaname,
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size,
+    (SELECT count(*) FROM (SELECT 1 FROM pg_class WHERE relname = tablename LIMIT 1) s) as exists
+  FROM pg_tables
+  WHERE schemaname = 'public'
+  ORDER BY tablename;
+"
+
+# Check table row counts (fast estimate)
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    relname AS table_name,
+    n_live_tup AS row_count
+  FROM pg_stat_user_tables
+  ORDER BY n_live_tup DESC;
+"
+
+# View active database connections
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    pid,
+    usename,
+    application_name,
+    client_addr,
+    state,
+    query_start,
+    LEFT(query, 50) as query
+  FROM pg_stat_activity
+  WHERE datname = 'league';
+"
+
+# Check specific table contents (example: user table)
+docker exec league_postgres psql -U league -d league -c "SELECT * FROM \"user\" LIMIT 10;"
+
+# Check user table with specific columns
+docker exec league_postgres psql -U league -d league -c "SELECT id, summoner_name, riot_id, puuid FROM \"user\" LIMIT 10;"
+
+# Check match table
+docker exec league_postgres psql -U league -d league -c "SELECT id, game_id, game_start_timestamp FROM match LIMIT 10;"
+
+# Check champion table
+docker exec league_postgres psql -U league -d league -c "SELECT id, champ_id, name, nickname FROM champion LIMIT 10;"
+
+# View table schema
+docker exec league_postgres psql -U league -d league -c "\d+ \"user\""
+docker exec league_postgres psql -U league -d league -c "\d+ match"
+docker exec league_postgres psql -U league -d league -c "\d+ champion"
+
+# Check Alembic migration history
+docker exec league_postgres psql -U league -d league -c "SELECT * FROM alembic_version;"
+```
+
+**Database Performance:**
+
+```bash
+# Check database size
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    pg_database.datname,
+    pg_size_pretty(pg_database_size(pg_database.datname)) AS size
+  FROM pg_database
+  WHERE datname = 'league';
+"
+
+# Check table sizes with indexes
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS total_size,
+    pg_size_pretty(pg_relation_size(schemaname||'.'||tablename)) AS table_size,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename) - pg_relation_size(schemaname||'.'||tablename)) AS indexes_size
+  FROM pg_tables
+  WHERE schemaname = 'public'
+  ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+"
+
+# Check for slow queries (if pg_stat_statements is enabled)
+docker exec league_postgres psql -U league -d league -c "
+  SELECT
+    calls,
+    mean_exec_time::numeric(10,2) as avg_ms,
+    max_exec_time::numeric(10,2) as max_ms,
+    LEFT(query, 80) as query
+  FROM pg_stat_statements
+  ORDER BY mean_exec_time DESC
+  LIMIT 10;
+"
+```
 
 ## Deployment
 
@@ -439,7 +602,6 @@ CORS_ALLOW_ORIGINS=https://league-match-analyzer.vercel.app
 ### Development Docs
 
 - [Database Setup](docs/DATABASE_SETUP.md) — Local database configuration
-- [Shared Package](docs/SHARED_PACKAGE.md) — Shared package architecture
 - [Phase 0 Endpoints](docs/PHASE0_ENDPOINTS.md) — API endpoint specifications
 
 ### Important Notes

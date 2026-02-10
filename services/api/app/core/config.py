@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     riot_api_key: str = "replace-me"
     riot_api_timeout_seconds: float = 10.0
+    riot_default_platform: str = "NA1"
     log_level: str = "INFO"
     service_name: str = "league-api"
     sql_echo: bool = False

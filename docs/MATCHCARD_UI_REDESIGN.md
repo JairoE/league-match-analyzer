@@ -463,7 +463,7 @@ Our `Participant` type in `src/lib/types/match.ts` doesn't define these fields, 
 
 - [ ] Document queue ID mappings
 - [ ] Document achievement badge logic
-- [ ] Update API contract in SHARED_PACKAGE.md if needed
+- [ ] Update API contract documentation if needed
 
 ---
 
