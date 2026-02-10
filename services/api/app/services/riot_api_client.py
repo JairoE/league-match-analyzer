@@ -247,6 +247,8 @@ class RiotApiClient:
                         tags={"type": "429", "bucket": bucket},
                     )
                     retries += 1
+                    if retries > self.MAX_RETRIES:
+                        break
                     await asyncio.sleep(retry_after)
                     continue
 

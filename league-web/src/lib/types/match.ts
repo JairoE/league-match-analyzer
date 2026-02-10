@@ -2,11 +2,13 @@ export type MatchSummary = {
   id?: string;
   matchId?: string;
   match_id?: string;
+  game_id?: string;
   gameId?: number;
   queueId?: number;
   gameCreation?: number;
   gameStartTimestamp?: number;
   game_start_timestamp?: number;
+  game_info?: MatchDetail;
   [key: string]: unknown;
 };
 
