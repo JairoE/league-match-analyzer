@@ -11,3 +11,5 @@ build/
 
 .cursor
 .claude
+
+.DS_Store
