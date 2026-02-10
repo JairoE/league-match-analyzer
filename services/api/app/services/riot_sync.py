@@ -40,9 +40,9 @@ async def fetch_user_profile(
     """
     logger.info("riot_sync_fetch_user_start", extra={"summoner_name": summoner_name})
     parsed = parse_riot_id(summoner_name)
-    client = RiotApiClient()
-    account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
-    summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
+    async with RiotApiClient() as client:
+        account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
+        summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
     user = await upsert_user_from_riot(
         session,
         parsed.canonical,
@@ -82,9 +82,9 @@ async def fetch_sign_in_user(
     if not existing_user:
         logger.info("riot_sync_sign_in_user_missing", extra={"summoner_name": summoner_name})
         return None
-    client = RiotApiClient()
-    account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
-    summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
+    async with RiotApiClient() as client:
+        account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
+        summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
     user = await upsert_user_from_riot(
         session,
         parsed.canonical,
@@ -118,8 +118,8 @@ async def fetch_rank_for_user(
     if not user:
         logger.info("riot_sync_fetch_rank_user_missing", extra={"user_identifier": user_identifier})
         return None
-    client = RiotApiClient()
-    payload = await client.fetch_rank_by_puuid(user.puuid)
+    async with RiotApiClient() as client:
+        payload = await client.fetch_rank_by_puuid(user.puuid)
     logger.info("riot_sync_fetch_rank_done", extra={"user_identifier": user_identifier})
     return payload
 
@@ -153,8 +153,8 @@ async def fetch_match_list_for_user(
     if not user:
         logger.info("riot_sync_fetch_match_list_user_missing", extra={"user_identifier": user_identifier})
         return None
-    client = RiotApiClient()
-    match_ids = await client.fetch_match_ids_by_puuid(user.puuid, start=start, count=count)
+    async with RiotApiClient() as client:
+        match_ids = await client.fetch_match_ids_by_puuid(user.puuid, start=start, count=count)
     await upsert_matches_for_user(session, user.id, match_ids)
     logger.info(
         "riot_sync_fetch_match_list_done",
@@ -204,8 +204,8 @@ async def fetch_match_detail(
             "riot_sync_normalized_match_id",
             extra={"match_id": stored_match_id, "riot_match_id": riot_match_id},
         )
-    client = RiotApiClient()
-    payload = await client.fetch_match_by_id(riot_match_id)
+    async with RiotApiClient() as client:
+        payload = await client.fetch_match_by_id(riot_match_id)
 
     if not match:
         match = Match(game_id=stored_match_id)

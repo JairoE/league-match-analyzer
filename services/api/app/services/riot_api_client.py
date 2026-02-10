@@ -52,6 +52,14 @@ class RiotApiClient:
         self._rate_limiter = rate_limiter or get_rate_limiter()
         self._client: httpx.AsyncClient | None = None
 
+    async def __aenter__(self) -> "RiotApiClient":
+        """Enter async context for deterministic client cleanup."""
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        """Exit async context and close any open HTTP client."""
+        await self.close()
+
     async def _get_client(self, timeout: httpx.Timeout) -> httpx.AsyncClient:
         """Create or reuse an async HTTP client.
 
