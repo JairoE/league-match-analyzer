@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.config import get_settings
 from app.jobs import match_ingestion, scheduled
 from app.jobs.scheduled import sync_all_users_matches
 from app.services.background_jobs import WorkerSettings
@@ -27,9 +28,10 @@ class _FakeRedisQueue:
 
 
 def test_worker_settings_registers_cron_job() -> None:
+    settings = get_settings()
     cron_job = WorkerSettings.cron_jobs[0]
     assert cron_job.coroutine is scheduled.sync_all_users_matches
-    assert cron_job.run_at_startup is True
+    assert cron_job.run_at_startup is settings.arq_cron_run_at_startup
     assert 0 in cron_job.minute
     assert 21 not in cron_job.minute
 

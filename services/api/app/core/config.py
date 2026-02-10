@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,9 @@ class Settings(BaseSettings):
         cors_allow_methods: Comma-separated list of allowed HTTP methods.
         cors_allow_headers: Comma-separated list of allowed headers.
         cors_allow_credentials: Whether to allow credentials for CORS.
+        arq_cron_run_at_startup: Whether ARQ cron jobs run immediately at worker
+            startup. When None, derived from environment (True for development,
+            False otherwise). Override via ARQ_CRON_RUN_AT_STARTUP env var.
     """
 
     environment: str = "development"
@@ -35,8 +39,20 @@ class Settings(BaseSettings):
     cors_allow_methods: str = "*"
     cors_allow_headers: str = "*"
     cors_allow_credentials: bool = True
+    arq_cron_run_at_startup: bool | None = None
 
     _env_file = Path(__file__).resolve().parents[2] / ".env"
+
+    @model_validator(mode="after")
+    def _set_arq_cron_run_at_startup_from_environment(self: "Settings") -> "Settings":
+        if self.arq_cron_run_at_startup is None:
+            object.__setattr__(
+                self,
+                "arq_cron_run_at_startup",
+                self.environment == "development",
+            )
+        return self
+
     model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
 
 
