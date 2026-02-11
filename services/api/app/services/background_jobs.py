@@ -58,7 +58,7 @@ class WorkerSettings:
             sync_all_users_matches,
             hour={0, 6, 12, 18},
             minute={0},
-            run_at_startup=False,
+            run_at_startup=settings.arq_cron_run_at_startup,
         ),
     ]
 

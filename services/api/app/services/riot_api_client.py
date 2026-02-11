@@ -11,6 +11,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.services.rate_limiter import RiotRateLimiter, get_rate_limiter
+from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.services.riot_api_client")
 
@@ -52,7 +53,7 @@ class RiotApiClient:
         self._rate_limiter = rate_limiter or get_rate_limiter()
         self._client: httpx.AsyncClient | None = None
 
-    async def __aenter__(self) -> "RiotApiClient":
+    async def __aenter__(self) -> RiotApiClient:
         """Enter async context for deterministic client cleanup."""
         return self
 
@@ -140,10 +141,12 @@ class RiotApiClient:
         if not payload:  # Empty list check
             logger.info("riot_rank_not_found", extra={"puuid": puuid})
             return {}
-    
+
         return payload[0]
 
-    async def fetch_match_ids_by_puuid(self, puuid: str, start: int, count: int) -> list[str]:
+    async def fetch_match_ids_by_puuid(
+        self, puuid: str, start: int, count: int
+    ) -> list[str]:
         """Retrieve match ids for a PUUID.
 
         Retrieves: Riot match ID list for a PUUID.
@@ -158,7 +161,10 @@ class RiotApiClient:
         Returns:
             List of match identifiers.
         """
-        logger.info("riot_match_ids_fetch_start", extra={"puuid": puuid, "start": start, "count": count})
+        logger.info(
+            "riot_match_ids_fetch_start",
+            extra={"puuid": puuid, "start": start, "count": count},
+        )
         query = f"?start={start}&count={count}"
         url = self.MATCH_IDS_BY_PUUID_URL + quote(puuid) + "/ids" + query
         payload = await self._get_json("match_ids", url)
@@ -236,6 +242,10 @@ class RiotApiClient:
                             "retry": retries,
                         },
                     )
+                    await increment_metric_safe(
+                        "riot_api.retry",
+                        tags={"type": "429", "bucket": bucket},
+                    )
                     retries += 1
                     if retries > self.MAX_RETRIES:
                         break
@@ -259,6 +269,10 @@ class RiotApiClient:
                             "sleep": sleep_time,
                         },
                     )
+                    await increment_metric_safe(
+                        "riot_api.retry",
+                        tags={"type": "5xx", "bucket": bucket},
+                    )
                     retries += 1
                     await asyncio.sleep(sleep_time)
                     continue
@@ -269,6 +283,14 @@ class RiotApiClient:
                         "url": url,
                         "status": exc.response.status_code,
                         "body": exc.response.text,
+                    },
+                )
+                await increment_metric_safe(
+                    "riot_api.failed",
+                    tags={
+                        "type": "http_status",
+                        "bucket": bucket,
+                        "status": str(exc.response.status_code),
                     },
                 )
                 raise RiotRequestError(
@@ -285,6 +307,10 @@ class RiotApiClient:
                         "riot_request_network_retry",
                         extra={"url": url, "error": str(exc), "retry": retries},
                     )
+                    await increment_metric_safe(
+                        "riot_api.retry",
+                        tags={"type": "network", "bucket": bucket},
+                    )
                     retries += 1
                     await asyncio.sleep(backoff)
                     continue
@@ -292,6 +318,10 @@ class RiotApiClient:
                 logger.info(
                     "riot_request_error",
                     extra={"url": url, "detail": str(exc)},
+                )
+                await increment_metric_safe(
+                    "riot_api.failed",
+                    tags={"type": "network", "bucket": bucket},
                 )
                 raise RiotRequestError(
                     "riot_api_failed", status=502, body=str(exc)
@@ -301,12 +331,20 @@ class RiotApiClient:
                 "riot_request_ok",
                 extra={"url": url, "status": response.status_code},
             )
+            await increment_metric_safe(
+                "riot_api.success",
+                tags={"bucket": bucket},
+            )
             return response.json()
 
         # Max retries exceeded
         logger.error(
             "riot_request_max_retries",
             extra={"url": url, "retries": retries},
+        )
+        await increment_metric_safe(
+            "riot_api.failed",
+            tags={"type": "max_retries", "bucket": bucket},
         )
         raise RiotRequestError(
             "riot_api_max_retries_exceeded",
