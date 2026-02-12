@@ -20,6 +20,7 @@ export default function HomePage() {
   const [matchDetails, setMatchDetails] = useState<Record<string, MatchDetail>>(
     {}
   );
+  const [shouldPollDetails, setShouldPollDetails] = useState(false);
   const [rank, setRank] = useState<RankInfo | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -104,14 +105,21 @@ export default function HomePage() {
     }
   }, [matches]);
 
+  // Derive whether detail polling is needed from the current match list.
+  useEffect(() => {
+    if (!userId || !matches.length) {
+      setShouldPollDetails(false);
+      return;
+    }
+    const hasMissing = matches.some((m) => !m.game_info?.info);
+    setShouldPollDetails(hasMissing);
+  }, [matches, userId]);
+
   // Poll the match list until all game_info fields are populated.
   // The backend enqueues ARQ detail-fetch jobs on each list request,
   // so polling picks up newly populated details as the worker fills them in.
   useEffect(() => {
-    if (!userId || !matches.length) return;
-
-    const hasMissing = matches.some((m) => !m.game_info?.info);
-    if (!hasMissing) {
+    if (!userId || !shouldPollDetails) {
       console.debug("[home] all match details present, no polling needed");
       return;
     }
@@ -121,9 +129,7 @@ export default function HomePage() {
     const MAX_POLLS = 20;
     const POLL_INTERVAL_MS = 3_000;
 
-    console.debug("[home] starting detail polling", {
-      missing: matches.filter((m) => !m.game_info?.info).length,
-    });
+    console.debug("[home] starting detail polling");
 
     const poll = setInterval(async () => {
       if (!isActive) return;
@@ -136,10 +142,9 @@ export default function HomePage() {
       }
 
       try {
-        const fresh = await apiGet<MatchSummary[]>(
-          `/users/${userId}/matches`,
-          {useCache: false}
-        );
+        const fresh = await apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
+          useCache: false,
+        });
         if (!isActive) return;
 
         const freshArray = Array.isArray(fresh) ? fresh : [];
@@ -166,7 +171,7 @@ export default function HomePage() {
       clearInterval(poll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, refreshIndex]);
+  }, [userId, refreshIndex, shouldPollDetails]);
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");
