@@ -122,18 +122,18 @@ export default function HomePage() {
 
     let isActive = true;
     let pollCount = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const MAX_POLLS = 20;
     const POLL_INTERVAL_MS = 3_000;
 
     console.debug("[home] starting detail polling");
 
-    const poll = setInterval(async () => {
+    const pollOnce = async () => {
       if (!isActive) return;
       pollCount++;
 
       if (pollCount >= MAX_POLLS) {
         console.debug("[home] polling max reached, stopping");
-        clearInterval(poll);
         return;
       }
 
@@ -150,21 +150,30 @@ export default function HomePage() {
 
         if (!stillMissing) {
           console.debug("[home] all details populated, stopping poll");
-          clearInterval(poll);
-        } else {
-          console.debug("[home] poll incomplete", {
-            poll: pollCount,
-            stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
-          });
+          return;
         }
+
+        console.debug("[home] poll incomplete", {
+          poll: pollCount,
+          stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
+        });
       } catch (err) {
         console.debug("[home] poll error", {err, poll: pollCount});
       }
-    }, POLL_INTERVAL_MS);
+
+      if (!isActive) return;
+      timeoutId = setTimeout(() => {
+        void pollOnce();
+      }, POLL_INTERVAL_MS);
+    };
+
+    void pollOnce();
 
     return () => {
       isActive = false;
-      clearInterval(poll);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, refreshIndex, shouldPollDetails, hasMatches]);
