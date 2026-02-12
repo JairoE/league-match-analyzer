@@ -225,16 +225,20 @@ export default function HomePage() {
           useCache: false,
         }),
       ]);
+      const accountPuuid = accountResponse?.puuid ?? null;
+      if (!accountPuuid) {
+        throw new Error("Missing searched account PUUID");
+      }
 
       const resultMatches = Array.isArray(searchMatches) ? searchMatches : [];
       setMatches(resultMatches);
       setSearchedAccount(accountResponse?.riot_id ?? query);
-      setSearchedPuuid(accountResponse?.puuid ?? null);
+      setSearchedPuuid(accountPuuid);
       setRank(null);
       console.debug("[home] search done", {
         count: resultMatches.length,
         riotId: accountResponse?.riot_id ?? query,
-        puuid: accountResponse?.puuid ?? null,
+        puuid: accountPuuid,
       });
     } catch (err) {
       console.debug("[home] search failed", {err});
@@ -334,6 +338,7 @@ export default function HomePage() {
                 match={match}
                 detail={detail}
                 user={user}
+                isSearchView={isViewingSearch}
                 targetPuuid={targetPuuid}
               />
             );

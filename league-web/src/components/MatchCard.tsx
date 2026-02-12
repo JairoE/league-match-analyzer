@@ -18,6 +18,7 @@ type MatchCardProps = {
   match: MatchSummary;
   detail: MatchDetail | null;
   user: UserSession | null;
+  isSearchView?: boolean;
   targetPuuid?: string | null;
 };
 
@@ -25,6 +26,7 @@ export default function MatchCard({
   match,
   detail,
   user,
+  isSearchView = false,
   targetPuuid = null,
 }: MatchCardProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -32,11 +34,13 @@ export default function MatchCard({
 
   const matchId = useMemo(() => getMatchId(match), [match]);
   const participant = useMemo<Participant | null>(
-    () =>
-      targetPuuid
-        ? getParticipantByPuuid(detail, targetPuuid)
-        : getParticipantForUser(detail, user),
-    [detail, targetPuuid, user]
+    () => {
+      if (isSearchView) {
+        return getParticipantByPuuid(detail, targetPuuid);
+      }
+      return getParticipantForUser(detail, user);
+    },
+    [detail, isSearchView, targetPuuid, user]
   );
   const championId = participant?.championId ?? null;
 
