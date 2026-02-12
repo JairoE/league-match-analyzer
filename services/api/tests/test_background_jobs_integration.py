@@ -93,7 +93,8 @@ async def test_enqueue_detail_jobs_batches_of_five(monkeypatch: pytest.MonkeyPat
     async def _noop_metric(*args: object, **kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr(match_ingestion, "async_session_factory", lambda: _DummyDbContext())
+    # DB access now happens inside enqueue_match_details (the shared helper)
+    monkeypatch.setattr(enqueue_match_details, "async_session_factory", lambda: _DummyDbContext())
     monkeypatch.setattr(match_ingestion, "increment_metric_safe", _noop_metric)
 
     await match_ingestion._enqueue_detail_jobs({"redis": redis}, match_ids)
@@ -101,6 +102,7 @@ async def test_enqueue_detail_jobs_batches_of_five(monkeypatch: pytest.MonkeyPat
     assert len(redis.calls) == 3
     assert [len(args[0]) for _, args, _ in redis.calls] == [5, 5, 2]
     assert all(name == "fetch_match_details_job" for name, _, _ in redis.calls)
+    assert all("_job_id" in kwargs for _, _, kwargs in redis.calls)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +147,7 @@ async def test_enqueue_missing_detail_jobs_batches_of_five(
     assert len(redis.calls) == 3
     assert [len(args[0]) for _, args, _ in redis.calls] == [5, 5, 2]
     assert all(name == "fetch_match_details_job" for name, _, _ in redis.calls)
+    assert all("_job_id" in kwargs for _, _, kwargs in redis.calls)
 
 
 @pytest.mark.asyncio
@@ -181,6 +184,43 @@ async def test_enqueue_missing_detail_jobs_none_missing(
 
     assert result == 0
     assert len(redis.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_enqueue_missing_detail_jobs_accepts_explicit_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = _FakeRedisQueue()
+    match_ids = ["NA1_0", "NA1_1"]
+
+    class _Result:
+        def fetchall(self) -> list[tuple[str]]:
+            return [(mid,) for mid in match_ids]
+
+    class _DummySession:
+        async def execute(self, stmt: object) -> _Result:
+            return _Result()
+
+    class _DummyDbContext:
+        async def __aenter__(self) -> _DummySession:
+            return _DummySession()
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        enqueue_match_details, "async_session_factory", lambda: _DummyDbContext()
+    )
+
+    # Pass pool= explicitly (the worker path) — get_arq_pool should NOT be called
+    result = await enqueue_match_details.enqueue_missing_detail_jobs(
+        match_ids, pool=redis
+    )
+
+    assert result == 2
+    assert len(redis.calls) == 1
+    assert redis.calls[0][0] == "fetch_match_details_job"
+    assert "_job_id" in redis.calls[0][2]
 
 
 @pytest.mark.asyncio

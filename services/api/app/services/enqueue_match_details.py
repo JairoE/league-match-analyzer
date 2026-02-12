@@ -1,6 +1,12 @@
-"""Enqueue match detail fetch jobs from the FastAPI process."""
+"""Enqueue match detail fetch jobs.
+
+Shared by both the FastAPI process (via ``get_arq_pool``) and the ARQ
+worker (which passes its own ``ctx["redis"]`` pool).
+"""
 
 from __future__ import annotations
+
+from typing import Protocol
 
 from sqlalchemy import String, cast, or_
 from sqlmodel import select
@@ -15,14 +21,26 @@ logger = get_logger("league_api.services.enqueue_match_details")
 BATCH_SIZE = 5
 
 
-async def enqueue_missing_detail_jobs(match_ids: list[str]) -> int:
+class _EnqueuePool(Protocol):
+    async def enqueue_job(self, function_name: str, *args: object, **kwargs: object) -> object: ...
+
+
+async def enqueue_missing_detail_jobs(
+    match_ids: list[str],
+    *,
+    pool: _EnqueuePool | None = None,
+) -> int:
     """Enqueue ARQ detail-fetch jobs for matches with NULL game_info.
 
     Queries the DB for matches in ``match_ids`` that lack game_info,
-    then enqueues ``fetch_match_details_job`` in batches of 5.
+    then enqueues ``fetch_match_details_job`` in batches of 5.  Each
+    batch gets a deterministic ``_job_id`` so ARQ skips duplicates when
+    the same matches are re-enqueued before the worker processes them.
 
     Args:
         match_ids: Riot match IDs to check.
+        pool: Optional ARQ-compatible pool.  Falls back to the lazy
+              singleton from ``get_arq_pool()`` when not provided.
 
     Returns:
         Number of match IDs enqueued.
@@ -49,11 +67,14 @@ async def enqueue_missing_detail_jobs(match_ids: list[str]) -> int:
         )
         return 0
 
-    pool = await get_arq_pool()
+    if pool is None:
+        pool = await get_arq_pool()
+
     enqueued = 0
     for i in range(0, len(missing_details), BATCH_SIZE):
         batch = missing_details[i : i + BATCH_SIZE]
-        await pool.enqueue_job("fetch_match_details_job", batch)
+        job_id = f"match-details:{batch[0]}..{batch[-1]}:{len(batch)}"
+        await pool.enqueue_job("fetch_match_details_job", batch, _job_id=job_id)
         enqueued += len(batch)
 
     logger.info(
