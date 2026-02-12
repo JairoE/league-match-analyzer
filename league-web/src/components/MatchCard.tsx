@@ -10,6 +10,7 @@ import {
   getCsPerMinute,
   getKdaRatio,
   getMatchId,
+  getParticipantByPuuid,
   getParticipantForUser,
 } from "../lib/match-utils";
 
@@ -17,16 +18,25 @@ type MatchCardProps = {
   match: MatchSummary;
   detail: MatchDetail | null;
   user: UserSession | null;
+  targetPuuid?: string | null;
 };
 
-export default function MatchCard({match, detail, user}: MatchCardProps) {
+export default function MatchCard({
+  match,
+  detail,
+  user,
+  targetPuuid = null,
+}: MatchCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [champion, setChampion] = useState<Champion | null>(null);
 
   const matchId = useMemo(() => getMatchId(match), [match]);
   const participant = useMemo<Participant | null>(
-    () => getParticipantForUser(detail, user),
-    [detail, user]
+    () =>
+      targetPuuid
+        ? getParticipantByPuuid(detail, targetPuuid)
+        : getParticipantForUser(detail, user),
+    [detail, targetPuuid, user]
   );
   const championId = participant?.championId ?? null;
 

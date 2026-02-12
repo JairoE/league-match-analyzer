@@ -1,10 +1,5 @@
 import type {UserSession} from "./types/user";
 
-export function getUserId(user: UserSession | null): string | null {
-  if (!user) return null;
-  return user.id ?? null;
-}
-
 export function getRiotAccountId(user: UserSession | null): string | null {
   if (!user?.riot_account?.id) return null;
   return user.riot_account.id;

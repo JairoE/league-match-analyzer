@@ -7,11 +7,15 @@ import MatchCard from "../../components/MatchCard";
 import {apiGet} from "../../lib/api";
 import {clearCache} from "../../lib/cache";
 import {loadSessionUser, clearSessionUser} from "../../lib/session";
-import {getUserDisplayName, getRiotAccountId} from "../../lib/user-utils";
+import {
+  getUserDisplayName,
+  getRiotAccountId,
+  getUserPuuid,
+} from "../../lib/user-utils";
 import {getMatchId} from "../../lib/match-utils";
 import type {MatchDetail, MatchSummary} from "../../lib/types/match";
 import type {RankInfo} from "../../lib/types/rank";
-import type {UserSession} from "../../lib/types/user";
+import type {RiotAccountData, UserSession} from "../../lib/types/user";
 
 export default function HomePage() {
   const router = useRouter();
@@ -34,10 +38,12 @@ export default function HomePage() {
 
   const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
+  const userPuuid = useMemo(() => getUserPuuid(user), [user]);
 
   // Determine what we're currently viewing
   const isViewingSearch = searchedAccount !== null;
   const viewLabel = isViewingSearch ? searchedAccount : displayName;
+  const targetPuuid = isViewingSearch ? searchedPuuid : userPuuid;
 
   useEffect(() => {
     const session = loadSessionUser();
@@ -203,18 +209,25 @@ export default function HomePage() {
       console.debug("[home] searching", {query});
       // URL-encode the # in riot IDs
       const encodedQuery = encodeURIComponent(query);
-      const searchMatches = await apiGet<MatchSummary[]>(
-        `/search/${encodedQuery}/matches`,
-        {useCache: false}
-      );
+      const [searchMatches, accountResponse] = await Promise.all([
+        apiGet<MatchSummary[]>(`/search/${encodedQuery}/matches`, {
+          useCache: false,
+        }),
+        apiGet<RiotAccountData>(`/search/${encodedQuery}/account`, {
+          useCache: false,
+        }),
+      ]);
 
       const resultMatches = Array.isArray(searchMatches) ? searchMatches : [];
       setMatches(resultMatches);
-      setSearchedAccount(query);
-      // Extract puuid from first match participant or leave null
-      setSearchedPuuid(null); // Will be populated if we add account endpoint
+      setSearchedAccount(accountResponse?.riot_id ?? query);
+      setSearchedPuuid(accountResponse?.puuid ?? null);
       setRank(null);
-      console.debug("[home] search done", {count: resultMatches.length});
+      console.debug("[home] search done", {
+        count: resultMatches.length,
+        riotId: accountResponse?.riot_id ?? query,
+        puuid: accountResponse?.puuid ?? null,
+      });
     } catch (err) {
       console.debug("[home] search failed", {err});
       setError("Search failed. Check the Riot ID and try again.");
@@ -224,6 +237,7 @@ export default function HomePage() {
   };
 
   const handleBackToMyMatches = () => {
+    console.debug("[home] returning to signed-in matches");
     setSearchedAccount(null);
     setSearchedPuuid(null);
     setSearchQuery("");
@@ -312,6 +326,7 @@ export default function HomePage() {
                 match={match}
                 detail={detail}
                 user={user}
+                targetPuuid={targetPuuid}
               />
             );
           })}
