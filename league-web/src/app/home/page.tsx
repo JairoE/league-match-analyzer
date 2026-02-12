@@ -44,6 +44,11 @@ export default function HomePage() {
   const isViewingSearch = searchedAccount !== null;
   const viewLabel = isViewingSearch ? searchedAccount : displayName;
   const targetPuuid = isViewingSearch ? searchedPuuid : userPuuid;
+  const hasMatches = useMemo(() => matches.length > 0, [matches]);
+  const missingDetailCount = useMemo(
+    () => matches.filter((m) => !m.game_info?.info).length,
+    [matches]
+  );
 
   useEffect(() => {
     const session = loadSessionUser();
@@ -125,10 +130,8 @@ export default function HomePage() {
 
   // Poll the match list until all game_info fields are populated.
   useEffect(() => {
-    if (!riotAccountId || !matches.length || isViewingSearch) return;
-
-    const hasMissing = matches.some((m) => !m.game_info?.info);
-    if (!hasMissing) {
+    if (!riotAccountId || !hasMatches || isViewingSearch) return;
+    if (missingDetailCount === 0) {
       console.debug("[home] all match details present, no polling needed");
       return;
     }
@@ -139,7 +142,7 @@ export default function HomePage() {
     const POLL_INTERVAL_MS = 3_000;
 
     console.debug("[home] starting detail polling", {
-      missing: matches.filter((m) => !m.game_info?.info).length,
+      missing: missingDetailCount,
     });
 
     const poll = setInterval(async () => {
@@ -182,8 +185,13 @@ export default function HomePage() {
       isActive = false;
       clearInterval(poll);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [riotAccountId, refreshIndex, isViewingSearch]);
+  }, [
+    riotAccountId,
+    refreshIndex,
+    isViewingSearch,
+    hasMatches,
+    missingDetailCount,
+  ]);
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");
