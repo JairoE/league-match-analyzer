@@ -130,12 +130,18 @@ export default function HomePage() {
 
     const pollOnce = async () => {
       if (!isActive) return;
-      pollCount++;
 
+      // pollCount tracks *actual fetch attempts made*.
+      // Guard before increment so MAX_POLLS means "max API calls".
       if (pollCount >= MAX_POLLS) {
-        console.debug("[home] polling max reached, stopping");
+        console.debug("[home] polling max reached, stopping", {
+          max: MAX_POLLS,
+          attempts: pollCount,
+        });
         return;
       }
+      pollCount++;
+      const attempt = pollCount;
 
       try {
         const fresh = await apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
@@ -154,14 +160,21 @@ export default function HomePage() {
         }
 
         console.debug("[home] poll incomplete", {
-          poll: pollCount,
+          poll: attempt,
           stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
         });
       } catch (err) {
-        console.debug("[home] poll error", {err, poll: pollCount});
+        console.debug("[home] poll error", {err, poll: attempt});
       }
 
       if (!isActive) return;
+      if (pollCount >= MAX_POLLS) {
+        console.debug("[home] polling max reached after attempt, stopping", {
+          max: MAX_POLLS,
+          attempts: pollCount,
+        });
+        return;
+      }
       timeoutId = setTimeout(() => {
         void pollOnce();
       }, POLL_INTERVAL_MS);
