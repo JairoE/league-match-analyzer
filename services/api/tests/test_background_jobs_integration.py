@@ -8,6 +8,7 @@ import pytest
 from app.core.config import get_settings
 from app.jobs import match_ingestion, scheduled
 from app.jobs.scheduled import sync_all_users_matches
+from app.services import enqueue_match_details
 from app.services.background_jobs import WorkerSettings
 
 
@@ -100,3 +101,89 @@ async def test_enqueue_detail_jobs_batches_of_five(monkeypatch: pytest.MonkeyPat
     assert len(redis.calls) == 3
     assert [len(args[0]) for _, args, _ in redis.calls] == [5, 5, 2]
     assert all(name == "fetch_match_details_job" for name, _, _ in redis.calls)
+
+
+# ---------------------------------------------------------------------------
+# enqueue_missing_detail_jobs (FastAPI-side enqueue helper)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enqueue_missing_detail_jobs_batches_of_five(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = _FakeRedisQueue()
+    match_ids = [f"NA1_{index}" for index in range(12)]
+
+    class _Result:
+        def fetchall(self) -> list[tuple[str]]:
+            return [(mid,) for mid in match_ids]
+
+    class _DummySession:
+        async def execute(self, stmt: object) -> _Result:
+            return _Result()
+
+    class _DummyDbContext:
+        async def __aenter__(self) -> _DummySession:
+            return _DummySession()
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        enqueue_match_details, "async_session_factory", lambda: _DummyDbContext()
+    )
+
+    async def _fake_get_arq_pool() -> _FakeRedisQueue:
+        return redis
+
+    monkeypatch.setattr(enqueue_match_details, "get_arq_pool", _fake_get_arq_pool)
+
+    result = await enqueue_match_details.enqueue_missing_detail_jobs(match_ids)
+
+    assert result == 12
+    assert len(redis.calls) == 3
+    assert [len(args[0]) for _, args, _ in redis.calls] == [5, 5, 2]
+    assert all(name == "fetch_match_details_job" for name, _, _ in redis.calls)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_missing_detail_jobs_none_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = _FakeRedisQueue()
+
+    class _Result:
+        def fetchall(self) -> list[tuple[str]]:
+            return []
+
+    class _DummySession:
+        async def execute(self, stmt: object) -> _Result:
+            return _Result()
+
+    class _DummyDbContext:
+        async def __aenter__(self) -> _DummySession:
+            return _DummySession()
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        enqueue_match_details, "async_session_factory", lambda: _DummyDbContext()
+    )
+
+    async def _fake_get_arq_pool() -> _FakeRedisQueue:
+        return redis
+
+    monkeypatch.setattr(enqueue_match_details, "get_arq_pool", _fake_get_arq_pool)
+
+    result = await enqueue_match_details.enqueue_missing_detail_jobs(["NA1_1", "NA1_2"])
+
+    assert result == 0
+    assert len(redis.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_enqueue_missing_detail_jobs_empty_input() -> None:
+    result = await enqueue_match_details.enqueue_missing_detail_jobs([])
+    assert result == 0

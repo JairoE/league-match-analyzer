@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useEffect, useMemo, useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
 import MatchCard from "../../components/MatchCard";
@@ -25,9 +25,6 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
-
-  // Ref to accumulate match details before batched flush to state
-  const pendingDetailsRef = useRef<Record<string, MatchDetail>>({});
 
   const userId = useMemo(() => getUserId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
@@ -89,109 +86,87 @@ export default function HomePage() {
     };
   }, [userId, refreshIndex]);
 
+  // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
     if (!matches.length) {
       setMatchDetails({});
       return;
     }
-    let isActive = true;
-    let flushInterval: ReturnType<typeof setInterval> | null = null;
-
-    // Seed details from game_info already present in the match list response
-    // and identify which matches still need a detail fetch.
     const seeded: Record<string, MatchDetail> = {};
-    const missingIds: string[] = [];
-
     for (const match of matches) {
       const matchId = getMatchId(match);
-      if (!matchId) continue;
-      if (match.game_info?.info) {
+      if (matchId && match.game_info?.info) {
         seeded[matchId] = match.game_info;
-      } else {
-        missingIds.push(matchId);
       }
     }
-
-    // Immediately surface any details we already have from the list payload.
     if (Object.keys(seeded).length > 0) {
       setMatchDetails((prev) => ({...prev, ...seeded}));
     }
+  }, [matches]);
 
-    const loadDetails = async () => {
-      pendingDetailsRef.current = {};
+  // Poll the match list until all game_info fields are populated.
+  // The backend enqueues ARQ detail-fetch jobs on each list request,
+  // so polling picks up newly populated details as the worker fills them in.
+  useEffect(() => {
+    if (!userId || !matches.length) return;
 
-      const idsToFetch = missingIds.slice(0, 20);
-      if (idsToFetch.length === 0) {
-        console.debug("[home] all match details seeded from list response");
+    const hasMissing = matches.some((m) => !m.game_info?.info);
+    if (!hasMissing) {
+      console.debug("[home] all match details present, no polling needed");
+      return;
+    }
+
+    let isActive = true;
+    let pollCount = 0;
+    const MAX_POLLS = 20;
+    const POLL_INTERVAL_MS = 3_000;
+
+    console.debug("[home] starting detail polling", {
+      missing: matches.filter((m) => !m.game_info?.info).length,
+    });
+
+    const poll = setInterval(async () => {
+      if (!isActive) return;
+      pollCount++;
+
+      if (pollCount >= MAX_POLLS) {
+        console.debug("[home] polling max reached, stopping");
+        clearInterval(poll);
         return;
       }
 
-      console.debug("[home] fetching match details progressively", {
-        count: idsToFetch.length,
-        seeded: Object.keys(seeded).length,
-      });
-
-      // Flush accumulated results to state every 100ms
-      const flushToState = () => {
+      try {
+        const fresh = await apiGet<MatchSummary[]>(
+          `/users/${userId}/matches`,
+          {useCache: false}
+        );
         if (!isActive) return;
-        const pending = pendingDetailsRef.current;
-        const pendingCount = Object.keys(pending).length;
-        if (pendingCount === 0) return;
 
-        console.debug("[home] flushing match details batch", {
-          count: pendingCount,
-        });
-        setMatchDetails((prev) => ({...prev, ...pending}));
-        pendingDetailsRef.current = {};
-      };
+        const freshArray = Array.isArray(fresh) ? fresh : [];
+        const stillMissing = freshArray.some((m) => !m.game_info?.info);
 
-      flushInterval = setInterval(flushToState, 100);
+        setMatches(freshArray);
 
-      await Promise.all(
-        idsToFetch.map(async (matchId) => {
-          const maxRetries = 2;
-          for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-              const detail = await apiGet<MatchDetail>(`/matches/${matchId}`, {
-                cacheTtlMs: 120_000,
-              });
-              if (!isActive) return;
-              pendingDetailsRef.current[matchId] = detail;
-              return;
-            } catch (err) {
-              if (attempt < maxRetries) {
-                await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-                if (!isActive) return;
-                continue;
-              }
-              console.debug("[home] match detail failed after retries", {
-                matchId,
-                attempts: attempt + 1,
-                err,
-              });
-            }
-          }
-        })
-      );
-
-      // Clear interval and final flush for any remaining
-      if (flushInterval) {
-        clearInterval(flushInterval);
-        flushInterval = null;
+        if (!stillMissing) {
+          console.debug("[home] all details populated, stopping poll");
+          clearInterval(poll);
+        } else {
+          console.debug("[home] poll incomplete", {
+            poll: pollCount,
+            stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
+          });
+        }
+      } catch (err) {
+        console.debug("[home] poll error", {err, poll: pollCount});
       }
-      flushToState();
-      console.debug("[home] all match details loaded");
-    };
-
-    void loadDetails();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       isActive = false;
-      if (flushInterval) {
-        clearInterval(flushInterval);
-      }
+      clearInterval(poll);
     };
-  }, [matches, refreshIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, refreshIndex]);
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");

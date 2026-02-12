@@ -10,6 +10,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
 from app.core.redaction import redact_url
 from app.core.middleware import RequestLoggingMiddleware
+from app.services.arq_pool import close_arq_pool
 from app.services.champion_seed import schedule_champion_seed_job
 
 
@@ -75,4 +76,5 @@ async def on_shutdown() -> None:
     Returns:
         None.
     """
+    await close_arq_pool()
     logger.info("shutdown")

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.db.session import get_session
 from app.schemas.match import MatchListItem
+from app.services.enqueue_match_details import enqueue_missing_detail_jobs
 from app.services.matches import list_matches_for_user
 from app.services.riot_sync import fetch_match_detail, fetch_match_list_for_user
 from app.services.users import resolve_user_identifier
@@ -40,6 +41,20 @@ async def list_user_matches(
         logger.info("list_user_matches_user_missing", extra={"user_id": user_id})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     logger.info("list_user_matches_synced", extra={"user_id": user_id, "match_count": len(match_ids)})
+
+    try:
+        enqueued = await enqueue_missing_detail_jobs(match_ids)
+        if enqueued:
+            logger.info(
+                "list_user_matches_enqueued_details",
+                extra={"user_id": user_id, "enqueued": enqueued},
+            )
+    except Exception:
+        logger.exception(
+            "list_user_matches_enqueue_failed",
+            extra={"user_id": user_id},
+        )
+
     user = await resolve_user_identifier(session, user_id)
     if not user:
         logger.info("list_user_matches_user_missing_after_job", extra={"user_id": user_id})
