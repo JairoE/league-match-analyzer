@@ -59,6 +59,7 @@ async def enqueue_missing_detail_jobs(
             )
         )
         missing_details = [row[0] for row in result.fetchall()]
+        missing_details.sort()  # Ensure deterministic ordering for job_id generation
 
     if not missing_details:
         logger.info(
