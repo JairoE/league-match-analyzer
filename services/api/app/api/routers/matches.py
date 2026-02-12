@@ -4,9 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.api.routers.match_detail_enqueue import enqueue_details_background
 from app.db.session import get_session
 from app.schemas.match import MatchListItem
-from app.services.enqueue_match_details import enqueue_missing_detail_jobs
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_accounts import resolve_riot_account_identifier
 from app.services.riot_sync import (
@@ -51,7 +51,14 @@ async def list_riot_account_matches(
         extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
     )
 
-    background_tasks.add_task(_enqueue_details_background, riot_account_id, match_ids)
+    background_tasks.add_task(
+        enqueue_details_background,
+        logger=logger,
+        match_ids=match_ids,
+        context={"riot_account_id": riot_account_id},
+        success_event="list_riot_account_matches_enqueued_details",
+        failure_event="list_riot_account_matches_enqueue_failed",
+    )
 
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
@@ -71,22 +78,6 @@ async def list_riot_account_matches(
 
     logger.info("list_riot_account_matches_done", extra={"riot_account_id": riot_account_id, "count": len(matches)})
     return [MatchListItem.model_validate(match) for match in matches]
-
-
-async def _enqueue_details_background(riot_account_id: str, match_ids: list[str]) -> None:
-    """Fire-and-forget wrapper for ``enqueue_missing_detail_jobs``."""
-    try:
-        enqueued = await enqueue_missing_detail_jobs(match_ids)
-        if enqueued:
-            logger.info(
-                "list_riot_account_matches_enqueued_details",
-                extra={"riot_account_id": riot_account_id, "enqueued": enqueued},
-            )
-    except Exception:
-        logger.exception(
-            "list_riot_account_matches_enqueue_failed",
-            extra={"riot_account_id": riot_account_id},
-        )
 
 
 @router.get("/matches/{match_id}", status_code=status.HTTP_200_OK)

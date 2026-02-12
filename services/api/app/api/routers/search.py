@@ -2,10 +2,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.api.routers.match_detail_enqueue import enqueue_details_background
 from app.db.session import get_session
 from app.schemas.match import MatchListItem
 from app.schemas.user import RiotAccountResponse
-from app.services.enqueue_match_details import enqueue_missing_detail_jobs
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_account_upsert import find_or_create_riot_account
@@ -79,7 +79,14 @@ async def search_riot_account_matches(
 
     # Enqueue detail fetches in background
     if match_ids:
-        background_tasks.add_task(_enqueue_details_background, str(riot_account.id), match_ids)
+        background_tasks.add_task(
+            enqueue_details_background,
+            logger=logger,
+            match_ids=match_ids,
+            context={"riot_account_id": str(riot_account.id)},
+            success_event="search_matches_enqueued_details",
+            failure_event="search_matches_enqueue_failed",
+        )
 
     # Return the match list
     matches = await list_matches_for_riot_account(session, riot_account.id)
@@ -149,19 +156,3 @@ async def search_riot_account(
 
     logger.info("search_account_done", extra={"riot_account_id": str(riot_account.id)})
     return RiotAccountResponse.model_validate(riot_account)
-
-
-async def _enqueue_details_background(riot_account_id: str, match_ids: list[str]) -> None:
-    """Fire-and-forget wrapper for ``enqueue_missing_detail_jobs``."""
-    try:
-        enqueued = await enqueue_missing_detail_jobs(match_ids)
-        if enqueued:
-            logger.info(
-                "search_matches_enqueued_details",
-                extra={"riot_account_id": riot_account_id, "enqueued": enqueued},
-            )
-    except Exception:
-        logger.exception(
-            "search_matches_enqueue_failed",
-            extra={"riot_account_id": riot_account_id},
-        )
