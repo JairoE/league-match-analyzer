@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useEffect, useMemo, useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
 import MatchCard from "../../components/MatchCard";
@@ -26,11 +26,13 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
 
-  // Ref to accumulate match details before batched flush to state
-  const pendingDetailsRef = useRef<Record<string, MatchDetail>>({});
-
   const userId = useMemo(() => getUserId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
+  const hasMatches = useMemo(() => matches.length > 0, [matches]);
+  const shouldPollDetails = useMemo(() => {
+    if (!userId || !matches.length) return false;
+    return matches.some((m) => !m.game_info?.info);
+  }, [matches, userId]);
 
   useEffect(() => {
     const session = loadSessionUser();
@@ -89,109 +91,105 @@ export default function HomePage() {
     };
   }, [userId, refreshIndex]);
 
+  // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
     if (!matches.length) {
       setMatchDetails({});
       return;
     }
-    let isActive = true;
-    let flushInterval: ReturnType<typeof setInterval> | null = null;
-
-    // Seed details from game_info already present in the match list response
-    // and identify which matches still need a detail fetch.
     const seeded: Record<string, MatchDetail> = {};
-    const missingIds: string[] = [];
-
     for (const match of matches) {
       const matchId = getMatchId(match);
-      if (!matchId) continue;
-      if (match.game_info?.info) {
+      if (matchId && match.game_info?.info) {
         seeded[matchId] = match.game_info;
-      } else {
-        missingIds.push(matchId);
       }
     }
-
-    // Immediately surface any details we already have from the list payload.
     if (Object.keys(seeded).length > 0) {
       setMatchDetails((prev) => ({...prev, ...seeded}));
     }
+  }, [matches]);
 
-    const loadDetails = async () => {
-      pendingDetailsRef.current = {};
+  // Poll the match list until all game_info fields are populated.
+  // The backend enqueues ARQ detail-fetch jobs on each list request,
+  // so polling picks up newly populated details as the worker fills them in.
+  useEffect(() => {
+    if (!userId || !shouldPollDetails) {
+      if (userId && hasMatches) {
+        console.debug("[home] all match details present, no polling needed");
+      }
+      return;
+    }
 
-      const idsToFetch = missingIds.slice(0, 20);
-      if (idsToFetch.length === 0) {
-        console.debug("[home] all match details seeded from list response");
+    let isActive = true;
+    let pollCount = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const MAX_POLLS = 20;
+    const POLL_INTERVAL_MS = 3_000;
+
+    console.debug("[home] starting detail polling");
+
+    const pollOnce = async () => {
+      if (!isActive) return;
+
+      // pollCount tracks *actual fetch attempts made*.
+      // Guard before increment so MAX_POLLS means "max API calls".
+      if (pollCount >= MAX_POLLS) {
+        console.debug("[home] polling max reached, stopping", {
+          max: MAX_POLLS,
+          attempts: pollCount,
+        });
         return;
       }
+      pollCount++;
+      const attempt = pollCount;
 
-      console.debug("[home] fetching match details progressively", {
-        count: idsToFetch.length,
-        seeded: Object.keys(seeded).length,
-      });
-
-      // Flush accumulated results to state every 100ms
-      const flushToState = () => {
-        if (!isActive) return;
-        const pending = pendingDetailsRef.current;
-        const pendingCount = Object.keys(pending).length;
-        if (pendingCount === 0) return;
-
-        console.debug("[home] flushing match details batch", {
-          count: pendingCount,
+      try {
+        const fresh = await apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
+          useCache: false,
         });
-        setMatchDetails((prev) => ({...prev, ...pending}));
-        pendingDetailsRef.current = {};
-      };
+        if (!isActive) return;
 
-      flushInterval = setInterval(flushToState, 100);
+        const freshArray = Array.isArray(fresh) ? fresh : [];
+        const stillMissing = freshArray.some((m) => !m.game_info?.info);
 
-      await Promise.all(
-        idsToFetch.map(async (matchId) => {
-          const maxRetries = 2;
-          for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-              const detail = await apiGet<MatchDetail>(`/matches/${matchId}`, {
-                cacheTtlMs: 120_000,
-              });
-              if (!isActive) return;
-              pendingDetailsRef.current[matchId] = detail;
-              return;
-            } catch (err) {
-              if (attempt < maxRetries) {
-                await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-                if (!isActive) return;
-                continue;
-              }
-              console.debug("[home] match detail failed after retries", {
-                matchId,
-                attempts: attempt + 1,
-                err,
-              });
-            }
-          }
-        })
-      );
+        setMatches(freshArray);
 
-      // Clear interval and final flush for any remaining
-      if (flushInterval) {
-        clearInterval(flushInterval);
-        flushInterval = null;
+        if (!stillMissing) {
+          console.debug("[home] all details populated, stopping poll");
+          return;
+        }
+
+        console.debug("[home] poll incomplete", {
+          poll: attempt,
+          stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
+        });
+      } catch (err) {
+        console.debug("[home] poll error", {err, poll: attempt});
       }
-      flushToState();
-      console.debug("[home] all match details loaded");
+
+      if (!isActive) return;
+      if (pollCount >= MAX_POLLS) {
+        console.debug("[home] polling max reached after attempt, stopping", {
+          max: MAX_POLLS,
+          attempts: pollCount,
+        });
+        return;
+      }
+      timeoutId = setTimeout(() => {
+        void pollOnce();
+      }, POLL_INTERVAL_MS);
     };
 
-    void loadDetails();
+    void pollOnce();
 
     return () => {
       isActive = false;
-      if (flushInterval) {
-        clearInterval(flushInterval);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     };
-  }, [matches, refreshIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, refreshIndex, shouldPollDetails, hasMatches]);
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");

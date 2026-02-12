@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import String, cast, or_
 from sqlmodel import select
 
 from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.models.match import Match
+from app.services.enqueue_match_details import enqueue_missing_detail_jobs
 from app.services.match_sync import upsert_matches_for_user
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_match_id import normalize_match_id
@@ -138,6 +138,9 @@ async def fetch_user_matches_job(
 async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
     """Enqueue match detail fetch jobs for matches without cached details.
 
+    Delegates to the shared ``enqueue_missing_detail_jobs`` helper,
+    passing the worker's own Redis pool from ``ctx``.
+
     Args:
         ctx: ARQ worker context with redis pool.
         match_ids: List of Riot match IDs to check.
@@ -151,32 +154,12 @@ async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
         )
         return
 
-    # Check which matches need detail fetching
-    async with async_session_factory() as session:
-        result = await session.execute(
-            select(Match.game_id).where(
-                Match.game_id.in_(match_ids),
-                or_(
-                    Match.game_info.is_(None),
-                    cast(Match.game_info, String) == "null",
-                ),
-            )
+    enqueued = await enqueue_missing_detail_jobs(match_ids, pool=redis)
+    if enqueued:
+        await increment_metric_safe(
+            "jobs.fetch_match_details.enqueued",
+            amount=enqueued,
         )
-        missing_details = [row[0] for row in result.fetchall()]
-
-    if missing_details:
-        logger.info(
-            "fetch_user_matches_job_enqueue_details",
-            extra={"count": len(missing_details)},
-        )
-        # Enqueue in batches of 5 to avoid overwhelming rate limits
-        for i in range(0, len(missing_details), 5):
-            batch = missing_details[i : i + 5]
-            await redis.enqueue_job("fetch_match_details_job", batch)
-            await increment_metric_safe(
-                "jobs.fetch_match_details.enqueued",
-                amount=len(batch),
-            )
 
 
 async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
