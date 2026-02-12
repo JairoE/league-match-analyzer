@@ -8,44 +8,26 @@ from sqlmodel import Field, SQLModel
 class UserCreate(SQLModel):
     """Payload for creating a user profile."""
 
+    email: str = Field(description="Email address for the user account.")
     summoner_name: str = Field(
         alias="summonerName",
-        description="Summoner name provided by the user during onboarding.",
-    )
-    riot_id: str = Field(
-        description="Riot ID in the format gameName#tagLine for lookups.",
-    )
-    puuid: str = Field(
-        description="Riot PUUID used as the internal identity for the user.",
-    )
-    profile_icon_id: int | None = Field(
-        default=None,
-        alias="profileIconId",
-        description="Optional profile icon identifier from Riot.",
-    )
-    summoner_level: int | None = Field(
-        default=None,
-        alias="summonerLevel",
-        description="Optional summoner level snapshot for the user.",
-    )
-    email: str | None = Field(
-        default=None,
-        description="Optional email address for account recovery.",
+        description="Summoner name or Riot ID in gameName#tagLine format.",
     )
 
     model_config = {"populate_by_name": True}
 
 
-class UserResponse(SQLModel):
-    """Response model for user profile data."""
+class RiotAccountResponse(SQLModel):
+    """Response model for riot account data."""
 
-    id: UUID = Field(description="Unique identifier for the user record.")
-    summoner_name: str = Field(
+    id: UUID = Field(description="Unique identifier for the riot account record.")
+    summoner_name: str | None = Field(
+        default=None,
         alias="summonerName",
         description="Summoner name for display.",
     )
     riot_id: str = Field(description="Riot ID in gameName#tagLine format.")
-    puuid: str = Field(description="Persistent Riot PUUID for the user.")
+    puuid: str = Field(description="Persistent Riot PUUID for the account.")
     profile_icon_id: int | None = Field(
         default=None,
         alias="profileIconId",
@@ -56,9 +38,20 @@ class UserResponse(SQLModel):
         alias="summonerLevel",
         description="Latest summoner level value if known.",
     )
-    email: str | None = Field(
-        default=None,
-        description="Email address attached to the account, if any.",
-    )
 
     model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class AuthResponse(SQLModel):
+    """Response model for sign-up/sign-in flows.
+
+    Returns both the app user and the linked riot account.
+    """
+
+    id: UUID = Field(description="Unique identifier for the user record.")
+    email: str = Field(description="Email address for the user.")
+    riot_account: RiotAccountResponse = Field(
+        description="Linked riot account data.",
+    )
+
+    model_config = {"populate_by_name": True}

@@ -1,14 +1,16 @@
-export type UserSession = {
-  id?: number | string;
-  userId?: number | string;
-  user_id?: number | string;
-  puuid?: string;
+export type RiotAccountData = {
+  id: string;
   summonerName?: string;
-  summoner_name?: string;
-  gameName?: string;
-  tagLine?: string;
-  email?: string;
-  [key: string]: unknown;
+  riot_id: string;
+  puuid: string;
+  profileIconId?: number;
+  summonerLevel?: number;
+};
+
+export type UserSession = {
+  id: string;
+  email: string;
+  riot_account: RiotAccountData;
 };
 
 export type UserAuthPayload = {

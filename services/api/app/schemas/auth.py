@@ -6,16 +6,15 @@ class UserAuthRequest(SQLModel):
 
     Attributes:
         summoner_name: Riot identifier provided by the user.
-        email: Optional email address attached to the account.
+        email: Email address for the user account.
     """
 
     summoner_name: str = Field(
         alias="summonerName",
         description="Summoner name or Riot ID in the format gameName#tagLine.",
     )
-    email: str | None = Field(
-        default=None,
-        description="Optional email address supplied by the client.",
+    email: str = Field(
+        description="Email address for the user account.",
     )
 
     model_config = {"populate_by_name": True}

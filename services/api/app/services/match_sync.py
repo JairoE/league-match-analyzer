@@ -7,29 +7,29 @@ from sqlmodel import select
 
 from app.core.logging import get_logger
 from app.models.match import Match
-from app.models.user_match import UserMatch
+from app.models.riot_account_match import RiotAccountMatch
 
 logger = get_logger("league_api.services.match_sync")
 
 
-async def upsert_matches_for_user(
+async def upsert_matches_for_riot_account(
     session: AsyncSession,
-    user_id: UUID,
+    riot_account_id: UUID,
     match_ids: list[str],
 ) -> int:
-    """Upsert match records and link them to a user.
+    """Upsert match records and link them to a riot account.
 
-    Retrieves: Existing matches and user-match links in batch.
-    Transforms: Creates missing matches and links to the user.
+    Retrieves: Existing matches and riot-account-match links in batch.
+    Transforms: Creates missing matches and links to the riot account.
     Why: Keeps match list sync lightweight while persisting IDs.
 
     Args:
         session: Async database session for queries.
-        user_id: UUID of the user to link.
+        riot_account_id: UUID of the riot account to link.
         match_ids: Riot match IDs to upsert.
 
     Returns:
-        Number of new user-match links created.
+        Number of new riot-account-match links created.
     """
     if not match_ids:
         return 0
@@ -49,12 +49,12 @@ async def upsert_matches_for_user(
 
     await session.flush()
 
-    # Batch fetch existing user-match links
+    # Batch fetch existing riot-account-match links
     all_match_uuids = [m.id for m in existing_matches.values()]
     result = await session.execute(
-        select(UserMatch.match_id).where(
-            UserMatch.user_id == user_id,
-            UserMatch.match_id.in_(all_match_uuids),
+        select(RiotAccountMatch.match_id).where(
+            RiotAccountMatch.riot_account_id == riot_account_id,
+            RiotAccountMatch.match_id.in_(all_match_uuids),
         )
     )
     already_linked = {row[0] for row in result.fetchall()}
@@ -63,12 +63,16 @@ async def upsert_matches_for_user(
     created = 0
     for match in existing_matches.values():
         if match.id not in already_linked:
-            session.add(UserMatch(user_id=user_id, match_id=match.id))
+            session.add(RiotAccountMatch(riot_account_id=riot_account_id, match_id=match.id))
             created += 1
 
     await session.commit()
     logger.info(
         "match_sync_upsert_done",
-        extra={"user_id": str(user_id), "match_count": len(match_ids), "linked": created},
+        extra={
+            "riot_account_id": str(riot_account_id),
+            "match_count": len(match_ids),
+            "linked": created,
+        },
     )
     return created

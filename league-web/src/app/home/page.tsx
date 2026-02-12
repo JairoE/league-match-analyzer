@@ -7,7 +7,7 @@ import MatchCard from "../../components/MatchCard";
 import {apiGet} from "../../lib/api";
 import {clearCache} from "../../lib/cache";
 import {loadSessionUser, clearSessionUser} from "../../lib/session";
-import {getUserDisplayName, getUserId} from "../../lib/user-utils";
+import {getUserDisplayName, getRiotAccountId} from "../../lib/user-utils";
 import {getMatchId} from "../../lib/match-utils";
 import type {MatchDetail, MatchSummary} from "../../lib/types/match";
 import type {RankInfo} from "../../lib/types/rank";
@@ -26,13 +26,18 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
 
-  const userId = useMemo(() => getUserId(user), [user]);
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchedAccount, setSearchedAccount] = useState<string | null>(null); // riot_id of searched account
+  const [searchedPuuid, setSearchedPuuid] = useState<string | null>(null);
+
+  const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
-  const hasMatches = useMemo(() => matches.length > 0, [matches]);
-  const shouldPollDetails = useMemo(() => {
-    if (!userId || !matches.length) return false;
-    return matches.some((m) => !m.game_info?.info);
-  }, [matches, userId]);
+
+  // Determine what we're currently viewing
+  const isViewingSearch = searchedAccount !== null;
+  const viewLabel = isViewingSearch ? searchedAccount : displayName;
 
   useEffect(() => {
     const session = loadSessionUser();
@@ -47,20 +52,23 @@ export default function HomePage() {
     setIsHydrated(true);
   }, [router]);
 
+  // Load own matches + rank
   useEffect(() => {
-    if (!userId) return;
+    if (!riotAccountId || isViewingSearch) return;
     let isActive = true;
 
     const loadOverview = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        console.debug("[home] fetching matches + rank", {userId});
+        console.debug("[home] fetching matches + rank", {riotAccountId});
         const [matchesResponse, rankResponse] = await Promise.all([
-          apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
+          apiGet<MatchSummary[]>(`/riot-accounts/${riotAccountId}/matches`, {
             cacheTtlMs: 60_000,
           }),
-          apiGet<RankInfo>(`/users/${userId}/fetch_rank`, {cacheTtlMs: 60_000}),
+          apiGet<RankInfo>(`/riot-accounts/${riotAccountId}/fetch_rank`, {
+            cacheTtlMs: 60_000,
+          }),
         ]);
 
         if (!isActive) return;
@@ -89,7 +97,7 @@ export default function HomePage() {
     return () => {
       isActive = false;
     };
-  }, [userId, refreshIndex]);
+  }, [riotAccountId, refreshIndex, isViewingSearch]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -110,43 +118,39 @@ export default function HomePage() {
   }, [matches]);
 
   // Poll the match list until all game_info fields are populated.
-  // The backend enqueues ARQ detail-fetch jobs on each list request,
-  // so polling picks up newly populated details as the worker fills them in.
   useEffect(() => {
-    if (!userId || !shouldPollDetails) {
-      if (userId && hasMatches) {
-        console.debug("[home] all match details present, no polling needed");
-      }
+    if (!riotAccountId || !matches.length || isViewingSearch) return;
+
+    const hasMissing = matches.some((m) => !m.game_info?.info);
+    if (!hasMissing) {
+      console.debug("[home] all match details present, no polling needed");
       return;
     }
 
     let isActive = true;
     let pollCount = 0;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const MAX_POLLS = 20;
     const POLL_INTERVAL_MS = 3_000;
 
-    console.debug("[home] starting detail polling");
+    console.debug("[home] starting detail polling", {
+      missing: matches.filter((m) => !m.game_info?.info).length,
+    });
 
-    const pollOnce = async () => {
+    const poll = setInterval(async () => {
       if (!isActive) return;
+      pollCount++;
 
-      // pollCount tracks *actual fetch attempts made*.
-      // Guard before increment so MAX_POLLS means "max API calls".
       if (pollCount >= MAX_POLLS) {
-        console.debug("[home] polling max reached, stopping", {
-          max: MAX_POLLS,
-          attempts: pollCount,
-        });
+        console.debug("[home] polling max reached, stopping");
+        clearInterval(poll);
         return;
       }
-      pollCount++;
-      const attempt = pollCount;
 
       try {
-        const fresh = await apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
-          useCache: false,
-        });
+        const fresh = await apiGet<MatchSummary[]>(
+          `/riot-accounts/${riotAccountId}/matches`,
+          {useCache: false}
+        );
         if (!isActive) return;
 
         const freshArray = Array.isArray(fresh) ? fresh : [];
@@ -156,40 +160,24 @@ export default function HomePage() {
 
         if (!stillMissing) {
           console.debug("[home] all details populated, stopping poll");
-          return;
+          clearInterval(poll);
+        } else {
+          console.debug("[home] poll incomplete", {
+            poll: pollCount,
+            stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
+          });
         }
-
-        console.debug("[home] poll incomplete", {
-          poll: attempt,
-          stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
-        });
       } catch (err) {
-        console.debug("[home] poll error", {err, poll: attempt});
+        console.debug("[home] poll error", {err, poll: pollCount});
       }
-
-      if (!isActive) return;
-      if (pollCount >= MAX_POLLS) {
-        console.debug("[home] polling max reached after attempt, stopping", {
-          max: MAX_POLLS,
-          attempts: pollCount,
-        });
-        return;
-      }
-      timeoutId = setTimeout(() => {
-        void pollOnce();
-      }, POLL_INTERVAL_MS);
-    };
-
-    void pollOnce();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       isActive = false;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      clearInterval(poll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, refreshIndex, shouldPollDetails, hasMatches]);
+  }, [riotAccountId, refreshIndex, isViewingSearch]);
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");
@@ -203,6 +191,47 @@ export default function HomePage() {
     router.push("/");
   };
 
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    setIsSearching(true);
+    setError(null);
+
+    try {
+      console.debug("[home] searching", {query});
+      // URL-encode the # in riot IDs
+      const encodedQuery = encodeURIComponent(query);
+      const searchMatches = await apiGet<MatchSummary[]>(
+        `/search/${encodedQuery}/matches`,
+        {useCache: false}
+      );
+
+      const resultMatches = Array.isArray(searchMatches) ? searchMatches : [];
+      setMatches(resultMatches);
+      setSearchedAccount(query);
+      // Extract puuid from first match participant or leave null
+      setSearchedPuuid(null); // Will be populated if we add account endpoint
+      setRank(null);
+      console.debug("[home] search done", {count: resultMatches.length});
+    } catch (err) {
+      console.debug("[home] search failed", {err});
+      setError("Search failed. Check the Riot ID and try again.");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleBackToMyMatches = () => {
+    setSearchedAccount(null);
+    setSearchedPuuid(null);
+    setSearchQuery("");
+    setMatches([]);
+    setMatchDetails({});
+    setRefreshIndex((prev) => prev + 1);
+  };
+
   if (!isHydrated) {
     return <div className={styles.loading}>Loading session...</div>;
   }
@@ -211,34 +240,66 @@ export default function HomePage() {
     <div className={styles.page}>
       <header className={styles.header}>
         <div>
-          <p className={styles.kicker}>Signed in as</p>
-          <h1>{displayName}</h1>
-          {rank ? (
+          <p className={styles.kicker}>
+            {isViewingSearch ? "Viewing matches for" : "Signed in as"}
+          </p>
+          <h1>{viewLabel}</h1>
+          {!isViewingSearch && rank ? (
             <p className={styles.rank}>
               {rank.queueType ?? "Ranked"} · {rank.tier ?? "Unranked"}{" "}
               {rank.rank ?? ""} · {rank.leaguePoints ?? 0} LP
             </p>
-          ) : (
+          ) : !isViewingSearch ? (
             <p className={styles.rank}>Rank data unavailable</p>
-          )}
+          ) : null}
         </div>
         <div className={styles.actions}>
-          <button className={styles.secondaryButton} onClick={handleRefresh}>
-            Refresh
-          </button>
+          {isViewingSearch ? (
+            <button
+              className={styles.secondaryButton}
+              onClick={handleBackToMyMatches}
+            >
+              ← My matches
+            </button>
+          ) : (
+            <button className={styles.secondaryButton} onClick={handleRefresh}>
+              Refresh
+            </button>
+          )}
           <button className={styles.primaryButton} onClick={handleSignOut}>
             Sign out
           </button>
         </div>
       </header>
 
+      {/* Search bar */}
+      <form className={styles.searchForm} onSubmit={handleSearch}>
+        <input
+          className={styles.searchInput}
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search summoner (e.g. Name#TAG)"
+          disabled={isSearching}
+        />
+        <button
+          className={styles.searchButton}
+          type="submit"
+          disabled={isSearching || !searchQuery.trim()}
+        >
+          {isSearching ? "Searching..." : "Search"}
+        </button>
+      </form>
+
       {error ? <p className={styles.error}>{error}</p> : null}
 
-      {isLoading ? (
-        <p className={styles.loadingInline}>Loading matches...</p>
+      {isLoading || isSearching ? (
+        <p className={styles.loadingInline}>
+          {isSearching ? "Searching..." : "Loading matches..."}
+        </p>
       ) : null}
 
-      {!isLoading && matches.length === 0 ? (
+      {!isLoading && !isSearching && matches.length === 0 ? (
         <p className={styles.empty}>No matches yet.</p>
       ) : (
         <section className={styles.matches}>

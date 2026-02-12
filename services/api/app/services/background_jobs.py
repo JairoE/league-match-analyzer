@@ -3,8 +3,8 @@ from arq.cron import cron
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.jobs.match_ingestion import fetch_match_details_job, fetch_user_matches_job
-from app.jobs.scheduled import sync_all_users_matches
+from app.jobs.match_ingestion import fetch_match_details_job, fetch_riot_account_matches_job
+from app.jobs.scheduled import sync_all_riot_accounts_matches
 from app.services.riot_api_client import RiotApiClient
 
 logger = get_logger("league_api.jobs")
@@ -47,15 +47,15 @@ class WorkerSettings:
 
     # On-demand job functions
     functions = [
-        fetch_user_matches_job,
+        fetch_riot_account_matches_job,
         fetch_match_details_job,
     ]
 
     # Scheduled cron jobs
-    # sync_all_users_matches runs every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
+    # sync_all_riot_accounts_matches runs every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
     cron_jobs = [
         cron(
-            sync_all_users_matches,
+            sync_all_riot_accounts_matches,
             hour={0, 6, 12, 18},
             minute={0},
             run_at_startup=settings.arq_cron_run_at_startup,

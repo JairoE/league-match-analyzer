@@ -7,7 +7,7 @@ from sqlmodel import select
 
 from app.core.logging import get_logger
 from app.models.match import Match
-from app.models.user_match import UserMatch
+from app.models.riot_account_match import RiotAccountMatch
 
 
 logger = get_logger("league_api.services.matches")
@@ -28,28 +28,31 @@ def parse_match_uuid(identifier: str) -> UUID | None:
         return None
 
 
-async def list_matches_for_user(session: AsyncSession, user_id: UUID) -> list[Match]:
-    """List matches for a given user ID, ordered by most recently played first.
+async def list_matches_for_riot_account(
+    session: AsyncSession,
+    riot_account_id: UUID,
+) -> list[Match]:
+    """List matches for a given riot account, ordered by most recently played first.
 
     Args:
         session: Async database session for queries.
-        user_id: UUID of the user.
+        riot_account_id: UUID of the riot account.
 
     Returns:
-        List of Match records associated with the user, sorted by game_start_timestamp DESC.
-        Matches without timestamps appear last.
+        List of Match records associated with the riot account,
+        sorted by game_start_timestamp DESC. Matches without timestamps appear last.
     """
-    logger.info("list_matches_for_user_start", extra={"user_id": str(user_id)})
+    logger.info("list_matches_for_riot_account_start", extra={"riot_account_id": str(riot_account_id)})
     result = await session.execute(
         select(Match)
-        .join(UserMatch, UserMatch.match_id == Match.id)
-        .where(UserMatch.user_id == user_id)
+        .join(RiotAccountMatch, RiotAccountMatch.match_id == Match.id)
+        .where(RiotAccountMatch.riot_account_id == riot_account_id)
         .order_by(Match.game_start_timestamp.desc().nulls_last()),
     )
     matches = list(result.scalars().all())
     logger.info(
-        "list_matches_for_user_done",
-        extra={"user_id": str(user_id), "match_count": len(matches)},
+        "list_matches_for_riot_account_done",
+        extra={"riot_account_id": str(riot_account_id), "match_count": len(matches)},
     )
     return matches
 
