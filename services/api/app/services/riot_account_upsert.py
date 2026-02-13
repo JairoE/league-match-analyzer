@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -10,6 +12,7 @@ from app.core.logging import get_logger
 from app.models.riot_account import RiotAccount
 from app.models.user import User
 from app.models.user_riot_account import UserRiotAccount
+from app.services.users import get_user_by_email
 
 logger = get_logger("league_api.services.riot_account_upsert")
 
@@ -43,29 +46,51 @@ async def upsert_riot_account(
     profile_icon_id = summoner_info.get("profileIconId")
     summoner_level = summoner_info.get("summonerLevel")
 
-    result = await session.execute(select(RiotAccount).where(RiotAccount.puuid == puuid))
+    result = await session.execute(
+        select(RiotAccount).where(
+            or_(RiotAccount.puuid == puuid, RiotAccount.riot_id == riot_id)
+        )
+    )
     account = result.scalar_one_or_none()
-    if not account:
-        result = await session.execute(select(RiotAccount).where(RiotAccount.riot_id == riot_id))
-        account = result.scalar_one_or_none()
 
     created = False
     if not account:
-        account = RiotAccount(
-            summoner_name=summoner_name,
-            riot_id=riot_id,
-            puuid=puuid,
-            profile_icon_id=profile_icon_id,
-            summoner_level=summoner_level,
-        )
-        session.add(account)
-        created = True
-    else:
-        account.summoner_name = summoner_name
-        account.riot_id = riot_id
-        account.puuid = puuid
-        account.profile_icon_id = profile_icon_id
-        account.summoner_level = summoner_level
+        try:
+            # Savepoint confines rollback to this insert attempt only.
+            async with session.begin_nested():
+                account = RiotAccount(
+                    summoner_name=summoner_name,
+                    riot_id=riot_id,
+                    puuid=puuid,
+                    profile_icon_id=profile_icon_id,
+                    summoner_level=summoner_level,
+                )
+                session.add(account)
+                await session.flush()
+                created = True
+        except IntegrityError:
+            logger.warning(
+                "riot_account_upsert_insert_conflict_retry",
+                extra={"riot_id": riot_id, "puuid": puuid},
+            )
+            result = await session.execute(
+                select(RiotAccount).where(
+                    or_(RiotAccount.puuid == puuid, RiotAccount.riot_id == riot_id)
+                )
+            )
+            account = result.scalar_one_or_none()
+            if not account:
+                logger.exception(
+                    "riot_account_upsert_conflict_retry_failed",
+                    extra={"riot_id": riot_id, "puuid": puuid},
+                )
+                raise
+
+    account.summoner_name = summoner_name
+    account.riot_id = riot_id
+    account.puuid = puuid
+    account.profile_icon_id = profile_icon_id
+    account.summoner_level = summoner_level
 
     await session.flush()
     logger.info(
@@ -153,8 +178,7 @@ async def upsert_user_and_riot_account(
         Tuple of (User, RiotAccount) after upsert.
     """
     # Find or create user by email
-    result = await session.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
+    user = await get_user_by_email(session, email)
     if not user:
         user = User(email=email)
         session.add(user)
