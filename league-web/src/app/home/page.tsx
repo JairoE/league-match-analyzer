@@ -7,7 +7,11 @@ import MatchCard from "../../components/MatchCard";
 import {apiGet} from "../../lib/api";
 import {clearCache} from "../../lib/cache";
 import {loadSessionUser, clearSessionUser} from "../../lib/session";
-import {getUserDisplayName, getUserId} from "../../lib/user-utils";
+import {
+  getUserDisplayName,
+  getRiotAccountId,
+  getUserPuuid,
+} from "../../lib/user-utils";
 import {getMatchId} from "../../lib/match-utils";
 import type {MatchDetail, MatchSummary} from "../../lib/types/match";
 import type {RankInfo} from "../../lib/types/rank";
@@ -26,13 +30,18 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
 
-  const userId = useMemo(() => getUserId(user), [user]);
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
+  const userPuuid = useMemo(() => getUserPuuid(user), [user]);
+
   const hasMatches = useMemo(() => matches.length > 0, [matches]);
-  const shouldPollDetails = useMemo(() => {
-    if (!userId || !matches.length) return false;
-    return matches.some((m) => !m.game_info?.info);
-  }, [matches, userId]);
+  const missingDetailCount = useMemo(
+    () => matches.filter((m) => !m.game_info?.info).length,
+    [matches]
+  );
 
   useEffect(() => {
     const session = loadSessionUser();
@@ -47,20 +56,23 @@ export default function HomePage() {
     setIsHydrated(true);
   }, [router]);
 
+  // Load own matches + rank
   useEffect(() => {
-    if (!userId) return;
+    if (!riotAccountId) return;
     let isActive = true;
 
     const loadOverview = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        console.debug("[home] fetching matches + rank", {userId});
+        console.debug("[home] fetching matches + rank", {riotAccountId});
         const [matchesResponse, rankResponse] = await Promise.all([
-          apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
+          apiGet<MatchSummary[]>(`/riot-accounts/${riotAccountId}/matches`, {
             cacheTtlMs: 60_000,
           }),
-          apiGet<RankInfo>(`/users/${userId}/fetch_rank`, {cacheTtlMs: 60_000}),
+          apiGet<RankInfo>(`/riot-accounts/${riotAccountId}/fetch_rank`, {
+            cacheTtlMs: 60_000,
+          }),
         ]);
 
         if (!isActive) return;
@@ -89,7 +101,7 @@ export default function HomePage() {
     return () => {
       isActive = false;
     };
-  }, [userId, refreshIndex]);
+  }, [riotAccountId, refreshIndex]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -110,43 +122,37 @@ export default function HomePage() {
   }, [matches]);
 
   // Poll the match list until all game_info fields are populated.
-  // The backend enqueues ARQ detail-fetch jobs on each list request,
-  // so polling picks up newly populated details as the worker fills them in.
   useEffect(() => {
-    if (!userId || !shouldPollDetails) {
-      if (userId && hasMatches) {
-        console.debug("[home] all match details present, no polling needed");
-      }
+    if (!riotAccountId || !hasMatches) return;
+    if (missingDetailCount === 0) {
+      console.debug("[home] all match details present, no polling needed");
       return;
     }
 
     let isActive = true;
     let pollCount = 0;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const MAX_POLLS = 20;
     const POLL_INTERVAL_MS = 3_000;
 
-    console.debug("[home] starting detail polling");
+    console.debug("[home] starting detail polling", {
+      missing: missingDetailCount,
+    });
 
-    const pollOnce = async () => {
+    const poll = setInterval(async () => {
       if (!isActive) return;
+      pollCount++;
 
-      // pollCount tracks *actual fetch attempts made*.
-      // Guard before increment so MAX_POLLS means "max API calls".
       if (pollCount >= MAX_POLLS) {
-        console.debug("[home] polling max reached, stopping", {
-          max: MAX_POLLS,
-          attempts: pollCount,
-        });
+        console.debug("[home] polling max reached, stopping");
+        clearInterval(poll);
         return;
       }
-      pollCount++;
-      const attempt = pollCount;
 
       try {
-        const fresh = await apiGet<MatchSummary[]>(`/users/${userId}/matches`, {
-          useCache: false,
-        });
+        const fresh = await apiGet<MatchSummary[]>(
+          `/riot-accounts/${riotAccountId}/matches`,
+          {useCache: false}
+        );
         if (!isActive) return;
 
         const freshArray = Array.isArray(fresh) ? fresh : [];
@@ -156,40 +162,23 @@ export default function HomePage() {
 
         if (!stillMissing) {
           console.debug("[home] all details populated, stopping poll");
-          return;
+          clearInterval(poll);
+        } else {
+          console.debug("[home] poll incomplete", {
+            poll: pollCount,
+            stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
+          });
         }
-
-        console.debug("[home] poll incomplete", {
-          poll: attempt,
-          stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
-        });
       } catch (err) {
-        console.debug("[home] poll error", {err, poll: attempt});
+        console.debug("[home] poll error", {err, poll: pollCount});
       }
-
-      if (!isActive) return;
-      if (pollCount >= MAX_POLLS) {
-        console.debug("[home] polling max reached after attempt, stopping", {
-          max: MAX_POLLS,
-          attempts: pollCount,
-        });
-        return;
-      }
-      timeoutId = setTimeout(() => {
-        void pollOnce();
-      }, POLL_INTERVAL_MS);
-    };
-
-    void pollOnce();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       isActive = false;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      clearInterval(poll);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, refreshIndex, shouldPollDetails, hasMatches]);
+  }, [riotAccountId, refreshIndex, hasMatches, missingDetailCount]);
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");
@@ -201,6 +190,13 @@ export default function HomePage() {
     console.debug("[home] sign out");
     clearSessionUser();
     router.push("/");
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+    router.push(`/riot-account/${encodeURIComponent(query)}`);
   };
 
   if (!isHydrated) {
@@ -232,6 +228,24 @@ export default function HomePage() {
         </div>
       </header>
 
+      {/* Search bar */}
+      <form className={styles.searchForm} onSubmit={handleSearch}>
+        <input
+          className={styles.searchInput}
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search summoner (e.g. Name#TAG)"
+        />
+        <button
+          className={styles.searchButton}
+          type="submit"
+          disabled={!searchQuery.trim()}
+        >
+          Search
+        </button>
+      </form>
+
       {error ? <p className={styles.error}>{error}</p> : null}
 
       {isLoading ? (
@@ -251,6 +265,7 @@ export default function HomePage() {
                 match={match}
                 detail={detail}
                 user={user}
+                targetPuuid={userPuuid}
               />
             );
           })}

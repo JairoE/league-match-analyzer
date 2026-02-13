@@ -9,79 +9,79 @@ import time
 
 from app.core.logging import get_logger
 from app.db.session import async_session_factory
-from app.services.users import list_all_active_users
+from app.services.riot_accounts import list_all_active_riot_accounts
 from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.jobs.scheduled")
 
 
-async def sync_all_users_matches(ctx: dict) -> dict:
-    """Scheduled job: Enqueue match sync for all users.
+async def sync_all_riot_accounts_matches(ctx: dict) -> dict:
+    """Scheduled job: Enqueue match sync for all active riot accounts.
 
-    Retrieves: All users from the database.
-    Transforms: Enqueues fetch_user_matches_job for each user.
+    Retrieves: All riot accounts with recent match activity.
+    Transforms: Enqueues fetch_riot_account_matches_job for each.
     Why: Periodic ingestion keeps match data fresh for AI analysis.
 
     Args:
         ctx: ARQ worker context with redis pool.
 
     Returns:
-        Dict with user count and enqueue status.
+        Dict with account count and enqueue status.
     """
-    logger.info("sync_all_users_matches_start")
-    await increment_metric_safe("jobs.sync_all_users_matches.started")
+    logger.info("sync_all_riot_accounts_matches_start")
+    await increment_metric_safe("jobs.sync_all_riot_accounts_matches.started")
 
     redis = ctx.get("redis")
     if not redis:
-        logger.error("sync_all_users_matches_no_redis")
+        logger.error("sync_all_riot_accounts_matches_no_redis")
         await increment_metric_safe(
-            "jobs.sync_all_users_matches.failed",
+            "jobs.sync_all_riot_accounts_matches.failed",
             tags={"reason": "no_redis"},
         )
         return {"status": "error", "error": "no_redis_context"}
 
     async with async_session_factory() as session:
-        users = await list_all_active_users(session, active_window_days=7)
+        accounts = await list_all_active_riot_accounts(session, active_window_days=7)
 
-    if not users:
-        logger.info("sync_all_users_matches_no_users")
-        await increment_metric_safe("jobs.sync_all_users_matches.success")
-        return {"status": "ok", "users_queued": 0}
+    if not accounts:
+        logger.info("sync_all_riot_accounts_matches_no_accounts")
+        await increment_metric_safe("jobs.sync_all_riot_accounts_matches.success")
+        return {"status": "ok", "accounts_queued": 0}
 
     enqueued = 0
-    for user in users:
+    for account in accounts:
         try:
             await redis.enqueue_job(
-                "fetch_user_matches_job",
-                str(user.id),
-                _job_id=f"sync_matches_{user.id}_{int(time.time())}",
+                "fetch_riot_account_matches_job",
+                str(account.id),
+                _job_id=f"sync_matches_{account.id}_{int(time.time())}",
             )
             enqueued += 1
             logger.info(
-                "sync_all_users_matches_enqueued",
-                extra={"user_id": str(user.id), "riot_id": user.riot_id},
+                "sync_all_riot_accounts_matches_enqueued",
+                extra={"riot_account_id": str(account.id), "riot_id": account.riot_id},
             )
         except Exception as exc:
             logger.error(
-                "sync_all_users_matches_enqueue_error",
-                extra={"user_id": str(user.id), "error": str(exc)},
+                "sync_all_riot_accounts_matches_enqueue_error",
+                extra={"riot_account_id": str(account.id), "error": str(exc)},
             )
             await increment_metric_safe(
-                "jobs.sync_all_users_matches.enqueue_failed",
+                "jobs.sync_all_riot_accounts_matches.enqueue_failed",
                 tags={"reason": "enqueue_exception"},
             )
 
     logger.info(
-        "sync_all_users_matches_done",
-        extra={"total_users": len(users), "enqueued": enqueued},
+        "sync_all_riot_accounts_matches_done",
+        extra={"total_accounts": len(accounts), "enqueued": enqueued},
     )
-    await increment_metric_safe("jobs.sync_all_users_matches.success")
+    await increment_metric_safe("jobs.sync_all_riot_accounts_matches.success")
     await increment_metric_safe(
-        "jobs.sync_all_users_matches.users_enqueued", amount=enqueued
+        "jobs.sync_all_riot_accounts_matches.accounts_enqueued", amount=enqueued
     )
 
     return {
         "status": "ok",
-        "total_users": len(users),
-        "users_queued": enqueued,
+        "total_accounts": len(accounts),
+        "accounts_queued": enqueued,
     }

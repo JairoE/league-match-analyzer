@@ -1,6 +1,6 @@
 """Match ingestion jobs for ARQ workers.
 
-Fetches match IDs and details for individual users with rate limiting.
+Fetches match IDs and details for individual riot accounts with rate limiting.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.models.match import Match
 from app.services.enqueue_match_details import enqueue_missing_detail_jobs
-from app.services.match_sync import upsert_matches_for_user
+from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_match_id import normalize_match_id
-from app.services.users import get_user_by_id
+from app.services.riot_accounts import get_riot_account_by_id
 from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.jobs.match_ingestion")
@@ -25,76 +25,76 @@ logger = get_logger("league_api.jobs.match_ingestion")
 DEFAULT_MATCH_COUNT = 20
 
 
-async def fetch_user_matches_job(
+async def fetch_riot_account_matches_job(
     ctx: dict,
-    user_id: str,
+    riot_account_id: str,
     start: int = 0,
     count: int = DEFAULT_MATCH_COUNT,
 ) -> dict:
-    """Fetch latest match IDs for a single user.
+    """Fetch latest match IDs for a single riot account.
 
-    Retrieves: Match IDs from Riot API for the user's PUUID.
-    Transforms: Upserts match records and user-match links.
+    Retrieves: Match IDs from Riot API for the account's PUUID.
+    Transforms: Upserts match records and riot-account-match links.
     Why: Enables background ingestion without blocking request handlers.
 
     Args:
         ctx: ARQ worker context.
-        user_id: UUID string of the user.
+        riot_account_id: UUID string of the riot account.
         start: Offset for match list pagination.
         count: Number of matches to fetch.
 
     Returns:
-        Dict with user_id, new_matches count, and status.
+        Dict with riot_account_id, new_matches count, and status.
     """
     logger.info(
-        "fetch_user_matches_job_start",
-        extra={"user_id": user_id, "start": start, "count": count},
+        "fetch_riot_account_matches_job_start",
+        extra={"riot_account_id": riot_account_id, "start": start, "count": count},
     )
-    await increment_metric_safe("jobs.fetch_user_matches.started")
+    await increment_metric_safe("jobs.fetch_riot_account_matches.started")
 
     try:
-        user_uuid = UUID(user_id)
+        account_uuid = UUID(riot_account_id)
     except ValueError:
-        logger.error("fetch_user_matches_job_invalid_uuid", extra={"user_id": user_id})
+        logger.error("fetch_riot_account_matches_job_invalid_uuid", extra={"riot_account_id": riot_account_id})
         await increment_metric_safe(
-            "jobs.fetch_user_matches.failed",
+            "jobs.fetch_riot_account_matches.failed",
             tags={"reason": "invalid_uuid"},
         )
-        return {"user_id": user_id, "status": "error", "error": "invalid_uuid"}
+        return {"riot_account_id": riot_account_id, "status": "error", "error": "invalid_uuid"}
 
     async with async_session_factory() as session:
-        user = await get_user_by_id(session, user_uuid)
-        if not user:
+        account = await get_riot_account_by_id(session, account_uuid)
+        if not account:
             logger.warning(
-                "fetch_user_matches_job_user_not_found",
-                extra={"user_id": user_id},
+                "fetch_riot_account_matches_job_not_found",
+                extra={"riot_account_id": riot_account_id},
             )
             await increment_metric_safe(
-                "jobs.fetch_user_matches.failed",
-                tags={"reason": "user_not_found"},
+                "jobs.fetch_riot_account_matches.failed",
+                tags={"reason": "account_not_found"},
             )
-            return {"user_id": user_id, "status": "error", "error": "user_not_found"}
+            return {"riot_account_id": riot_account_id, "status": "error", "error": "account_not_found"}
 
         try:
             client = ctx.get("riot_client") or RiotApiClient()
             match_ids = await client.fetch_match_ids_by_puuid(
-                user.puuid, start=start, count=count
+                account.puuid, start=start, count=count
             )
 
             if not match_ids:
                 logger.info(
-                    "fetch_user_matches_job_no_matches",
-                    extra={"user_id": user_id},
+                    "fetch_riot_account_matches_job_no_matches",
+                    extra={"riot_account_id": riot_account_id},
                 )
-                await increment_metric_safe("jobs.fetch_user_matches.success")
-                return {"user_id": user_id, "status": "ok", "new_matches": 0}
+                await increment_metric_safe("jobs.fetch_riot_account_matches.success")
+                return {"riot_account_id": riot_account_id, "status": "ok", "new_matches": 0}
 
-            new_links = await upsert_matches_for_user(session, user.id, match_ids)
+            new_links = await upsert_matches_for_riot_account(session, account.id, match_ids)
 
             logger.info(
-                "fetch_user_matches_job_done",
+                "fetch_riot_account_matches_job_done",
                 extra={
-                    "user_id": user_id,
+                    "riot_account_id": riot_account_id,
                     "fetched": len(match_ids),
                     "new_links": new_links,
                 },
@@ -102,13 +102,13 @@ async def fetch_user_matches_job(
 
             # Enqueue detail fetch jobs for matches without game_info
             await _enqueue_detail_jobs(ctx, match_ids)
-            await increment_metric_safe("jobs.fetch_user_matches.success")
+            await increment_metric_safe("jobs.fetch_riot_account_matches.success")
             await increment_metric_safe(
-                "jobs.fetch_user_matches.matches_fetched", amount=len(match_ids)
+                "jobs.fetch_riot_account_matches.matches_fetched", amount=len(match_ids)
             )
 
             return {
-                "user_id": user_id,
+                "riot_account_id": riot_account_id,
                 "status": "ok",
                 "fetched": len(match_ids),
                 "new_matches": new_links,
@@ -116,19 +116,19 @@ async def fetch_user_matches_job(
 
         except RiotRequestError as exc:
             logger.error(
-                "fetch_user_matches_job_riot_error",
+                "fetch_riot_account_matches_job_riot_error",
                 extra={
-                    "user_id": user_id,
+                    "riot_account_id": riot_account_id,
                     "status": exc.status,
                     "error_message": exc.message,
                 },
             )
             await increment_metric_safe(
-                "jobs.fetch_user_matches.failed",
+                "jobs.fetch_riot_account_matches.failed",
                 tags={"reason": "riot_api_error", "status": str(exc.status or 0)},
             )
             return {
-                "user_id": user_id,
+                "riot_account_id": riot_account_id,
                 "status": "error",
                 "error": "riot_api_error",
                 "details": exc.message,
@@ -138,16 +138,13 @@ async def fetch_user_matches_job(
 async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
     """Enqueue match detail fetch jobs for matches without cached details.
 
-    Delegates to the shared ``enqueue_missing_detail_jobs`` helper,
-    passing the worker's own Redis pool from ``ctx``.
-
     Args:
         ctx: ARQ worker context with redis pool.
         match_ids: List of Riot match IDs to check.
     """
     redis = ctx.get("redis")
     if not redis:
-        logger.warning("fetch_user_matches_job_no_redis_context")
+        logger.warning("fetch_riot_account_matches_job_no_redis_context")
         await increment_metric_safe(
             "jobs.fetch_match_details.enqueue_failed",
             tags={"reason": "no_redis"},

@@ -9,10 +9,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.logging import get_logger
-from app.models.user_match import UserMatch
+from app.models.riot_account_match import RiotAccountMatch
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.models.riot_account import RiotAccount
 
 logger = get_logger("league_api.models.match")
 logger.debug("match_model_loaded")
@@ -30,11 +30,11 @@ class Match(SQLModel, table=True):
     )
     game_info: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
-    users: list["User"] = Relationship(
+    riot_accounts: list["RiotAccount"] = Relationship(
         sa_relationship=relationship(
-            "User",
+            "RiotAccount",
             back_populates="matches",
-            secondary=UserMatch.__table__,
+            secondary=RiotAccountMatch.__table__,
         )
     )
 

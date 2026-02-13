@@ -8,30 +8,23 @@ from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.logging import get_logger
-from app.models.user_match import UserMatch
 
 if TYPE_CHECKING:
-    from app.models.match import Match
+    from app.models.user_riot_account import UserRiotAccount
 
 logger = get_logger("league_api.models.user")
 logger.debug("user_model_loaded")
 
 
 class User(SQLModel, table=True):
-    """User identity record for a summoner profile."""
+    """App user identity record. Riot data lives in riot_account."""
 
     id: UUID | None = Field(default_factory=uuid4, primary_key=True, index=True)
-    summoner_name: str = Field(sa_column=Column(String, nullable=False))
-    riot_id: str = Field(sa_column=Column(String, unique=True, nullable=False, index=True))
-    puuid: str = Field(sa_column=Column(String, unique=True, nullable=False, index=True))
-    profile_icon_id: int | None = Field(default=None)
-    summoner_level: int | None = Field(default=None)
-    email: str | None = Field(default=None)
+    email: str = Field(sa_column=Column(String, unique=True, nullable=False, index=True))
 
-    matches: list["Match"] = Relationship(
+    riot_account_links: list["UserRiotAccount"] = Relationship(
         sa_relationship=relationship(
-            "Match",
-            back_populates="users",
-            secondary=UserMatch.__table__,
+            "UserRiotAccount",
+            back_populates="user",
         )
     )
