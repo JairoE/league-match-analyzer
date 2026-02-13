@@ -15,7 +15,7 @@ import {
 import {getMatchId} from "../../lib/match-utils";
 import type {MatchDetail, MatchSummary} from "../../lib/types/match";
 import type {RankInfo} from "../../lib/types/rank";
-import type {RiotAccountData, UserSession} from "../../lib/types/user";
+import type {UserSession} from "../../lib/types/user";
 
 export default function HomePage() {
   const router = useRouter();
@@ -32,18 +32,11 @@ export default function HomePage() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchedAccount, setSearchedAccount] = useState<string | null>(null); // riot_id of searched account
-  const [searchedPuuid, setSearchedPuuid] = useState<string | null>(null);
 
   const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
 
-  // Determine what we're currently viewing
-  const isViewingSearch = searchedAccount !== null;
-  const viewLabel = isViewingSearch ? searchedAccount : displayName;
-  const targetPuuid = isViewingSearch ? searchedPuuid : userPuuid;
   const hasMatches = useMemo(() => matches.length > 0, [matches]);
   const missingDetailCount = useMemo(
     () => matches.filter((m) => !m.game_info?.info).length,
@@ -65,7 +58,7 @@ export default function HomePage() {
 
   // Load own matches + rank
   useEffect(() => {
-    if (!riotAccountId || isViewingSearch) return;
+    if (!riotAccountId) return;
     let isActive = true;
 
     const loadOverview = async () => {
@@ -108,7 +101,7 @@ export default function HomePage() {
     return () => {
       isActive = false;
     };
-  }, [riotAccountId, refreshIndex, isViewingSearch]);
+  }, [riotAccountId, refreshIndex]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -130,7 +123,7 @@ export default function HomePage() {
 
   // Poll the match list until all game_info fields are populated.
   useEffect(() => {
-    if (!riotAccountId || !hasMatches || isViewingSearch) return;
+    if (!riotAccountId || !hasMatches) return;
     if (missingDetailCount === 0) {
       console.debug("[home] all match details present, no polling needed");
       return;
@@ -185,13 +178,7 @@ export default function HomePage() {
       isActive = false;
       clearInterval(poll);
     };
-  }, [
-    riotAccountId,
-    refreshIndex,
-    isViewingSearch,
-    hasMatches,
-    missingDetailCount,
-  ]);
+  }, [riotAccountId, refreshIndex, hasMatches, missingDetailCount]);
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");
@@ -205,57 +192,11 @@ export default function HomePage() {
     router.push("/");
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
+  const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const query = searchQuery.trim();
     if (!query) return;
-
-    setIsSearching(true);
-    setError(null);
-
-    try {
-      console.debug("[home] searching", {query});
-      // URL-encode the # in riot IDs
-      const encodedQuery = encodeURIComponent(query);
-      const [searchMatches, accountResponse] = await Promise.all([
-        apiGet<MatchSummary[]>(`/search/${encodedQuery}/matches`, {
-          useCache: false,
-        }),
-        apiGet<RiotAccountData>(`/search/${encodedQuery}/account`, {
-          useCache: false,
-        }),
-      ]);
-      const accountPuuid = accountResponse?.puuid ?? null;
-      if (!accountPuuid) {
-        throw new Error("Missing searched account PUUID");
-      }
-
-      const resultMatches = Array.isArray(searchMatches) ? searchMatches : [];
-      setMatches(resultMatches);
-      setSearchedAccount(accountResponse?.riot_id ?? query);
-      setSearchedPuuid(accountPuuid);
-      setRank(null);
-      console.debug("[home] search done", {
-        count: resultMatches.length,
-        riotId: accountResponse?.riot_id ?? query,
-        puuid: accountPuuid,
-      });
-    } catch (err) {
-      console.debug("[home] search failed", {err});
-      setError("Search failed. Check the Riot ID and try again.");
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const handleBackToMyMatches = () => {
-    console.debug("[home] returning to signed-in matches");
-    setSearchedAccount(null);
-    setSearchedPuuid(null);
-    setSearchQuery("");
-    setMatches([]);
-    setMatchDetails({});
-    setRefreshIndex((prev) => prev + 1);
+    router.push(`/riot-account/${encodeURIComponent(query)}`);
   };
 
   if (!isHydrated) {
@@ -266,32 +207,21 @@ export default function HomePage() {
     <div className={styles.page}>
       <header className={styles.header}>
         <div>
-          <p className={styles.kicker}>
-            {isViewingSearch ? "Viewing matches for" : "Signed in as"}
-          </p>
-          <h1>{viewLabel}</h1>
-          {!isViewingSearch && rank ? (
+          <p className={styles.kicker}>Signed in as</p>
+          <h1>{displayName}</h1>
+          {rank ? (
             <p className={styles.rank}>
               {rank.queueType ?? "Ranked"} · {rank.tier ?? "Unranked"}{" "}
               {rank.rank ?? ""} · {rank.leaguePoints ?? 0} LP
             </p>
-          ) : !isViewingSearch ? (
+          ) : (
             <p className={styles.rank}>Rank data unavailable</p>
-          ) : null}
+          )}
         </div>
         <div className={styles.actions}>
-          {isViewingSearch ? (
-            <button
-              className={styles.secondaryButton}
-              onClick={handleBackToMyMatches}
-            >
-              ← My matches
-            </button>
-          ) : (
-            <button className={styles.secondaryButton} onClick={handleRefresh}>
-              Refresh
-            </button>
-          )}
+          <button className={styles.secondaryButton} onClick={handleRefresh}>
+            Refresh
+          </button>
           <button className={styles.primaryButton} onClick={handleSignOut}>
             Sign out
           </button>
@@ -306,26 +236,23 @@ export default function HomePage() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search summoner (e.g. Name#TAG)"
-          disabled={isSearching}
         />
         <button
           className={styles.searchButton}
           type="submit"
-          disabled={isSearching || !searchQuery.trim()}
+          disabled={!searchQuery.trim()}
         >
-          {isSearching ? "Searching..." : "Search"}
+          Search
         </button>
       </form>
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
-      {isLoading || isSearching ? (
-        <p className={styles.loadingInline}>
-          {isSearching ? "Searching..." : "Loading matches..."}
-        </p>
+      {isLoading ? (
+        <p className={styles.loadingInline}>Loading matches...</p>
       ) : null}
 
-      {!isLoading && !isSearching && matches.length === 0 ? (
+      {!isLoading && matches.length === 0 ? (
         <p className={styles.empty}>No matches yet.</p>
       ) : (
         <section className={styles.matches}>
@@ -338,8 +265,7 @@ export default function HomePage() {
                 match={match}
                 detail={detail}
                 user={user}
-                isSearchView={isViewingSearch}
-                targetPuuid={targetPuuid}
+                targetPuuid={userPuuid}
               />
             );
           })}
