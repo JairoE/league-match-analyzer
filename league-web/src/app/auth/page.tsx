@@ -12,7 +12,6 @@ import type {UserSession} from "../../lib/types/user";
 export default function AuthPage() {
   const router = useRouter();
   const [isHydrated, setIsHydrated] = useState(false);
-  const [user, setUser] = useState<UserSession | null>(null);
 
   useEffect(() => {
     const existing = loadSessionUser();
@@ -23,15 +22,9 @@ export default function AuthPage() {
     setIsHydrated(true);
   }, [router]);
 
-  useEffect(() => {
-    if (!user) return;
-    console.debug("[auth] user state set");
-  }, [user]);
-
   const handleAuthSuccess = (user: UserSession) => {
     console.debug("[auth] storing session", {user});
     saveSessionUser(user);
-    setUser(user);
     router.push("/home");
   };
 
