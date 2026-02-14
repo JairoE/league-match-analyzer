@@ -1,52 +1,50 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import {useEffect, useState} from "react";
+import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
-import SignInForm from "../components/SignInForm";
-import SignUpForm from "../components/SignUpForm";
-import { loadSessionUser, saveSessionUser } from "../lib/session";
-import type { UserSession } from "../lib/types/user";
+import {loadSessionUser} from "../lib/session";
+import Header from "../components/Header";
+import SearchBar from "../components/SearchBar";
 
-export default function Home() {
+export default function HomePage() {
   const router = useRouter();
   const [isHydrated, setIsHydrated] = useState(false);
-  const [user, setUser] = useState<UserSession | null>(null);
 
   useEffect(() => {
     const existing = loadSessionUser();
     if (existing) {
-      console.debug("[auth] session found, redirecting");
+      console.debug("[home] session found, redirecting");
       router.push("/home");
     }
     setIsHydrated(true);
   }, [router]);
 
-  useEffect(() => {
-    if (!user) return;
-    console.debug("[auth] user state set");
-  }, [user]);
-
-  const handleAuthSuccess = (user: UserSession) => {
-    console.debug("[auth] storing session", { user });
-    saveSessionUser(user);
-    setUser(user);
-    router.push("/home");
-  };
-
   if (!isHydrated) {
-    return <div className={styles.loading}>Loading session...</div>;
+    return <div className={styles.loading}>Loading...</div>;
   }
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <h1>League Match Analyzer</h1>
-        <p>Sign in or create an account to load your match history.</p>
-      </header>
-      <main className={styles.forms}>
-        <SignInForm onAuthSuccess={handleAuthSuccess} />
-        <SignUpForm onAuthSuccess={handleAuthSuccess} />
+      <Header />
+      <main className={styles.main}>
+        <SearchBar />
+        <div className={styles.features}>
+          <div className={styles.feature}>
+            <h3>Instant Search</h3>
+            <p>Search any summoner's match history without registration</p>
+          </div>
+          <div className={styles.feature}>
+            <h3>Detailed Analytics</h3>
+            <p>Deep dive into KDA, CS/min, damage share, and more</p>
+          </div>
+          <div className={styles.feature}>
+            <h3>Champion Insights</h3>
+            <p>
+              Champion-specific performance metrics and build recommendations
+            </p>
+          </div>
+        </div>
       </main>
     </div>
   );
