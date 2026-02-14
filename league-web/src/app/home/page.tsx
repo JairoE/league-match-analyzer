@@ -3,10 +3,13 @@
 import {useEffect, useMemo, useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
+import Header from "../../components/Header";
+import SubHeader from "../../components/SubHeader";
+import SearchBar from "../../components/SearchBar";
 import MatchCard from "../../components/MatchCard";
 import {apiGet} from "../../lib/api";
 import {clearCache} from "../../lib/cache";
-import {loadSessionUser, clearSessionUser} from "../../lib/session";
+import {loadSessionUser} from "../../lib/session";
 import {
   getUserDisplayName,
   getRiotAccountId,
@@ -29,9 +32,6 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
-
-  // Search state
-  const [searchQuery, setSearchQuery] = useState("");
 
   const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
@@ -186,18 +186,9 @@ export default function HomePage() {
     setRefreshIndex((prev) => prev + 1);
   };
 
-  const handleSignOut = () => {
-    console.debug("[home] sign out");
-    clearSessionUser();
-    router.push("/");
-  };
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const query = searchQuery.trim();
-    if (!query) return;
-    router.push(`/riot-account/${encodeURIComponent(query)}`);
-  };
+  const rankSubtitle = rank
+    ? `${rank.queueType ?? "Ranked"} · ${rank.tier ?? "Unranked"} ${rank.rank ?? ""} · ${rank.leaguePoints ?? 0} LP`
+    : "Rank data unavailable";
 
   if (!isHydrated) {
     return <div className={styles.loading}>Loading session...</div>;
@@ -205,46 +196,20 @@ export default function HomePage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <p className={styles.kicker}>Signed in as</p>
-          <h1>{displayName}</h1>
-          {rank ? (
-            <p className={styles.rank}>
-              {rank.queueType ?? "Ranked"} · {rank.tier ?? "Unranked"}{" "}
-              {rank.rank ?? ""} · {rank.leaguePoints ?? 0} LP
-            </p>
-          ) : (
-            <p className={styles.rank}>Rank data unavailable</p>
-          )}
-        </div>
-        <div className={styles.actions}>
+      <Header />
+
+      <SubHeader
+        kicker="Signed in as"
+        title={displayName}
+        subtitle={rankSubtitle}
+        actions={
           <button className={styles.secondaryButton} onClick={handleRefresh}>
             Refresh
           </button>
-          <button className={styles.primaryButton} onClick={handleSignOut}>
-            Sign out
-          </button>
-        </div>
-      </header>
+        }
+      />
 
-      {/* Search bar */}
-      <form className={styles.searchForm} onSubmit={handleSearch}>
-        <input
-          className={styles.searchInput}
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search summoner (e.g. Name#TAG)"
-        />
-        <button
-          className={styles.searchButton}
-          type="submit"
-          disabled={!searchQuery.trim()}
-        >
-          Search
-        </button>
-      </form>
+      <SearchBar />
 
       {error ? <p className={styles.error}>{error}</p> : null}
 

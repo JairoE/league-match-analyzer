@@ -1,6 +1,6 @@
 .page {
   min-height: 100svh;
-  padding: 40px 32px;
+  padding: 0 32px 40px;
   max-width: 1100px;
   margin: 0 auto;
   display: flex;
@@ -8,32 +8,6 @@
   gap: 24px;
 }
 
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.kicker {
-  font-size: 12px;
-  opacity: 0.7;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.rank {
-  font-size: 14px;
-  opacity: 0.8;
-}
-
-.actions {
-  display: flex;
-  gap: 12px;
-}
-
-.primaryButton,
 .secondaryButton {
   padding: 8px 14px;
   border-radius: 8px;
@@ -41,52 +15,6 @@
   background: var(--color-surface-strong);
   color: inherit;
   cursor: pointer;
-}
-
-.primaryButton {
-  background: var(--color-success);
-  border-color: var(--color-success);
-  color: #ffffff;
-}
-
-.searchForm {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.searchInput {
-  flex: 1;
-  padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-strong);
-  color: inherit;
-  font-size: 14px;
-}
-
-.searchInput::placeholder {
-  opacity: 0.5;
-}
-
-.searchInput:disabled {
-  opacity: 0.6;
-}
-
-.searchButton {
-  padding: 10px 18px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-strong);
-  color: inherit;
-  cursor: pointer;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.searchButton:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .error {

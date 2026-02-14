@@ -13,7 +13,8 @@ A full-stack League of Legends match analysis platform with AI-powered insights,
 - **Match History Tracking**: View detailed match history for any League of Legends summoner
 - **Performance Analytics**: Deep dive into KDA, CS/min, damage share, vision score, and more
 - **Champion Insights**: Champion-specific performance metrics and build recommendations
-- **On-demand Sync**: Fetches from Riot on request and persists results for reuse
+- **Search-First Access**: Immediate match data lookup using Riot ID (GameName#Tag)
+- **Optional Authentication**: Sign up for persistent features and saved preferences
 - **LLM-Powered Analysis**: Semantic search and natural language queries over match data (upcoming)
 
 ---
@@ -34,8 +35,9 @@ A full-stack League of Legends match analysis platform with AI-powered insights,
 
 **Key Features:**
 
-- `/` — Sign in/up flow
+- `/` — Search interface with optional sign in/up
 - `/home` — Matches dashboard with card-based UI
+- **Search-First**: Immediate match lookup without authentication
 - Client-side caching for champion data and match details
 - Responsive design optimized for desktop and mobile
 
@@ -312,9 +314,9 @@ league-match-analyzer/
 | Endpoint                      | Method | Description                     |
 | ----------------------------- | ------ | ------------------------------- |
 | `/health`                     | GET    | Health check                    |
+| `/search/{riot_id}/matches`   | GET    | Search matches for any Riot ID  |
 | `/users/sign_up`              | POST   | User registration               |
 | `/users/sign_in`              | POST   | User authentication             |
-| `/fetch_user`                 | POST   | Fetch/create user profile       |
 | `/users/{user_id}/fetch_rank` | GET    | Fetch ranked data for a user    |
 | `/users/{user_id}/matches`    | GET    | User match history (up to 20)   |
 | `/matches/{match_id}`         | GET    | Detailed match data             |
@@ -323,7 +325,7 @@ league-match-analyzer/
 | `/reset/champions`            | POST   | Schedule clear+reseed champions |
 | `/reset/champions/{champ_id}` | POST   | Schedule reseed one champion    |
 
-**Authentication:** Stateless API; the frontend persists the returned user in `sessionStorage`
+**Authentication:** Optional stateless API; the frontend persists the returned user in `sessionStorage` for enhanced features
 
 **Rate Limiting / Caching:** Not implemented yet in the Riot client; Redis is present for future caching/queueing
 
@@ -345,10 +347,10 @@ FastAPI application with async endpoints:
 
 ARQ worker for match data ingestion and scheduled syncing:
 
-- `fetch_user_matches_job` — Fetches match IDs from Riot API for a user
 - `fetch_match_details_job` — Batch-fetches match detail payloads from Riot API
-- `sync_all_users_matches` — Cron job that enqueues match sync for all users
-- Redis-backed job queue
+- `sync_all_riot_accounts_matches` — Cron job that enqueues match sync for all users
+- Redis-backed job queue with rate limiting compliance
+- **Search Integration**: Automatically triggered by search endpoint for full detail fetching
 
 ### LLM Worker Service (`services/llm/`)
 
