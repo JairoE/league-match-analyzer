@@ -90,10 +90,97 @@ NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 20.9+ (for frontend; required by Next.js 16)
-- Docker Desktop (for local Postgres + Redis)
-- Bun (optional, for helper scripts in `scripts/`)
+- **Git** — version control
+- **Make** — used to run all development commands via the `Makefile`
+- **Python 3.11+** — backend runtime
+- **Node.js 20.9+** — frontend runtime (required by Next.js 16)
+- **Docker Desktop** — local Postgres + Redis containers
+- **Bun** (optional) — for helper scripts in `scripts/`
+
+<details>
+<summary><strong>macOS (Homebrew)</strong></summary>
+
+```bash
+# Install Homebrew if you don't have it
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Git and Make come with Xcode Command Line Tools
+xcode-select --install
+
+# Install Python 3.11
+brew install python@3.11
+
+# Install Node.js (LTS)
+brew install node
+
+# Install Docker Desktop
+brew install --cask docker
+# Then open Docker Desktop from Applications and complete setup
+
+# (Optional) Install Bun
+brew install oven-sh/bun/bun
+```
+
+</details>
+
+<details>
+<summary><strong>Windows (WSL2 recommended)</strong></summary>
+
+1. Install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and a Ubuntu distribution
+2. Inside WSL2:
+
+```bash
+sudo apt update && sudo apt install -y make git
+
+# Install Python 3.11
+sudo apt install -y python3.11 python3.11-venv
+
+# Install Node.js 20 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install Docker Desktop for Windows with WSL2 backend
+# https://docs.docker.com/desktop/install/windows-install/
+
+# (Optional) Install Bun
+curl -fsSL https://bun.sh/install | bash
+```
+
+</details>
+
+<details>
+<summary><strong>Linux (Debian/Ubuntu)</strong></summary>
+
+```bash
+sudo apt update && sudo apt install -y make git
+
+# Install Python 3.11
+sudo apt install -y python3.11 python3.11-venv
+
+# Install Node.js 20 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install Docker
+# https://docs.docker.com/engine/install/ubuntu/
+sudo apt install -y docker.io docker-compose-plugin
+sudo usermod -aG docker $USER  # then log out and back in
+
+# (Optional) Install Bun
+curl -fsSL https://bun.sh/install | bash
+```
+
+</details>
+
+**Verify your setup:**
+
+```bash
+git --version        # any recent version
+make --version       # GNU Make 3.81+
+python3.11 --version # 3.11.x
+node --version       # v20.9+
+docker --version     # any recent version
+```
 
 ### Running the Frontend Locally
 
