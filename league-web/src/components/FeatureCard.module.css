@@ -2,7 +2,9 @@
   background: white;
   border-radius: 16px;
   padding: 1.5rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
   transition: all 0.3s ease;
   border: 1px solid #f0f0f0;
   display: flex;
@@ -15,12 +17,14 @@
 
 .card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
   border-color: #e5e7eb;
 }
 
 .card::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
@@ -55,6 +59,8 @@
   border-top: 1px solid #f3f4f6;
   display: flex;
   align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .accentText {
@@ -80,4 +86,18 @@
 
 .featureDefault p {
   color: #666;
+}
+
+.accentContainerDefault {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.accentDefault {
+  font-size: 0.8rem;
+  color: #666;
+  background: #eee;
+  padding: 2px 6px;
+  border-radius: 4px;
 }

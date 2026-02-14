@@ -12,30 +12,34 @@ const FEATURES = [
   {
     title: "Instant Search",
     description: "Search any summoner's match history without registration",
-    accent: "Fast",
+    accents: ["Fast"],
   },
   {
     title: "Detailed Analytics",
     description: "Deep dive into KDA, CS/min, damage share, and more",
-    accent: "Deep Dive",
+    accents: ["Deep Dive", "Stats", "Charts"],
   },
   {
     title: "Summoner to Summoner Compatibility",
     description:
       "Compare your summoner's match history with another summoner's match history",
-    accent: "New",
+    accents: ["New", "Compare"],
   },
   {
     title: "Live Game Stats",
     description:
       "Run locally while playing a game to get live stats (gold, CS, items, spells, runes, etc.)",
-    accent: "Real-time",
+    accents: ["Real-time", "Local"],
   },
   {
     title: "LLM-Powered Analysis (AI coaching copilot)",
     description:
       "Analyze match data and get personalized champion pool recommendations, build suggestions, and game coaching.",
-    accent: "AI Beta",
+    accents: [
+      "Time for a new lane?",
+      "Time to let go of your favorite champion?",
+      "Let the AI help you decide.",
+    ],
   },
 ];
 
@@ -70,7 +74,7 @@ function LandingContent() {
                 key={i}
                 title={feature.title}
                 description={feature.description}
-                accentText={feature.accent}
+                accents={feature.accents}
                 variant="modern"
               />
             ) : (

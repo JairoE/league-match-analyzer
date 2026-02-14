@@ -1,24 +1,32 @@
-import styles from './FeatureCard.module.css';
+import styles from "./FeatureCard.module.css";
 
 interface FeatureCardProps {
   title: string;
   description: string;
-  accentText?: string;
-  variant?: 'default' | 'modern';
+  accents?: string[];
+  variant?: "default" | "modern";
 }
 
-export default function FeatureCard({ 
-  title, 
-  description, 
-  accentText,
-  variant = 'default' 
+export default function FeatureCard({
+  title,
+  description,
+  accents = [],
+  variant = "default",
 }: FeatureCardProps) {
-  if (variant === 'default') {
+  if (variant === "default") {
     return (
       <div className={styles.featureDefault}>
         <h3>{title}</h3>
         <p>{description}</p>
-        {accentText && <span className={styles.accentDefault}>{accentText}</span>}
+        {accents.length > 0 && (
+          <div className={styles.accentContainerDefault}>
+            {accents.map((accent, index) => (
+              <span key={index} className={styles.accentDefault}>
+                {accent}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -29,9 +37,28 @@ export default function FeatureCard({
         <h3 className={styles.headline}>{title}</h3>
         <p className={styles.summary}>{description}</p>
       </div>
-      {accentText && (
+      {accents.length > 0 && (
         <div className={styles.accentContainer}>
-          <span className={styles.accentText}>{accentText}</span>
+          {accents.map((accent, index) => {
+            // Calculate opacity: starts at 0.33, increases to 1
+            // If only 1 item, opacity is 1
+            let opacity = 1;
+            if (accents.length > 1) {
+              const minOpacity = 0.33;
+              const step = (1 - minOpacity) / (accents.length - 1);
+              opacity = minOpacity + index * step;
+            }
+            
+            return (
+              <span 
+                key={index} 
+                className={styles.accentText}
+                style={{ opacity }}
+              >
+                {accent}
+              </span>
+            );
+          })}
         </div>
       )}
     </div>
