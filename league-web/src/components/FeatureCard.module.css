@@ -1,12 +1,12 @@
 .card {
-  background: white;
+  background: var(--color-surface);
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow:
     0 4px 6px -1px rgba(0, 0, 0, 0.1),
     0 2px 4px -1px rgba(0, 0, 0, 0.06);
   transition: all 0.3s ease;
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -20,7 +20,7 @@
   box-shadow:
     0 10px 15px -3px rgba(0, 0, 0, 0.1),
     0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  border-color: #e5e7eb;
+  border-color: var(--color-text-muted);
 }
 
 .card::before {
@@ -30,7 +30,7 @@
   left: 0;
   width: 4px;
   height: 100%;
-  background: linear-gradient(to bottom, #3b82f6, #8b5cf6);
+  background: var(--color-primary);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -42,21 +42,21 @@
 .headline {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #111827;
+  color: var(--color-text);
   margin-bottom: 0.75rem;
   line-height: 1.4;
 }
 
 .summary {
   font-size: 0.95rem;
-  color: #6b7280;
+  color: var(--color-text-muted);
   line-height: 1.6;
 }
 
 .accentContainer {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -66,10 +66,10 @@
 .accentText {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #4f46e5;
+  color: var(--color-primary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: #eef2ff;
+  background: var(--color-chip);
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
 }
@@ -85,7 +85,7 @@
 }
 
 .featureDefault p {
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .accentContainerDefault {
@@ -96,8 +96,8 @@
 
 .accentDefault {
   font-size: 0.8rem;
-  color: #666;
-  background: #eee;
+  color: var(--color-text-muted);
+  background: var(--color-chip);
   padding: 2px 6px;
   border-radius: 4px;
 }
