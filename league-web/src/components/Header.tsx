@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useState} from "react";
+import {useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./Header.module.css";
 import {loadSessionUser, clearSessionUser} from "../lib/session";
@@ -17,11 +17,7 @@ export default function Header({
   subtitle = "Search any summoner's match history instantly",
 }: HeaderProps) {
   const router = useRouter();
-  const [hasSession, setHasSession] = useState(false);
-
-  useEffect(() => {
-    setHasSession(!!loadSessionUser());
-  }, []);
+  const [hasSession] = useState<boolean>(() => !!loadSessionUser());
 
   const handleLogin = () => {
     router.push("/auth");

@@ -22,13 +22,12 @@ import type {UserSession} from "../../lib/types/user";
 
 export default function HomePage() {
   const router = useRouter();
-  const [user, setUser] = useState<UserSession | null>(null);
+  const [user] = useState<UserSession | null>(() => loadSessionUser());
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [matchDetails, setMatchDetails] = useState<Record<string, MatchDetail>>(
     {}
   );
   const [rank, setRank] = useState<RankInfo | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
@@ -44,17 +43,11 @@ export default function HomePage() {
   );
 
   useEffect(() => {
-    const session = loadSessionUser();
-    if (!session) {
+    if (!user) {
       console.debug("[home] missing session, redirecting");
       router.push("/");
-      setIsHydrated(true);
-      return;
     }
-    console.debug("[home] session restored");
-    setUser(session);
-    setIsHydrated(true);
-  }, [router]);
+  }, [router, user]);
 
   // Load own matches + rank
   useEffect(() => {
@@ -190,8 +183,8 @@ export default function HomePage() {
     ? `${rank.queueType ?? "Ranked"} · ${rank.tier ?? "Unranked"} ${rank.rank ?? ""} · ${rank.leaguePoints ?? 0} LP`
     : "Rank data unavailable";
 
-  if (!isHydrated) {
-    return <div className={styles.loading}>Loading session...</div>;
+  if (!user) {
+    return <div className={styles.loading}>Redirecting...</div>;
   }
 
   return (

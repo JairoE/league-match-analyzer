@@ -109,7 +109,8 @@ export default function MatchCard({
     champion?.iconUrl ??
     champion?.icon_url ??
     null;
-  const gameMode = (detail?.info as any)?.gameMode as string | undefined;
+  const rawGameMode = detail?.info?.gameMode;
+  const gameMode = typeof rawGameMode === "string" ? rawGameMode : undefined;
 
   return (
     <article className={styles.card}>

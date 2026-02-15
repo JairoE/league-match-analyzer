@@ -1,20 +1,16 @@
 "use client";
 
-import {useEffect, useState} from "react";
+import {useMemo, useState} from "react";
 import styles from "./page.module.css";
 import {loadSessionUser} from "../../../lib/session";
 import {getUserDisplayName} from "../../../lib/user-utils";
 
 export default function CompareButton() {
-  const [displayName, setDisplayName] = useState<string | null>(null);
-  const [showAnalysis, setShowAnalysis] = useState(false);
-
-  useEffect(() => {
+  const displayName = useMemo(() => {
     const session = loadSessionUser();
-    if (session) {
-      setDisplayName(getUserDisplayName(session));
-    }
+    return session ? getUserDisplayName(session) : null;
   }, []);
+  const [showAnalysis, setShowAnalysis] = useState(false);
 
   if (!displayName) return null;
 

@@ -11,16 +11,14 @@ import type {UserSession} from "../../lib/types/user";
 
 export default function AuthPage() {
   const router = useRouter();
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [hasSession] = useState<boolean>(() => !!loadSessionUser());
 
   useEffect(() => {
-    const existing = loadSessionUser();
-    if (existing) {
+    if (hasSession) {
       console.debug("[auth] session found, redirecting");
       router.push("/home");
     }
-    setIsHydrated(true);
-  }, [router]);
+  }, [hasSession, router]);
 
   const handleAuthSuccess = (user: UserSession) => {
     console.debug("[auth] storing session", {user});
@@ -28,8 +26,8 @@ export default function AuthPage() {
     router.push("/home");
   };
 
-  if (!isHydrated) {
-    return <div className={styles.loading}>Loading session...</div>;
+  if (hasSession) {
+    return <div className={styles.loading}>Redirecting...</div>;
   }
 
   return (
