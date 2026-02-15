@@ -39,6 +39,12 @@
   opacity: 1;
 }
 
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .headline {
   font-size: 1.25rem;
   font-weight: 700;
