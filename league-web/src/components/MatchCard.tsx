@@ -1,6 +1,7 @@
 "use client";
 
 import {useEffect, useMemo, useState} from "react";
+import Image from "next/image";
 import styles from "./MatchCard.module.css";
 import {apiGet} from "../lib/api";
 import type {Champion} from "../lib/types/champion";
@@ -129,10 +130,13 @@ export default function MatchCard({
           </h3>
         </div>
         {imageUrl ? (
-          <img
+          <Image
             className={styles.championImage}
             src={imageUrl}
             alt={championName}
+            width={48}
+            height={48}
+            unoptimized
           />
         ) : (
           <div className={styles.championFallback}>?</div>
