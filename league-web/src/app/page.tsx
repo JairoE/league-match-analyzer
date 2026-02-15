@@ -46,20 +46,18 @@ const FEATURES = [
 function LandingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [hasSession] = useState<boolean>(() => !!loadSessionUser());
   const design = searchParams.get("design");
 
   useEffect(() => {
-    const existing = loadSessionUser();
-    if (existing) {
+    if (hasSession) {
       console.debug("[landing] session found, redirecting");
       router.push("/home");
     }
-    setIsHydrated(true);
-  }, [router]);
+  }, [hasSession, router]);
 
-  if (!isHydrated) {
-    return <div className={styles.loading}>Loading...</div>;
+  if (hasSession) {
+    return <div className={styles.loading}>Redirecting...</div>;
   }
 
   return (
@@ -68,22 +66,15 @@ function LandingContent() {
       <main className={styles.main}>
         <SearchBar />
         <div className={styles.features}>
-          {FEATURES.map((feature, i) =>
-            design === "modern" ? (
-              <FeatureCard
-                key={i}
-                title={feature.title}
-                description={feature.description}
-                accents={feature.accents}
-                variant="modern"
-              />
-            ) : (
-              <div key={i} className={styles.feature}>
-                <h3>{feature.title}</h3>
-                <p>{feature.description}</p>
-              </div>
-            )
-          )}
+          {FEATURES.map((feature, i) => (
+            <FeatureCard
+              key={i}
+              title={feature.title}
+              description={feature.description}
+              accents={feature.accents}
+              variant={design === "modern" ? "modern" : "default"}
+            />
+          ))}
         </div>
       </main>
     </div>
