@@ -1,53 +1,90 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import {useEffect, useState, Suspense} from "react";
+import {useRouter, useSearchParams} from "next/navigation";
 import styles from "./page.module.css";
-import SignInForm from "../components/SignInForm";
-import SignUpForm from "../components/SignUpForm";
-import { loadSessionUser, saveSessionUser } from "../lib/session";
-import type { UserSession } from "../lib/types/user";
+import {loadSessionUser} from "../lib/session";
+import Header from "../components/Header";
+import SearchBar from "../components/SearchBar";
+import FeatureCard from "../components/FeatureCard";
 
-export default function Home() {
+const FEATURES = [
+  {
+    title: "Instant Search",
+    description: "Search any summoner's match history without registration",
+    accents: ["Fast"],
+  },
+  {
+    title: "Detailed Analytics",
+    description: "Deep dive into KDA, CS/min, damage share, and more",
+    accents: ["Deep Dive", "Stats", "Charts"],
+  },
+  {
+    title: "Summoner to Summoner Compatibility",
+    description:
+      "Compare your summoner's match history with another summoner's match history",
+    accents: ["New", "Compare"],
+  },
+  {
+    title: "Live Game Stats",
+    description:
+      "Run locally while playing a game to get live stats (gold, CS, items, spells, runes, etc.)",
+    accents: ["Real-time", "Local"],
+  },
+  {
+    title: "LLM-Powered Analysis (AI coaching copilot)",
+    description:
+      "Analyze match data and get personalized champion pool recommendations, build suggestions, and game coaching.",
+    accents: [
+      "Time for a new lane?",
+      "Time to let go of your favorite champion?",
+      "Let the AI help you decide.",
+    ],
+  },
+];
+
+function LandingContent() {
   const router = useRouter();
-  const [isHydrated, setIsHydrated] = useState(false);
-  const [user, setUser] = useState<UserSession | null>(null);
+  const searchParams = useSearchParams();
+  const [hasSession] = useState<boolean>(() => !!loadSessionUser());
+  const design = searchParams.get("design");
 
   useEffect(() => {
-    const existing = loadSessionUser();
-    if (existing) {
-      console.debug("[auth] session found, redirecting");
+    if (hasSession) {
+      console.debug("[landing] session found, redirecting");
       router.push("/home");
     }
-    setIsHydrated(true);
-  }, [router]);
+  }, [hasSession, router]);
 
-  useEffect(() => {
-    if (!user) return;
-    console.debug("[auth] user state set");
-  }, [user]);
-
-  const handleAuthSuccess = (user: UserSession) => {
-    console.debug("[auth] storing session", { user });
-    saveSessionUser(user);
-    setUser(user);
-    router.push("/home");
-  };
-
-  if (!isHydrated) {
-    return <div className={styles.loading}>Loading session...</div>;
+  if (hasSession) {
+    return <div className={styles.loading}>Redirecting...</div>;
   }
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <h1>League Match Analyzer</h1>
-        <p>Sign in or create an account to load your match history.</p>
-      </header>
-      <main className={styles.forms}>
-        <SignInForm onAuthSuccess={handleAuthSuccess} />
-        <SignUpForm onAuthSuccess={handleAuthSuccess} />
+      <Header />
+      <main className={styles.main}>
+        <SearchBar />
+        <div className={styles.features}>
+          {FEATURES.map((feature, i) => (
+            <FeatureCard
+              key={i}
+              title={feature.title}
+              description={feature.description}
+              accents={feature.accents}
+              variant={design === "modern" ? "modern" : "default"}
+            />
+          ))}
+        </div>
       </main>
     </div>
+  );
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <LandingContent />
+    </Suspense>
   );
 }

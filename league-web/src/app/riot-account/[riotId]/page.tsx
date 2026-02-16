@@ -3,6 +3,9 @@
 import {useEffect, useMemo, useState} from "react";
 import {useParams, useRouter} from "next/navigation";
 import styles from "./page.module.css";
+import Header from "../../../components/Header";
+import SubHeader from "../../../components/SubHeader";
+import SearchBar from "../../../components/SearchBar";
 import MatchCard from "../../../components/MatchCard";
 import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";
@@ -38,18 +41,12 @@ export default function RiotAccountPage() {
   const accountPuuid = account?.puuid ?? null;
   const displayLabel = account?.riot_id ?? riotId;
 
-  // Redirect if no session
+  // Check session (optional for search)
   useEffect(() => {
     const session = loadSessionUser();
-    if (!session) {
-      console.debug("[riot-account] missing session, redirecting");
-      setHasSession(false);
-      router.push("/");
-      return;
-    }
-    console.debug("[riot-account] session restored");
-    setHasSession(true);
-  }, [router]);
+    setHasSession(!!session);
+    console.debug("[riot-account] session checked", {hasSession: !!session});
+  }, []);
 
   // Fetch searched account data + matches
   useEffect(() => {
@@ -57,7 +54,6 @@ export default function RiotAccountPage() {
 
     const load = async () => {
       try {
-        if (!hasSession) return;
         if (decodeError) {
           console.debug("[riot-account] decode error, aborting fetch");
           setError("Invalid Riot ID in URL. Please re-run your search.");
@@ -109,7 +105,7 @@ export default function RiotAccountPage() {
     return () => {
       isActive = false;
     };
-  }, [riotId, hasSession, decodeError]);
+  }, [riotId, decodeError]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -178,9 +174,7 @@ export default function RiotAccountPage() {
         setMatches(freshArray);
 
         if (!stillMissing) {
-          console.debug(
-            "[riot-account] all details populated, stopping poll"
-          );
+          console.debug("[riot-account] all details populated, stopping poll");
           clearInterval(poll);
         } else {
           console.debug("[riot-account] poll incomplete", {
@@ -201,21 +195,27 @@ export default function RiotAccountPage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <p className={styles.kicker}>Viewing matches for</p>
-          <h1>{displayLabel}</h1>
-        </div>
-        <div className={styles.actions}>
-          <button
-            className={styles.secondaryButton}
-            onClick={() => router.push("/home")}
-          >
-            &larr; My matches
-          </button>
-          <CompareButton />
-        </div>
-      </header>
+      <Header />
+
+      <SubHeader
+        kicker="Viewing matches for"
+        title={displayLabel}
+        actions={
+          <>
+            {hasSession ? (
+              <button
+                className={styles.secondaryButton}
+                onClick={() => router.push("/home")}
+              >
+                &larr; My matches
+              </button>
+            ) : null}
+            <CompareButton />
+          </>
+        }
+      />
+
+      <SearchBar />
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
@@ -229,7 +229,7 @@ export default function RiotAccountPage() {
         <section className={styles.matches}>
           {matches.map((match, index) => {
             const matchId = getMatchId(match);
-            const detail = matchId ? matchDetails[matchId] ?? null : null;
+            const detail = matchId ? (matchDetails[matchId] ?? null) : null;
             return (
               <MatchCard
                 key={matchId ?? `match-${index}`}
