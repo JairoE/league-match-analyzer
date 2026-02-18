@@ -19,9 +19,9 @@ type ErrorAction =
   | {type: "clear"; scope: string};
 
 type ErrorStoreContextValue = {
+  state: ErrorState;
   reportError: (scope: string, error: unknown) => void;
   clearError: (scope: string) => void;
-  getError: (scope: string) => ApiError | null;
 };
 
 const ErrorStoreContext = createContext<ErrorStoreContextValue | null>(null);
@@ -58,18 +58,13 @@ export function AppErrorProvider({children}: {children: ReactNode}) {
     dispatch({type: "clear", scope});
   }, []);
 
-  const getError = useCallback(
-    (scope: string) => state[scope] ?? null,
-    [state]
-  );
-
   const value = useMemo(
     () => ({
+      state,
       reportError,
       clearError,
-      getError,
     }),
-    [reportError, clearError, getError]
+    [state, reportError, clearError]
   );
 
   return (
@@ -86,8 +81,8 @@ export function useErrorStore(): ErrorStoreContextValue {
 }
 
 export function useAppError(scope: string) {
-  const {getError, reportError, clearError} = useErrorStore();
-  const error = getError(scope);
+  const {state, reportError, clearError} = useErrorStore();
+  const error = state[scope] ?? null;
 
   const reportScopedError = useCallback(
     (input: unknown) => {

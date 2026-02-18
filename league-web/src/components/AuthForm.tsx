@@ -46,7 +46,6 @@ export default function AuthForm({
       console.debug("[auth] submit", { endpoint, payload });
       const response = await apiPost<UserAuthPayload, UserSession>(endpoint, payload);
       console.debug("[auth] success", { endpoint, response });
-      clearError();
       onAuthSuccess(response);
     } catch (err) {
       console.debug("[auth] failed", { endpoint, err });

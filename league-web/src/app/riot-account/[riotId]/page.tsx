@@ -129,7 +129,7 @@ export default function RiotAccountPage() {
     }
   }, [matches]);
 
-  const hasMatches = useMemo(() => matches.length > 0, [matches]);
+  const hasMatches = matches.length > 0;
   const missingDetailCount = useMemo(
     () => matches.filter((m) => !m.game_info?.info).length,
     [matches]

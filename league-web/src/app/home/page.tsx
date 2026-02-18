@@ -37,7 +37,7 @@ export default function HomePage() {
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
 
-  const hasMatches = useMemo(() => matches.length > 0, [matches]);
+  const hasMatches = matches.length > 0;
   const missingDetailCount = useMemo(
     () => matches.filter((m) => !m.game_info?.info).length,
     [matches]
