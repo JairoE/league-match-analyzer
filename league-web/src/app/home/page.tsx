@@ -9,6 +9,7 @@ import SearchBar from "../../components/SearchBar";
 import MatchCard from "../../components/MatchCard";
 import {apiGet} from "../../lib/api";
 import {clearCache} from "../../lib/cache";
+import {useAppError} from "../../lib/errors/error-store";
 import {loadSessionUser} from "../../lib/session";
 import {
   getUserDisplayName,
@@ -29,14 +30,14 @@ export default function HomePage() {
   );
   const [rank, setRank] = useState<RankInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
+  const {errorMessage, reportError, clearError} = useAppError("home.overview");
 
   const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
 
-  const hasMatches = useMemo(() => matches.length > 0, [matches]);
+  const hasMatches = matches.length > 0;
   const missingDetailCount = useMemo(
     () => matches.filter((m) => !m.game_info?.info).length,
     [matches]
@@ -57,7 +58,7 @@ export default function HomePage() {
     const loadOverview = async () => {
       try {
         setIsLoading(true);
-        setError(null);
+        clearError();
         console.debug("[home] fetching matches + rank", {riotAccountId});
         const [matchesResponse, rankResponse] = await Promise.all([
           apiGet<MatchSummary[]>(`/riot-accounts/${riotAccountId}/matches`, {
@@ -80,7 +81,7 @@ export default function HomePage() {
       } catch (err) {
         console.debug("[home] overview failed", {err});
         if (isActive) {
-          setError("Failed to load matches. Please refresh.");
+          reportError(err);
         }
       } finally {
         if (isActive) {
@@ -94,7 +95,7 @@ export default function HomePage() {
     return () => {
       isActive = false;
     };
-  }, [riotAccountId, refreshIndex]);
+  }, [riotAccountId, refreshIndex, clearError, reportError]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -204,7 +205,7 @@ export default function HomePage() {
 
       <SearchBar />
 
-      {error ? <p className={styles.error}>{error}</p> : null}
+      {errorMessage ? <p className={styles.error}>{errorMessage}</p> : null}
 
       {isLoading ? (
         <p className={styles.loadingInline}>Loading matches...</p>

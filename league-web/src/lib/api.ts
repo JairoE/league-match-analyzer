@@ -1,4 +1,5 @@
 import {getFromCache, setInCache} from "./cache";
+import {buildApiErrorFromResponse} from "./errors/parse-api-error";
 
 type ApiFetchOptions = {
   cacheTtlMs?: number;
@@ -39,18 +40,30 @@ export async function apiFetch<T>(
   }
 
   console.debug("[api] fetch", {url, method});
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    console.debug("[api] network error", {url, method, error});
+    throw error;
+  }
 
   if (!res.ok) {
     const body = await res.text();
     console.debug("[api] error", {url, method, status: res.status, body});
-    throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+    throw buildApiErrorFromResponse({
+      url,
+      method,
+      status: res.status,
+      statusText: res.statusText,
+      rawBody: body,
+    });
   }
 
   const data = (await res.json()) as T;

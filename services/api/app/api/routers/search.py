@@ -9,7 +9,7 @@ from app.schemas.user import RiotAccountResponse
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_account_upsert import find_or_create_riot_account
-from app.services.riot_api_client import RiotApiClient
+from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_id_parser import parse_riot_id
 from app.services.riot_sync import backfill_match_details_inline
 
@@ -57,6 +57,9 @@ async def search_riot_account_matches(
             account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
             summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
             match_ids = await client.fetch_match_ids_by_puuid(account_info["puuid"], start=0, count=20)
+    except RiotRequestError:
+        logger.exception("search_matches_riot_request_error", extra={"riot_id": riot_id})
+        raise
     except Exception:
         logger.exception("search_matches_riot_api_error", extra={"riot_id": riot_id})
         raise HTTPException(
@@ -138,6 +141,9 @@ async def search_riot_account(
         async with RiotApiClient() as client:
             account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
             summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
+    except RiotRequestError:
+        logger.exception("search_account_riot_request_error", extra={"riot_id": riot_id})
+        raise
     except Exception:
         logger.exception("search_account_riot_api_error", extra={"riot_id": riot_id})
         raise HTTPException(
