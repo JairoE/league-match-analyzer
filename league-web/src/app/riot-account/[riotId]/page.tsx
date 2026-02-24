@@ -10,6 +10,7 @@ import MatchCard from "../../../components/MatchCard";
 import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";
 import {useAppError} from "../../../lib/errors/error-store";
+import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
 import {getMatchId} from "../../../lib/match-utils";
 import type {MatchDetail, MatchSummary} from "../../../lib/types/match";
@@ -81,7 +82,7 @@ export default function RiotAccountPage() {
         if (!isActive) return;
 
         if (!accountResponse?.puuid) {
-          throw new Error("Account not found or missing PUUID");
+          throw new Error("Account not found. Please check the Riot ID and try again.");
         }
 
         setAccount(accountResponse);
@@ -95,7 +96,12 @@ export default function RiotAccountPage() {
       } catch (err) {
         console.debug("[riot-account] load failed", {err});
         if (isActive) {
-          reportError(err);
+          if (isApiError(err) && err.detail === "riot_api_failed" && err.riotStatus === 404) {
+            setPageError(`No search results for the summoner "${riotId}".`);
+            clearError();
+          } else {
+            reportError(err);
+          }
         }
       } finally {
         if (isActive) {
