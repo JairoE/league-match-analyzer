@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import styles from "./AuthForm.module.css";
 import { apiPost } from "../lib/api";
 import { useAppError } from "../lib/errors/error-store";
@@ -25,6 +25,10 @@ export default function AuthForm({
   const [validationError, setValidationError] = useState<string | null>(null);
   const errorScope = `auth.${endpoint.replace(/[^a-zA-Z0-9]+/g, "_")}`;
   const { errorMessage, reportError, clearError } = useAppError(errorScope);
+
+  useEffect(() => {
+    clearError();
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
