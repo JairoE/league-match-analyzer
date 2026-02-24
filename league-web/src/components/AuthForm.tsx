@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import styles from "./AuthForm.module.css";
 import { apiPost } from "../lib/api";
+import { useAppError } from "../lib/errors/error-store";
 import type { UserAuthPayload, UserSession } from "../lib/types/user";
 
 type AuthFormProps = {
@@ -21,14 +22,21 @@ export default function AuthForm({
   const [summonerName, setSummonerName] = useState("");
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const errorScope = `auth.${endpoint.replace(/[^a-zA-Z0-9]+/g, "_")}`;
+  const { errorMessage, reportError, clearError } = useAppError(errorScope);
+
+  useEffect(() => {
+    clearError();
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError(null);
+    setValidationError(null);
+    clearError();
 
     if (!summonerName.trim() || !email.trim()) {
-      setError("Summoner name and email are required.");
+      setValidationError("Summoner name and email are required.");
       return;
     }
 
@@ -45,11 +53,13 @@ export default function AuthForm({
       onAuthSuccess(response);
     } catch (err) {
       console.debug("[auth] failed", { endpoint, err });
-      setError("Request failed. Please check your details and retry.");
+      reportError(err);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const error = validationError ?? errorMessage;
 
   return (
     <form className={styles.form} onSubmit={handleSubmit}>

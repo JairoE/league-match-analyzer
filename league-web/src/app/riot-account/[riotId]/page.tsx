@@ -9,6 +9,8 @@ import SearchBar from "../../../components/SearchBar";
 import MatchCard from "../../../components/MatchCard";
 import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";
+import {useAppError} from "../../../lib/errors/error-store";
+import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
 import {getMatchId} from "../../../lib/match-utils";
 import type {MatchDetail, MatchSummary} from "../../../lib/types/match";
@@ -35,8 +37,9 @@ export default function RiotAccountPage() {
     {}
   );
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [hasSession, setHasSession] = useState(false);
+  const {errorMessage, reportError, clearError} = useAppError("riotAccount.load");
 
   const accountPuuid = account?.puuid ?? null;
   const displayLabel = account?.riot_id ?? riotId;
@@ -56,12 +59,14 @@ export default function RiotAccountPage() {
       try {
         if (decodeError) {
           console.debug("[riot-account] decode error, aborting fetch");
-          setError("Invalid Riot ID in URL. Please re-run your search.");
+          setPageError("Invalid Riot ID in URL. Please re-run your search.");
+          clearError();
           setIsLoading(false);
           return;
         }
         setIsLoading(true);
-        setError(null);
+        setPageError(null);
+        clearError();
         const encodedQuery = encodeURIComponent(riotId);
         console.debug("[riot-account] fetching", {riotId});
 
@@ -77,7 +82,7 @@ export default function RiotAccountPage() {
         if (!isActive) return;
 
         if (!accountResponse?.puuid) {
-          throw new Error("Account not found or missing PUUID");
+          throw new Error("Account not found. Please check the Riot ID and try again.");
         }
 
         setAccount(accountResponse);
@@ -91,7 +96,12 @@ export default function RiotAccountPage() {
       } catch (err) {
         console.debug("[riot-account] load failed", {err});
         if (isActive) {
-          setError("Failed to load account. Check the Riot ID and try again.");
+          if (isApiError(err) && err.detail === "riot_api_failed" && err.riotStatus === 404) {
+            setPageError(`No search results for the summoner "${riotId}".`);
+            clearError();
+          } else {
+            reportError(err);
+          }
         }
       } finally {
         if (isActive) {
@@ -105,7 +115,7 @@ export default function RiotAccountPage() {
     return () => {
       isActive = false;
     };
-  }, [riotId, decodeError]);
+  }, [riotId, decodeError, clearError, reportError]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -125,7 +135,7 @@ export default function RiotAccountPage() {
     }
   }, [matches]);
 
-  const hasMatches = useMemo(() => matches.length > 0, [matches]);
+  const hasMatches = matches.length > 0;
   const missingDetailCount = useMemo(
     () => matches.filter((m) => !m.game_info?.info).length,
     [matches]
@@ -192,6 +202,8 @@ export default function RiotAccountPage() {
       clearInterval(poll);
     };
   }, [riotId, hasMatches, missingDetailCount, isLoading]);
+
+  const error = pageError ?? errorMessage;
 
   return (
     <div className={styles.page}>
