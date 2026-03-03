@@ -208,18 +208,24 @@ export default function MatchCard({
   const hasSubStyle = subStyleId > 0;
 
   // ── Multikill badges ────────────────────────────────────────────────
+  // Riot cumulates lower tiers into higher ones (a Penta also increments Quadra/Triple/Double).
+  // Subtract higher-tier counts to get exclusive occurrences per tier, then drop zeroes.
   type MultikillEntry = {label: string; count: number; penta: boolean};
+  const rawDoubles = participant?.doubleKills ?? 0;
+  const rawTriples = participant?.tripleKills ?? 0;
+  const rawQuadras = participant?.quadraKills ?? 0;
+  const rawPentas  = participant?.pentaKills  ?? 0;
   const multikills: MultikillEntry[] = (
     [
-      {label: "Double Kill", count: participant?.doubleKills ?? 0, penta: false},
-      {label: "Triple Kill", count: participant?.tripleKills ?? 0, penta: false},
-      {label: "Quadra Kill", count: participant?.quadraKills ?? 0, penta: false},
-      {label: "Penta Kill", count: participant?.pentaKills ?? 0, penta: true},
+      {label: "Double Kill", count: rawDoubles - rawTriples, penta: false},
+      {label: "Triple Kill", count: rawTriples - rawQuadras, penta: false},
+      {label: "Quadra Kill", count: rawQuadras - rawPentas,  penta: false},
+      {label: "Penta Kill",  count: rawPentas,               penta: true},
     ] as MultikillEntry[]
   ).filter((mk) => mk.count > 0);
 
   // ── Subjective badges (Victor / Downfall placeholder) ───────────────
-  const showVictor = outcome === "victory" && (damageRank <= 3 || kdaRatio > 5);
+  const showVictor = outcome === "victory" && ((damageRank > 0 && damageRank <= 3) || kdaRatio > 5);
   const showDownfall = outcome === "defeat" && ((participant?.deaths ?? 0) > 8 || kdaRatio < 1);
 
   // ── DDragon version (fallback for now; fetching deferred) ───────────
