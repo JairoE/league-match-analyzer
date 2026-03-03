@@ -1,18 +1,47 @@
 "use client";
+/*
+ * eslint-disable @next/next/no-img-element
+ *
+ * This file intentionally uses <img> (not <Image>) for external DDragon CDN
+ * assets (items, spells, rune icons, champion thumbnails). These elements
+ * require onError handlers for graceful hidden-fallback when an asset 404s,
+ * and the DDragon domain is not listed in next.config.ts remotePatterns.
+ * Adding the domain is deferred until we add a full Image optimization pass.
+ */
+/* eslint-disable @next/next/no-img-element */
 
-import {useMemo, useState} from "react";
+import {memo, useMemo} from "react";
 import Image from "next/image";
 import styles from "./MatchCard.module.css";
 import type {Champion} from "../lib/types/champion";
 import type {MatchDetail, MatchSummary, Participant} from "../lib/types/match";
 import type {UserSession} from "../lib/types/user";
 import {
+  calculateKillParticipation,
+  formatGameDuration,
+  formatRelativeTime,
+  getAlliedTeam,
   getCsPerMinute,
+  getDamageRankPosition,
+  getEnemyTeam,
   getKdaRatio,
+  getMatchOutcome,
   getParticipantByPuuid,
   getParticipantForUser,
+  getTotalCs,
+  ordinalSuffix,
 } from "../lib/match-utils";
 import {getQueueMode, getQueueModeLabel} from "../lib/types/queue";
+import {
+  FALLBACK_DDRAGON_VERSION,
+  getChampionImageUrl,
+  getItemImageUrl,
+  getKeystoneImageUrl,
+  getSpellImageUrl,
+  getSpellLabel,
+} from "../lib/constants/ddragon";
+
+// ── Types ─────────────────────────────────────────────────────────────
 
 type MatchCardProps = {
   match: MatchSummary;
@@ -24,6 +53,91 @@ type MatchCardProps = {
   expanded?: boolean;
 };
 
+// ── Sub-component: Item Slot ──────────────────────────────────────────
+
+function ItemSlot({itemId, version}: {itemId: number; version: string}) {
+  if (itemId === 0) {
+    return <div className={styles.itemSlotEmpty} aria-hidden="true" />;
+  }
+  return (
+    <img
+      src={getItemImageUrl(itemId, version)}
+      alt={`Item ${itemId}`}
+      className={styles.itemSlot}
+      width={22}
+      height={22}
+      loading="lazy"
+      onError={(e) => {
+        (e.target as HTMLImageElement).style.display = "none";
+      }}
+    />
+  );
+}
+
+import {getRuneStyleIconUrl} from "../lib/constants/ddragon";
+
+// ── Sub-component: Teams (memoized — 10 images below the fold) ────────
+
+type TeamsProps = {
+  participants: Participant[];
+  current: Participant;
+  currentPuuid: string | undefined;
+  version: string;
+};
+
+const Teams = memo(function Teams({
+  participants,
+  current,
+  currentPuuid,
+  version,
+}: TeamsProps) {
+  const allied = getAlliedTeam(participants, current);
+  const enemy = getEnemyTeam(participants, current);
+
+  function PlayerRow({p}: {p: Participant}) {
+    const isSelf = p.puuid != null && p.puuid === currentPuuid;
+    const champName = p.championName ?? "Unknown";
+    const summonerDisplay =
+      p.riotIdGameName ?? p.summonerName ?? p.gameName ?? "Unknown";
+    return (
+      <div
+        className={`${styles.teamPlayer} ${isSelf ? styles.teamPlayerSelf : ""}`}
+        aria-label={`${champName} played by ${summonerDisplay}`}
+      >
+        <img
+          src={getChampionImageUrl(champName, version)}
+          alt={champName}
+          className={styles.teamChampIcon}
+          width={16}
+          height={16}
+          loading="lazy"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+        <span className={styles.teamSummonerName}>{summonerDisplay}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.teamsColumn}>
+      <div className={styles.teamList}>
+        {allied.map((p, i) => (
+          <PlayerRow key={p.puuid ?? i} p={p} />
+        ))}
+      </div>
+      <div className={styles.teamList}>
+        {enemy.map((p, i) => (
+          <PlayerRow key={p.puuid ?? i} p={p} />
+        ))}
+      </div>
+    </div>
+  );
+});
+
+// ── Main Component ────────────────────────────────────────────────────
+
 export default function MatchCard({
   match,
   detail,
@@ -31,106 +145,268 @@ export default function MatchCard({
   user,
   isSearchView = false,
   targetPuuid = null,
-  expanded = false,
 }: MatchCardProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const showDetails = expanded || isOpen;
-
+  // ── Participant resolution ──────────────────────────────────────────
   const participant = useMemo<Participant | null>(
-    () => {
-      if (isSearchView) {
-        return getParticipantByPuuid(detail, targetPuuid);
-      }
-      return getParticipantForUser(detail, user);
-    },
+    () =>
+      isSearchView
+        ? getParticipantByPuuid(detail, targetPuuid)
+        : getParticipantForUser(detail, user),
     [detail, isSearchView, targetPuuid, user]
   );
 
-  const {formattedDate, formattedTime} = useMemo(() => {
-    const d = match.game_start_timestamp
-      ? new Date(match.game_start_timestamp)
-      : null;
-    if (!d) return {formattedDate: null, formattedTime: null};
-    return {
-      formattedDate: d.toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
-      formattedTime: d.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
-  }, [match.game_start_timestamp]);
+  const participants = detail?.info?.participants ?? [];
+  const gameDuration = detail?.info?.gameDuration;
 
+  // ── Derived stats ───────────────────────────────────────────────────
+  const outcome = getMatchOutcome(participant, gameDuration);
   const kdaRatio = getKdaRatio(participant);
-  const csPerMinute = getCsPerMinute(participant);
-  const isWin = participant?.win ?? null;
+  const totalCs = getTotalCs(participant);
+  const csPerMin = getCsPerMinute(participant);
+  const killParticipation = calculateKillParticipation(
+    participant,
+    participants
+  );
+  const damageRank = getDamageRankPosition(participant, participants);
+  const durationStr = formatGameDuration(gameDuration);
+  const relativeTime = formatRelativeTime(
+    match.game_start_timestamp ?? undefined
+  );
+
+  // ── Display values ──────────────────────────────────────────────────
   const championName =
     champion?.name ?? participant?.championName ?? "Unknown Champion";
+  const champLevel = participant?.champLevel;
   const imageUrl = champion?.image_url ?? null;
   const queueId = detail?.info?.queueId ?? match.queueId ?? undefined;
   const queueModeLabel = getQueueModeLabel(getQueueMode(queueId));
 
+  // ── Items (slots 0-5 = items, slot 6 = trinket) ─────────────────────
+  const itemIds: number[] = [
+    participant?.item0 ?? 0,
+    participant?.item1 ?? 0,
+    participant?.item2 ?? 0,
+    participant?.item3 ?? 0,
+    participant?.item4 ?? 0,
+    participant?.item5 ?? 0,
+    participant?.item6 ?? 0,
+  ];
+
+  // ── Spells & keystone ───────────────────────────────────────────────
+  const spell1Id = participant?.summoner1Id ?? 0;
+  const spell2Id = participant?.summoner2Id ?? 0;
+  const primaryStyle = participant?.perks?.styles?.find(
+    (s) => s.description === "primaryStyle"
+  );
+  const subStyle = participant?.perks?.styles?.find(
+    (s) => s.description === "subStyle"
+  );
+  const keystonePerkId = primaryStyle?.selections?.[0]?.perk ?? 0;
+  const keystoneStyleId = primaryStyle?.style ?? 0;
+  const subStyleId = subStyle?.style ?? 0;
+  const hasKeystone = keystonePerkId > 0 && keystoneStyleId > 0;
+  const hasSubStyle = subStyleId > 0;
+
+  // ── Multikill badges ────────────────────────────────────────────────
+  type MultikillEntry = {label: string; count: number; penta: boolean};
+  const multikills: MultikillEntry[] = (
+    [
+      {label: "Double Kill", count: participant?.doubleKills ?? 0, penta: false},
+      {label: "Triple Kill", count: participant?.tripleKills ?? 0, penta: false},
+      {label: "Quadra Kill", count: participant?.quadraKills ?? 0, penta: false},
+      {label: "Penta Kill", count: participant?.pentaKills ?? 0, penta: true},
+    ] as MultikillEntry[]
+  ).filter((mk) => mk.count > 0);
+
+  // ── Subjective badges (Victor / Downfall placeholder) ───────────────
+  const showVictor = outcome === "victory" && (damageRank <= 3 || kdaRatio > 5);
+  const showDownfall = outcome === "defeat" && ((participant?.deaths ?? 0) > 8 || kdaRatio < 1);
+
+  // ── DDragon version (fallback for now; fetching deferred) ───────────
+  const version = FALLBACK_DDRAGON_VERSION;
+
+  // ── Outcome → CSS modifier ──────────────────────────────────────────
+  const outcomeClass =
+    outcome === "victory"
+      ? styles.cardVictory
+      : outcome === "defeat"
+        ? styles.cardDefeat
+        : styles.cardRemake;
+
+  const textQueueClass =
+    outcome === "victory"
+      ? styles.textBlue
+      : outcome === "defeat"
+        ? styles.textRed
+        : styles.textGray;
+
+  const outcomeLabel =
+    outcome === "victory"
+      ? "Victory"
+      : outcome === "defeat"
+        ? "Defeat"
+        : "Remake";
+
+  const currentPuuid = isSearchView
+    ? (targetPuuid ?? undefined)
+    : (user?.riot_account?.puuid ?? undefined);
+
   return (
-    <article className={styles.card}>
-      <header className={styles.header}>
-        <div>
-          <p className={styles.matchId}>
-            {queueModeLabel} Match
-          </p>
-          {formattedDate && formattedTime && (
-            <p className={styles.matchId}>
-              {formattedDate} at {formattedTime}
-            </p>
-          )}
-          <h3 className={styles.title}>
-            {championName} {isWin === null ? "" : isWin ? "Win" : "Loss"}
-          </h3>
+    <article className={`${styles.card} ${outcomeClass}`}>
+      {/* ── Column 1: Game Info ── */}
+      <div className={styles.gameInfo}>
+        <div className={`${styles.queueType} ${textQueueClass}`}>
+          {queueModeLabel}
         </div>
-        {imageUrl ? (
-          <Image
-            className={styles.championImage}
-            src={imageUrl}
-            alt={championName}
-            width={48}
-            height={48}
-            unoptimized
-          />
-        ) : (
-          <div className={styles.championFallback}>?</div>
-        )}
-      </header>
-      <div className={styles.summary}>
-        <span>KDA {kdaRatio.toFixed(2)}</span>
-        <span>CS/min {csPerMinute.toFixed(1)}</span>
-        <span>{participant?.lane ?? "Unknown Lane"}</span>
-        <span>{participant?.role ?? "Unknown Role"}</span>
+        <div className={styles.textGray}>{relativeTime}</div>
+        <div className={styles.outcomeLine}>{outcomeLabel}</div>
+        <div className={styles.textGray}>{durationStr}</div>
       </div>
-      {!expanded ? (
-        <button
-          className={styles.toggle}
-          onClick={() => setIsOpen((prev) => !prev)}
-        >
-          {isOpen ? "Hide details" : "Show details"}
-        </button>
-      ) : null}
-      {showDetails ? (
-        <div className={styles.details}>
-          <div>
-            <p>Kills: {participant?.kills ?? "-"}</p>
-            <p>Deaths: {participant?.deaths ?? "-"}</p>
-            <p>Assists: {participant?.assists ?? "-"}</p>
+
+      {/* ── Column 2: Player Info (Champ, Spells, KDA, Items) ── */}
+      <div className={styles.playerInfo}>
+        <div className={styles.playerInfoTop}>
+          <div className={styles.championPortrait}>
+            {imageUrl ? (
+              <Image
+                className={styles.championImage}
+                src={imageUrl}
+                alt={`${championName} level ${champLevel ?? ""}`}
+                width={48}
+                height={48}
+                unoptimized
+              />
+            ) : (
+              <div className={styles.championFallback}>?</div>
+            )}
+            {champLevel != null && (
+              <span className={styles.champLevel}>{champLevel}</span>
+            )}
           </div>
-          <div>
-            <p>Gold: {participant?.goldEarned ?? "-"}</p>
-            <p>Game duration: {detail?.info?.gameDuration ?? "-"} sec</p>
-            <p>Queue: {detail?.info?.queueId ?? match.queueId ?? "-"}</p>
+
+          <div className={styles.spellCol}>
+            <img
+              src={getSpellImageUrl(spell1Id, version)}
+              alt={getSpellLabel(spell1Id)}
+              className={styles.spellSlot}
+              width={20}
+              height={20}
+              loading="lazy"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+            {hasKeystone ? (
+              <img
+                src={getKeystoneImageUrl(keystonePerkId, keystoneStyleId)}
+                alt="Keystone rune"
+                className={styles.keystoneSlot}
+                width={20}
+                height={20}
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+            ) : (
+              <div className={styles.keystoneEmpty} aria-hidden="true" />
+            )}
+            <img
+              src={getSpellImageUrl(spell2Id, version)}
+              alt={getSpellLabel(spell2Id)}
+              className={styles.spellSlot}
+              width={20}
+              height={20}
+              loading="lazy"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+            {hasSubStyle ? (
+              <img
+                src={getRuneStyleIconUrl(subStyleId)}
+                alt="Secondary rune style"
+                className={styles.keystoneSlot}
+                width={20}
+                height={20}
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+            ) : (
+              <div className={styles.keystoneEmpty} aria-hidden="true" />
+            )}
+          </div>
+
+          <div className={styles.kdaBox}>
+            <div className={styles.kdaNumbers}>
+              <span className={styles.kills}>{participant?.kills ?? "-"}</span>
+              <span className={styles.slash}>/</span>
+              <span className={styles.deaths}>{participant?.deaths ?? "-"}</span>
+              <span className={styles.slash}>/</span>
+              <span className={styles.assists}>{participant?.assists ?? "-"}</span>
+            </div>
+            <div className={styles.kdaRatioText}>
+              {kdaRatio.toFixed(2)}:1 KDA
+            </div>
           </div>
         </div>
-      ) : null}
+
+        <div className={styles.buildRow}>
+          {itemIds.slice(0, 6).map((id, i) => (
+            <ItemSlot key={i} itemId={id} version={version} />
+          ))}
+          <div className={styles.itemSpacer} />
+          <ItemSlot itemId={itemIds[6]} version={version} />
+        </div>
+      </div>
+
+      {/* ── Column 3: Stats & Badges ── */}
+      <div className={styles.statsColumn}>
+        {killParticipation > 0 && <div className={styles.textGray}>P/Kill {killParticipation}%</div>}
+        <div className={styles.textGray}>
+          CS {totalCs} ({csPerMin.toFixed(1)})
+        </div>
+
+        <div className={styles.badgesRow}>
+          {multikills.map((mk) =>
+            Array.from({length: mk.count}).map((_, i) => (
+              <span
+                key={`${mk.label}-${i}`}
+                className={`${styles.badge} ${mk.penta ? styles.badgeGold : styles.badgeRed}`}
+                aria-label={`Achieved ${mk.label}`}
+              >
+                {mk.label}
+              </span>
+            ))
+          )}
+          {damageRank > 0 && participants.length > 0 && (
+            <span
+              className={`${styles.badge} ${styles.badgeGray}`}
+              aria-label={`Damage rank ${ordinalSuffix(damageRank)} of all players`}
+            >
+              {ordinalSuffix(damageRank)}
+            </span>
+          )}
+          {showVictor && (
+             <span className={`${styles.badge} ${styles.badgeGray}`}>Victor</span>
+          )}
+          {showDownfall && (
+             <span className={`${styles.badge} ${styles.badgeGray}`}>Downfall</span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Column 4: Teams ── */}
+      {participants.length > 0 && participant && (
+        <Teams
+          participants={participants}
+          current={participant}
+          currentPuuid={currentPuuid}
+          version={version}
+        />
+      )}
     </article>
   );
 }

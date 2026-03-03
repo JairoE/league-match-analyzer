@@ -1,69 +1,353 @@
+/* ── Base card ──────────────────────────────────────────────────────── */
+
 .card {
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
-  padding: 16px;
-  background: var(--color-surface);
+  border-left-width: 6px;
+  border-style: solid;
+  border-color: transparent;
+  border-radius: 6px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
+  position: relative;
+  transition: box-shadow 0.15s ease;
+  color: #9ca3af;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.card:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Outcome modifiers ────────────────────────────────────────────────
+   Colors matching the image exactly
+*/
+
+.cardVictory {
+  background: #28344e;
+  border-left-color: #5383e8;
+}
+
+.cardDefeat {
+  background: #59343b;
+  border-left-color: #e84057;
+}
+
+.cardRemake {
+  background: #282830;
+  border-left-color: #8b92a5;
+}
+
+/* ── Loading / shimmer state ─────────────────────────────────────────── */
+
+.cardLoading {
+  opacity: 0.6;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.cardLoading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ── Column 1: Game Info ───────────────────────────────────────────── */
+
+.gameInfo {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  flex: 1 1 100px;
+  min-width: 100px;
+  max-width: 140px;
+  line-height: 1.4;
 }
 
-.header {
+.queueType {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.textBlue { color: #5383e8; }
+.textRed { color: #e84057; }
+.textGray { color: #a0a5b5; }
+.textWhite { color: #ffffff; }
+
+.outcomeLine {
+  margin-top: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #ffffff;
+}
+
+/* ── Column 2: Player Info (Champ, Spells, KDA, Items) ─────────────── */
+
+.playerInfo {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 2 1 220px;
+  min-width: 200px;
+}
+
+.playerInfoTop {
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 
-.matchId {
-  font-size: 12px;
-  opacity: 0.7;
-}
+/* ── Champion portrait ────────────────────────────────────────────────── */
 
-.title {
-  font-size: 18px;
-  font-weight: 600;
+.championPortrait {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
 }
 
 .championImage {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: 50%;
   object-fit: cover;
 }
 
 .championFallback {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: 50%;
   background: var(--color-chip);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
+  font-size: 18px;
 }
 
-.summary {
+/* Champion level badge — bottom-right corner of portrait */
+.champLevel {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  background: #202d37;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+/* ── Spells + keystone column ────────────────────────────────────────── */
+
+.spellCol {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px;
-  font-size: 13px;
-}
-
-.toggle {
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
   align-self: flex-start;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-strong);
-  color: inherit;
-  cursor: pointer;
 }
 
-.details {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+.spellSlot {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
+}
+
+.keystoneSlot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.keystoneEmpty {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-chip, #333);
+  opacity: 0.3;
+}
+
+/* ── KDA Box ─────────────────────────────────────────────────────────── */
+
+.kdaBox {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin-left: 8px;
+}
+
+.kdaNumbers {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.5px;
+}
+
+.kills, .assists {
+  color: #ffffff;
+}
+
+.deaths {
+  color: #e84057;
+}
+
+.slash {
+  color: #9ca3af;
+  font-weight: 400;
+  margin: 0 2px;
+}
+
+.kdaRatioText {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+/* ── Build row (items) ───────────────────────────────────────────────── */
+
+.buildRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.itemSlot {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
+}
+
+.itemSlotEmpty {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Small gap between core items and trinket */
+.itemSpacer {
+  width: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Column 3: Stats & Badges ──────────────────────────────────────── */
+
+.statsColumn {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  flex: 1 1 120px;
+  min-width: 120px;
+  font-size: 11px;
+}
+
+.badgesRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.badgeRed { background: #e84057; color: #ffffff; }
+.badgeGray { background: #6b7280; color: #ffffff; }
+.badgeGold { background: #eab308; color: #ffffff; }
+
+/* ── Column 4: Teams ───────────────────────────────────────────────── */
+
+.teamsColumn {
+  display: flex;
   gap: 8px;
-  font-size: 13px;
-  opacity: 0.9;
+  flex: 1 1 220px;
+  min-width: 200px;
+}
+
+.teamList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.teamPlayer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.teamChampIcon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.teamSummonerName {
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.teamPlayerSelf .teamSummonerName {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* ── Responsive Container Styles (Auto-wrapping handles most) ────────── */
+
+/* Remove border when items wrap or screen is small */
+@media (max-width: 600px) {
+  .card {
+    gap: 12px;
+  }
+  .teamsColumn {
+    width: 100%;
+    flex: 1 1 100%;
+  }
 }
