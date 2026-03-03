@@ -15,6 +15,7 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
 ## What's Built
 
 ### Backend (FastAPI + ARQ)
+
 - **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue full details in background.
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
@@ -23,6 +24,7 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
 - **Observability**: Structured JSON logging, `increment_metric_safe` metric helper.
 
 ### Frontend (Next.js 16)
+
 - **Pages**: `/` (search + optional auth), `/home` (match results dashboard), `/riot-account/[riotId]` (search results view).
 - **API client**: `src/lib/api.ts` — typed `apiGet<T>` / `apiPost<T>` wrappers.
 - **Client cache**: `src/lib/cache.ts` — in-memory LRU-like cache with TTL.
@@ -41,6 +43,7 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
   - Call sites use `reportError(err)` for general errors; intercept before `reportError` when a page-level context string (e.g. summoner name) is needed.
 
 ### Infrastructure
+
 - Docker Compose: `api`, `worker`, `db`, `redis`.
 - Railway deployment via `railway.json` + nixpacks.
 - Alembic async migrations.
@@ -49,8 +52,8 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
 
 ## Open Tickets / Blockers
 
-| Ticket | File | Status |
-|---|---|---|
+| Ticket                                                                                                                                        | File                                                             | Status   |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------- |
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_user_upsert.py` | **OPEN** |
 
 **Fix required**: Replace select-then-insert with `INSERT ... ON CONFLICT DO NOTHING/DO UPDATE` for `Match` (by `game_id`), `User` (by `puuid`), and `RiotAccountMatch` (by `(user_id, match_id)`).
@@ -59,6 +62,7 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
 
 ## Recent Changes (2026-03-03)
 
+- Consolidated the overly complex MatchCard redesign documentation (5 separate files) into a single, cohesive, simplified `docs/MATCHCARD_REDESIGN.md`.
 - Replaced match history card grid architecture with a table + side panel implementation.
 - Added queue-type tab filtering with queue ID fallback resolution:
   `detail.info.queueId` -> `match.queueId` -> `undefined`.
@@ -74,6 +78,8 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
   tabs in that order.
 
 Why this changed:
+
+- Consolidated documentation avoids over-engineering and keeps the implementation plan simple, actionable, and centralized.
 - Improve scanability and dense comparison for match history.
 - Keep page components focused on data ownership while localizing interaction state in `MatchesTable`.
 - Reuse `MatchCard` rendering logic for consistency and reduced duplication.
