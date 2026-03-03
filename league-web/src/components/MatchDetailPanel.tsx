@@ -3,12 +3,14 @@
 import React from "react";
 import styles from "./MatchDetailPanel.module.css";
 import MatchCard from "./MatchCard";
+import type {Champion} from "../lib/types/champion";
 import type {MatchDetail, MatchSummary} from "../lib/types/match";
 import type {UserSession} from "../lib/types/user";
 
 type MatchDetailPanelProps = {
   match: MatchSummary;
   detail: MatchDetail | null;
+  champion: Champion | null;
   user: UserSession | null;
   isSearchView: boolean;
   targetPuuid: string | null;
@@ -31,6 +33,7 @@ function PanelSkeleton() {
 export default function MatchDetailPanel({
   match,
   detail,
+  champion,
   user,
   isSearchView,
   targetPuuid,
@@ -55,6 +58,7 @@ export default function MatchDetailPanel({
           <MatchCard
             match={match}
             detail={detail}
+            champion={champion}
             user={user}
             isSearchView={isSearchView}
             targetPuuid={targetPuuid}
