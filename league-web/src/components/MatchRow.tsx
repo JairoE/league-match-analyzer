@@ -52,12 +52,7 @@ const MatchRow = React.memo(function MatchRow({
   const isWin = participant?.win ?? null;
   const championName =
     champion?.name ?? participant?.championName ?? "Unknown";
-  const imageUrl =
-    champion?.imageUrl ??
-    champion?.image_url ??
-    champion?.iconUrl ??
-    champion?.icon_url ??
-    null;
+  const imageUrl = champion?.image_url ?? null;
 
   const queueId = detail?.info?.queueId ?? match.queueId ?? undefined;
   const queueModeLabel = getQueueModeLabel(getQueueMode(queueId));

@@ -1,23 +1,23 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useMemo, useState} from "react";
 import Image from "next/image";
 import styles from "./MatchCard.module.css";
-import {apiGet} from "../lib/api";
 import type {Champion} from "../lib/types/champion";
 import type {MatchDetail, MatchSummary, Participant} from "../lib/types/match";
 import type {UserSession} from "../lib/types/user";
 import {
   getCsPerMinute,
   getKdaRatio,
-  getMatchId,
   getParticipantByPuuid,
   getParticipantForUser,
 } from "../lib/match-utils";
+import {getQueueMode, getQueueModeLabel} from "../lib/types/queue";
 
 type MatchCardProps = {
   match: MatchSummary;
   detail: MatchDetail | null;
+  champion: Champion | null;
   user: UserSession | null;
   isSearchView?: boolean;
   targetPuuid?: string | null;
@@ -27,6 +27,7 @@ type MatchCardProps = {
 export default function MatchCard({
   match,
   detail,
+  champion,
   user,
   isSearchView = false,
   targetPuuid = null,
@@ -34,9 +35,7 @@ export default function MatchCard({
 }: MatchCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const showDetails = expanded || isOpen;
-  const [champion, setChampion] = useState<Champion | null>(null);
 
-  const matchId = useMemo(() => getMatchId(match), [match]);
   const participant = useMemo<Participant | null>(
     () => {
       if (isSearchView) {
@@ -46,82 +45,41 @@ export default function MatchCard({
     },
     [detail, isSearchView, targetPuuid, user]
   );
-  const championId = participant?.championId ?? null;
 
-  const gameStartDate = useMemo(() => {
-    const timestamp = match.game_start_timestamp;
-    if (!timestamp) return null;
-    return new Date(timestamp);
+  const {formattedDate, formattedTime} = useMemo(() => {
+    const d = match.game_start_timestamp
+      ? new Date(match.game_start_timestamp)
+      : null;
+    if (!d) return {formattedDate: null, formattedTime: null};
+    return {
+      formattedDate: d.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+      formattedTime: d.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
   }, [match.game_start_timestamp]);
-
-  const formattedDate = useMemo<string | null>(() => {
-    if (!gameStartDate) return null;
-    return gameStartDate.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, [gameStartDate]);
-
-  const formattedTime = useMemo<string | null>(() => {
-    if (!gameStartDate) return null;
-    return gameStartDate.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, [gameStartDate]);
-
-  useEffect(() => {
-    if (!championId) return;
-    let isActive = true;
-
-    const loadChampion = async () => {
-      try {
-        console.debug("[match-card] fetch champion", {championId, matchId});
-        const response = await apiGet<Champion>(`/champions/${championId}`, {
-          cacheTtlMs: 60_000,
-        });
-        if (isActive) {
-          setChampion(response);
-          console.debug("[match-card] champion loaded", {championId, matchId});
-        }
-      } catch (error) {
-        console.debug("[match-card] champion load failed", {
-          championId,
-          matchId,
-          error,
-        });
-      }
-    };
-
-    void loadChampion();
-
-    return () => {
-      isActive = false;
-    };
-  }, [championId, matchId]);
 
   const kdaRatio = getKdaRatio(participant);
   const csPerMinute = getCsPerMinute(participant);
   const isWin = participant?.win ?? null;
   const championName =
     champion?.name ?? participant?.championName ?? "Unknown Champion";
-  const imageUrl =
-    champion?.imageUrl ??
-    champion?.image_url ??
-    champion?.iconUrl ??
-    champion?.icon_url ??
-    null;
-  const rawGameMode = detail?.info?.gameMode;
-  const gameMode = typeof rawGameMode === "string" ? rawGameMode : undefined;
+  const imageUrl = champion?.image_url ?? null;
+  const queueId = detail?.info?.queueId ?? match.queueId ?? undefined;
+  const queueModeLabel = getQueueModeLabel(getQueueMode(queueId));
 
   return (
     <article className={styles.card}>
       <header className={styles.header}>
         <div>
           <p className={styles.matchId}>
-            {gameMode ? `${gameMode} Match` : `Match ${matchId ?? "Unknown"}`}
+            {queueModeLabel} Match
           </p>
           {formattedDate && formattedTime && (
             <p className={styles.matchId}>

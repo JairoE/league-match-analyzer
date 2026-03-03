@@ -120,30 +120,33 @@ export default function MatchesTable({
 
     let isActive = true;
 
-    void Promise.all(
+    void Promise.allSettled(
       missingIds.map(async (id) => {
         const champion = await apiGet<Champion>(`/champions/${id}`, {
           cacheTtlMs: 60_000,
         });
         return {id, champion};
       })
-    )
-      .then((loaded) => {
-        if (!isActive) return;
-        setChampionById((prev) => {
-          const next = {...prev};
-          for (const {id, champion} of loaded) {
-            next[id] = champion;
-          }
-          return next;
-        });
-      })
-      .catch(() => {});
+    ).then((results) => {
+      if (!isActive) return;
+      const loaded = results
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => (r as PromiseFulfilledResult<{id: number; champion: Champion}>).value);
+      if (loaded.length === 0) return;
+      setChampionById((prev) => {
+        const next = {...prev};
+        for (const {id, champion} of loaded) {
+          next[id] = champion;
+        }
+        return next;
+      });
+    });
 
     return () => {
       isActive = false;
     };
-  }, [championById, championIdsToLoad]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [championIdsToLoad]);
 
   // Derive queue group tabs from data in fixed display order
   const queueGroups = useMemo(() => {
@@ -171,6 +174,13 @@ export default function MatchesTable({
   const selectedDetail = selectedMatchId
     ? (matchDetails[selectedMatchId] ?? null)
     : null;
+  const selectedParticipant = selectedMatch
+    ? getParticipantForMatch(selectedMatch)
+    : null;
+  const selectedChampion =
+    selectedParticipant?.championId != null
+      ? (championById[selectedParticipant.championId] ?? null)
+      : null;
 
   return (
     <div className={styles.wrapper}>
@@ -251,6 +261,7 @@ export default function MatchesTable({
             <MatchDetailPanel
               match={selectedMatch}
               detail={selectedDetail}
+              champion={selectedChampion}
               user={user}
               isSearchView={isSearchView}
               targetPuuid={targetPuuid}
