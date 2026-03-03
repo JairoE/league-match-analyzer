@@ -1,0 +1,84 @@
+.panel {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+}
+
+.panelTitle {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: 16px;
+  opacity: 0.6;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: opacity 0.15s;
+}
+
+.closeButton:hover {
+  opacity: 1;
+}
+
+.panelBody {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.skeletonBlock {
+  background: var(--color-chip);
+  border-radius: 6px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.skeletonHeader {
+  height: 48px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.skeletonSummary {
+  height: 20px;
+  width: 80%;
+  margin-bottom: 8px;
+}
+
+.skeletonDetails {
+  height: 14px;
+  width: 60%;
+  margin-bottom: 6px;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

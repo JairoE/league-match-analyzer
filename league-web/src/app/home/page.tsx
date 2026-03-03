@@ -6,7 +6,7 @@ import styles from "./page.module.css";
 import Header from "../../components/Header";
 import SubHeader from "../../components/SubHeader";
 import SearchBar from "../../components/SearchBar";
-import MatchCard from "../../components/MatchCard";
+import MatchesTable from "../../components/MatchesTable";
 import {apiGet} from "../../lib/api";
 import {clearCache} from "../../lib/cache";
 import {useAppError} from "../../lib/errors/error-store";
@@ -207,29 +207,13 @@ export default function HomePage() {
 
       {errorMessage ? <p className={styles.error}>{errorMessage}</p> : null}
 
-      {isLoading ? (
-        <p className={styles.loadingInline}>Loading matches...</p>
-      ) : null}
-
-      {!isLoading && matches.length === 0 ? (
-        <p className={styles.empty}>No matches yet.</p>
-      ) : (
-        <section className={styles.matches}>
-          {matches.map((match, index) => {
-            const matchId = getMatchId(match);
-            const detail = matchId ? matchDetails[matchId] ?? null : null;
-            return (
-              <MatchCard
-                key={matchId ?? `match-${index}`}
-                match={match}
-                detail={detail}
-                user={user}
-                targetPuuid={userPuuid}
-              />
-            );
-          })}
-        </section>
-      )}
+      <MatchesTable
+        matches={matches}
+        matchDetails={matchDetails}
+        user={user}
+        targetPuuid={userPuuid}
+        isLoading={isLoading}
+      />
     </div>
   );
 }

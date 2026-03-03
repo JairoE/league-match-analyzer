@@ -21,6 +21,7 @@ type MatchCardProps = {
   user: UserSession | null;
   isSearchView?: boolean;
   targetPuuid?: string | null;
+  expanded?: boolean;
 };
 
 export default function MatchCard({
@@ -29,8 +30,10 @@ export default function MatchCard({
   user,
   isSearchView = false,
   targetPuuid = null,
+  expanded = false,
 }: MatchCardProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const showDetails = expanded || isOpen;
   const [champion, setChampion] = useState<Champion | null>(null);
 
   const matchId = useMemo(() => getMatchId(match), [match]);
@@ -148,13 +151,15 @@ export default function MatchCard({
         <span>{participant?.lane ?? "Unknown Lane"}</span>
         <span>{participant?.role ?? "Unknown Role"}</span>
       </div>
-      <button
-        className={styles.toggle}
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        {isOpen ? "Hide details" : "Show details"}
-      </button>
-      {isOpen ? (
+      {!expanded ? (
+        <button
+          className={styles.toggle}
+          onClick={() => setIsOpen((prev) => !prev)}
+        >
+          {isOpen ? "Hide details" : "Show details"}
+        </button>
+      ) : null}
+      {showDetails ? (
         <div className={styles.details}>
           <div>
             <p>Kills: {participant?.kills ?? "-"}</p>
