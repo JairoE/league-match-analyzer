@@ -1,0 +1,69 @@
+.rowEven {
+  background: var(--color-surface);
+}
+
+.rowOdd {
+  background: var(--color-surface-strong);
+}
+
+.rowEven:hover,
+.rowOdd:hover {
+  cursor: pointer;
+  background: var(--color-chip);
+}
+
+.rowSelected {
+  background: rgba(31, 111, 235, 0.08);
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.cell {
+  padding: 10px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.champion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.championIcon {
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.championIconFallback {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--color-chip);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.championName {
+  font-weight: 500;
+}
+
+.win {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.loss {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.unknown {
+  color: var(--color-text-muted);
+}

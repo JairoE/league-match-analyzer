@@ -1,0 +1,67 @@
+"use client";
+
+import React from "react";
+import styles from "./MatchDetailPanel.module.css";
+import MatchCard from "./MatchCard";
+import type {MatchDetail, MatchSummary} from "../lib/types/match";
+import type {UserSession} from "../lib/types/user";
+
+type MatchDetailPanelProps = {
+  match: MatchSummary;
+  detail: MatchDetail | null;
+  user: UserSession | null;
+  isSearchView: boolean;
+  targetPuuid: string | null;
+  onClose: () => void;
+};
+
+function PanelSkeleton() {
+  return (
+    <div>
+      <div className={`${styles.skeletonBlock} ${styles.skeletonHeader}`} />
+      <div className={`${styles.skeletonBlock} ${styles.skeletonSummary}`} />
+      <div className={`${styles.skeletonBlock} ${styles.skeletonSummary}`} />
+      <div className={`${styles.skeletonBlock} ${styles.skeletonDetails}`} />
+      <div className={`${styles.skeletonBlock} ${styles.skeletonDetails}`} />
+      <div className={`${styles.skeletonBlock} ${styles.skeletonDetails}`} />
+    </div>
+  );
+}
+
+export default function MatchDetailPanel({
+  match,
+  detail,
+  user,
+  isSearchView,
+  targetPuuid,
+  onClose,
+}: MatchDetailPanelProps) {
+  return (
+    <div className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <span className={styles.panelTitle}>Match Details</span>
+        <button
+          className={styles.closeButton}
+          onClick={onClose}
+          aria-label="Close match detail"
+        >
+          ✕
+        </button>
+      </div>
+      <div className={styles.panelBody}>
+        {detail === null ? (
+          <PanelSkeleton />
+        ) : (
+          <MatchCard
+            match={match}
+            detail={detail}
+            user={user}
+            isSearchView={isSearchView}
+            targetPuuid={targetPuuid}
+            expanded
+          />
+        )}
+      </div>
+    </div>
+  );
+}

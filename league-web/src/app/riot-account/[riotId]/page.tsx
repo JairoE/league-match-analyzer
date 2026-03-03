@@ -6,7 +6,7 @@ import styles from "./page.module.css";
 import Header from "../../../components/Header";
 import SubHeader from "../../../components/SubHeader";
 import SearchBar from "../../../components/SearchBar";
-import MatchCard from "../../../components/MatchCard";
+import MatchesTable from "../../../components/MatchesTable";
 import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";
 import {useAppError} from "../../../lib/errors/error-store";
@@ -231,30 +231,14 @@ export default function RiotAccountPage() {
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
-      {isLoading ? (
-        <p className={styles.loadingInline}>Loading matches...</p>
-      ) : null}
-
-      {!isLoading && matches.length === 0 ? (
-        <p className={styles.empty}>No matches found.</p>
-      ) : (
-        <section className={styles.matches}>
-          {matches.map((match, index) => {
-            const matchId = getMatchId(match);
-            const detail = matchId ? (matchDetails[matchId] ?? null) : null;
-            return (
-              <MatchCard
-                key={matchId ?? `match-${index}`}
-                match={match}
-                detail={detail}
-                user={null}
-                isSearchView
-                targetPuuid={accountPuuid}
-              />
-            );
-          })}
-        </section>
-      )}
+      <MatchesTable
+        matches={matches}
+        matchDetails={matchDetails}
+        user={null}
+        isSearchView
+        targetPuuid={accountPuuid}
+        isLoading={isLoading}
+      />
     </div>
   );
 }

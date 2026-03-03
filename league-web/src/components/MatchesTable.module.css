@@ -1,0 +1,116 @@
+.wrapper {
+  width: 100%;
+}
+
+.tabBar {
+  display: flex;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.tab,
+.tabActive {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  background: var(--color-surface-strong);
+}
+
+.tabActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.tableContainer {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 320px);
+  min-height: 300px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-surface-strong);
+}
+
+.th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.panelOverlay {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  z-index: 30;
+}
+
+.rowEven {
+  background: var(--color-surface);
+}
+
+.rowOdd {
+  background: var(--color-surface-strong);
+}
+
+.cell {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.skeletonCell {
+  height: 14px;
+  width: 80px;
+  border-radius: 4px;
+  background: var(--color-chip);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
