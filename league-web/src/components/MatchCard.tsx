@@ -151,13 +151,15 @@ export default function MatchCard({
         <span>{participant?.lane ?? "Unknown Lane"}</span>
         <span>{participant?.role ?? "Unknown Role"}</span>
       </div>
-      <button
-        className={styles.toggle}
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        {isOpen ? "Hide details" : "Show details"}
-      </button>
-      {isOpen ? (
+      {!expanded ? (
+        <button
+          className={styles.toggle}
+          onClick={() => setIsOpen((prev) => !prev)}
+        >
+          {isOpen ? "Hide details" : "Show details"}
+        </button>
+      ) : null}
+      {showDetails ? (
         <div className={styles.details}>
           <div>
             <p>Kills: {participant?.kills ?? "-"}</p>

@@ -1,9 +1,8 @@
 "use client";
 
-import React, {useEffect, useMemo, useState} from "react";
+import React, {useMemo} from "react";
 import Image from "next/image";
 import styles from "./MatchRow.module.css";
-import {apiGet} from "../lib/api";
 import type {Champion} from "../lib/types/champion";
 import type {MatchDetail, MatchSummary, Participant} from "../lib/types/match";
 import type {UserSession} from "../lib/types/user";
@@ -23,6 +22,7 @@ type MatchRowProps = {
   targetPuuid: string | null;
   isSelected: boolean;
   index: number;
+  championById: Record<number, Champion>;
   onClick: () => void;
 };
 
@@ -34,10 +34,9 @@ const MatchRow = React.memo(function MatchRow({
   targetPuuid,
   isSelected,
   index,
+  championById,
   onClick,
 }: MatchRowProps) {
-  const [champion, setChampion] = useState<Champion | null>(null);
-
   const participant = useMemo<Participant | null>(() => {
     if (isSearchView) {
       return getParticipantByPuuid(detail, targetPuuid);
@@ -46,21 +45,7 @@ const MatchRow = React.memo(function MatchRow({
   }, [detail, isSearchView, targetPuuid, user]);
 
   const championId = participant?.championId ?? null;
-
-  useEffect(() => {
-    if (!championId) return;
-    let isActive = true;
-
-    apiGet<Champion>(`/champions/${championId}`, {cacheTtlMs: 60_000})
-      .then((response) => {
-        if (isActive) setChampion(response);
-      })
-      .catch(() => {});
-
-    return () => {
-      isActive = false;
-    };
-  }, [championId]);
+  const champion = championId ? championById[championId] ?? null : null;
 
   const kdaRatio = getKdaRatio(participant);
   const csPerMinute = getCsPerMinute(participant);
@@ -99,7 +84,14 @@ const MatchRow = React.memo(function MatchRow({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onClick();
+        if (e.key === "Enter") {
+          onClick();
+          return;
+        }
+        if (e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
       }}
     >
       <td className={styles.cell}>{queueModeLabel}</td>

@@ -37,6 +37,17 @@ export enum RiotQueueId {
   ARAM_MAYHEM = 0,
 }
 
+export const QUEUE_GROUP_DISPLAY_ORDER: GameQueueGroup[] = [
+  GameQueueGroup.RANKED_SOLO,
+  GameQueueGroup.RANKED_FLEX,
+  GameQueueGroup.NORMAL_SR,
+  GameQueueGroup.ARAM,
+  GameQueueGroup.ARENA,
+  GameQueueGroup.SWIFTPLAY,
+  GameQueueGroup.EVENT,
+  GameQueueGroup.OTHER,
+];
+
 const QUEUE_ID_TO_GROUP: Record<number, GameQueueGroup> = {
   [RiotQueueId.RANKED_SOLO_5V5]: GameQueueGroup.RANKED_SOLO,
   [RiotQueueId.RANKED_FLEX_5V5]: GameQueueGroup.RANKED_FLEX,

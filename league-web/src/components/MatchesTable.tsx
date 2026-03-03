@@ -4,10 +4,21 @@ import React, {useEffect, useMemo, useState, useCallback} from "react";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "./MatchRow";
 import MatchDetailPanel from "./MatchDetailPanel";
-import {getMatchId} from "../lib/match-utils";
-import type {MatchDetail, MatchSummary} from "../lib/types/match";
+import {apiGet} from "../lib/api";
+import {
+  getMatchId,
+  getParticipantByPuuid,
+  getParticipantForUser,
+} from "../lib/match-utils";
+import type {Champion} from "../lib/types/champion";
+import type {MatchDetail, MatchSummary, Participant} from "../lib/types/match";
 import type {UserSession} from "../lib/types/user";
-import {GameQueueGroup, getQueueGroup, getQueueGroupLabel} from "../lib/types/queue";
+import {
+  GameQueueGroup,
+  getQueueGroup,
+  getQueueGroupLabel,
+  QUEUE_GROUP_DISPLAY_ORDER,
+} from "../lib/types/queue";
 
 type MatchesTableProps = {
   matches: MatchSummary[];
@@ -58,17 +69,13 @@ export default function MatchesTable({
 }: MatchesTableProps) {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
+  const [championById, setChampionById] = useState<Record<number, Champion>>({});
 
   const handleRowClick = useCallback((matchId: string) => {
     setSelectedMatchId((prev) => (prev === matchId ? null : matchId));
   }, []);
 
   const handleClosePanel = useCallback(() => setSelectedMatchId(null), []);
-
-  // Clear panel selection when switching tabs
-  useEffect(() => {
-    setSelectedMatchId(null);
-  }, [activeTab]);
 
   /** Resolve queueId from detail or match-level fallback */
   const resolveQueueId = useCallback(
@@ -81,7 +88,64 @@ export default function MatchesTable({
     [matchDetails]
   );
 
-  // Derive dynamic queue group tabs from data
+  const getParticipantForMatch = useCallback(
+    (match: MatchSummary): Participant | null => {
+      const matchId = getMatchId(match);
+      const detail = matchId ? matchDetails[matchId] : null;
+      if (isSearchView) {
+        return getParticipantByPuuid(detail, targetPuuid);
+      }
+      return getParticipantForUser(detail, user);
+    },
+    [isSearchView, matchDetails, targetPuuid, user]
+  );
+
+  const championIdsToLoad = useMemo(() => {
+    const ids = new Set<number>();
+    for (const match of matches) {
+      const participant = getParticipantForMatch(match);
+      const championId = participant?.championId;
+      if (typeof championId === "number") {
+        ids.add(championId);
+      }
+    }
+    return Array.from(ids);
+  }, [getParticipantForMatch, matches]);
+
+  useEffect(() => {
+    const missingIds = championIdsToLoad.filter((id) => championById[id] == null);
+    if (missingIds.length === 0) {
+      return;
+    }
+
+    let isActive = true;
+
+    void Promise.all(
+      missingIds.map(async (id) => {
+        const champion = await apiGet<Champion>(`/champions/${id}`, {
+          cacheTtlMs: 60_000,
+        });
+        return {id, champion};
+      })
+    )
+      .then((loaded) => {
+        if (!isActive) return;
+        setChampionById((prev) => {
+          const next = {...prev};
+          for (const {id, champion} of loaded) {
+            next[id] = champion;
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      isActive = false;
+    };
+  }, [championById, championIdsToLoad]);
+
+  // Derive queue group tabs from data in fixed display order
   const queueGroups = useMemo(() => {
     const groups = new Set<GameQueueGroup>();
     for (const match of matches) {
@@ -89,7 +153,7 @@ export default function MatchesTable({
       const group = getQueueGroup(queueId);
       groups.add(group);
     }
-    return Array.from(groups).sort();
+    return QUEUE_GROUP_DISPLAY_ORDER.filter((group) => groups.has(group));
   }, [matches, resolveQueueId]);
 
   // Filter matches by active tab
@@ -113,7 +177,10 @@ export default function MatchesTable({
       <div className={styles.tabBar}>
         <button
           className={activeTab === "all" ? styles.tabActive : styles.tab}
-          onClick={() => setActiveTab("all")}
+          onClick={() => {
+            setSelectedMatchId(null);
+            setActiveTab("all");
+          }}
         >
           All
         </button>
@@ -121,7 +188,10 @@ export default function MatchesTable({
           <button
             key={group}
             className={activeTab === group ? styles.tabActive : styles.tab}
-            onClick={() => setActiveTab(group)}
+            onClick={() => {
+              setSelectedMatchId(null);
+              setActiveTab(group);
+            }}
           >
             {getQueueGroupLabel(group)}
           </button>
@@ -167,6 +237,7 @@ export default function MatchesTable({
                     targetPuuid={targetPuuid}
                     isSelected={matchId === selectedMatchId}
                     index={index}
+                    championById={championById}
                     onClick={() => matchId && handleRowClick(matchId)}
                   />
                 );
