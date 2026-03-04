@@ -9,6 +9,24 @@
   --color-success: #238636;
   --color-danger: #d1242f;
   --color-chip: #eaeef2;
+
+  /* Match card outcome backgrounds */
+  --match-victory-bg: #28344e;
+  --match-defeat-bg: #59343b;
+  --match-remake-bg: #282830;
+
+  /* Match card text colors */
+  --match-text-blue: #5383e8;
+  --match-text-red: #e84057;
+  --match-text-muted: #6b7280;
+
+  /* Badge colors */
+  --badge-gold: #eab308;
+
+  /* KDA chart bar fill (semi-transparent) */
+  --match-bar-victory: #60a5fa55;
+  --match-bar-defeat: #f8717155;
+  --match-bar-remake: #6b728055;
 }
 
 @media (prefers-color-scheme: dark) {

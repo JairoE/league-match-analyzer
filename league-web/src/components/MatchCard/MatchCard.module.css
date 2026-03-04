@@ -26,17 +26,17 @@
 */
 
 .cardVictory {
-  background: #28344e;
-  border-left-color: #5383e8;
+  background: var(--match-victory-bg);
+  border-left-color: var(--match-text-blue);
 }
 
 .cardDefeat {
-  background: #59343b;
-  border-left-color: #e84057;
+  background: var(--match-defeat-bg);
+  border-left-color: var(--match-text-red);
 }
 
 .cardRemake {
-  background: #282830;
+  background: var(--match-remake-bg);
   border-left-color: #8b92a5;
 }
 
@@ -87,8 +87,8 @@
   font-size: 13px;
 }
 
-.textBlue { color: #5383e8; }
-.textRed { color: #e84057; }
+.textBlue { color: var(--match-text-blue); }
+.textRed { color: var(--match-text-red); }
 .textGray { color: #a0a5b5; }
 .textWhite { color: #ffffff; }
 
@@ -216,7 +216,7 @@
 }
 
 .deaths {
-  color: #e84057;
+  color: var(--match-text-red);
 }
 
 .slash {
@@ -291,9 +291,9 @@
   color: #ffffff;
 }
 
-.badgeRed { background: #e84057; color: #ffffff; }
-.badgeGray { background: #6b7280; color: #ffffff; }
-.badgeGold { background: #eab308; color: #ffffff; }
+.badgeRed { background: var(--match-text-red); color: #ffffff; }
+.badgeGray { background: var(--match-text-muted); color: #ffffff; }
+.badgeGold { background: var(--badge-gold); color: #ffffff; }
 
 /* ── Column 4: Teams ───────────────────────────────────────────────── */
 
@@ -362,8 +362,8 @@
   white-space: nowrap;
 }
 
-.laningPos { color: #60a5fa; }
-.laningNeg { color: #f87171; }
+.laningPos { color: #60a5fa; }  /* laning diff positive — intentionally distinct from --match-text-blue */
+.laningNeg { color: #f87171; }  /* laning diff negative — intentionally distinct from --match-text-red */
 
 /* ── Responsive Container Styles (Auto-wrapping handles most) ────────── */
 
@@ -390,7 +390,7 @@
 
 .kdaChartLabel {
   font-size: 10px;
-  color: #6b7280;
+  color: var(--match-text-muted);
   margin-bottom: 2px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
