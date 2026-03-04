@@ -2,71 +2,29 @@ Frontend Components Refactor Plan
 Context
 The league-web/src/components/ directory is a flat folder with 22 files (11 .tsx + 11 .module.css). The two largest files — MatchesTable.tsx (394 lines, 13 inline hooks, 3 eslint-disable suppressions) and MatchCard.tsx (535 lines, 3 internal sub-components) — have grown beyond comfortable single-file size. This refactor folderizes components, extracts hooks from MatchesTable, and decomposes MatchCard into separate files — all without changing behavior.
 
-Phase 1 — Folderize (zero logic changes)
-Move each component into its own folder with its CSS module. No barrel files for single-export folders — import the component file directly.
+## Source of Truth for Participant Data
 
-Target structure after Phase 1
+To prevent drift between Riot payload capabilities, frontend typing, and UI
+rollout, use `docs/RIOT_API_PARTICIPANT_FIELDS.md` as the canonical source of
+truth for participant fields and asset mappings.
 
-components/
-Auth/
-AuthForm.tsx
-AuthForm.module.css
-SignInForm.tsx
-SignUpForm.tsx
-Header/
-Header.tsx
-Header.module.css
-SearchBar/
-SearchBar.tsx
-SearchBar.module.css
-SubHeader/
-SubHeader.tsx
-SubHeader.module.css
-Pagination/
-Pagination.tsx
-Pagination.module.css
-MatchRow/
-MatchRow.tsx
-MatchRow.module.css
-MatchDetailPanel/
-MatchDetailPanel.tsx
-MatchDetailPanel.module.css
-MatchCard/
-MatchCard.tsx
-MatchCard.module.css
-index.ts ← barrel (will have 3+ exports after Phase 3)
-MatchesTable/
-MatchesTable.tsx
-MatchesTable.module.css
-index.ts ← barrel (will have 3+ exports after Phase 2)
-FeatureCard/
-FeatureCard.tsx
-FeatureCard.module.css
-Import updates required
-Page files (4 files):
+Required alignment points:
 
-app/page.tsx — Header, SearchBar, FeatureCard (3 imports)
-app/home/page.tsx — Header, SubHeader, SearchBar, MatchesTable (4 imports)
-app/auth/page.tsx — Header, SignInForm, SignUpForm (3 imports)
-app/riot-account/[riotId]/page.tsx — Header, SubHeader, SearchBar, MatchesTable (4 imports)
-Cross-component imports (3):
+- `league-web/src/lib/types/match.ts` (`Participant` typing coverage)
+- `league-web/src/components/MatchCard.tsx` (field consumption in UI)
+- `league-web/src/lib/constants/ddragon.ts` (spell/rune mapping parity)
 
-MatchesTable.tsx imports MatchRow, MatchDetailPanel, Pagination
-MatchDetailPanel.tsx imports MatchCard
-SignInForm.tsx and SignUpForm.tsx import AuthForm
-Execution order
-Move leaf components first (no cross-component imports): Header, SearchBar, SubHeader, Pagination, FeatureCard
-Move Auth/ group: AuthForm + SignInForm + SignUpForm together
-Move MatchRow
-Move MatchCard (+ add index.ts)
-Move MatchDetailPanel
-Move MatchesTable (+ add index.ts)
-Trivial fixes to include during Phase 1:
+When adding or changing MatchCard data usage, update this doc set together:
 
-Add type="button" to any non-submit <button> elements encountered during moves
-Checkpoint: npm run lint && npm run build after every 2-3 moves.
+1. `docs/RIOT_API_PARTICIPANT_FIELDS.md` (field contract and priority)
+2. `league-web/src/lib/types/match.ts` (typed contract)
+3. `docs/MATCHCARD_REDESIGN.md` and `docs/app_state.md` (implementation status)
 
-Phase 2 — MatchesTable Hook Extraction
+All core redesign steps (types, DDragon constants, match utilities, MatchCard UI, CSS) are fully implemented. This document tracks the remaining deferred features.
+
+---
+
+Phase 1 — MatchesTable Hook Extraction
 Extract 2 custom hooks from MatchesTable.tsx. Keep championHistoryByMatchId useMemo inline (it's a pure derivation, not worth a separate file).
 
 Hook 1: useMatchSelection.ts
@@ -127,7 +85,8 @@ Panel close button works
 Rank badges appear in Teams
 Lane stats (CS@10, CS@15, G@10) appear
 Pagination controls work
-Phase 3 — MatchCard Decomposition + CSS Var Extraction
+
+Phase 2 — MatchCard Decomposition + CSS Var Extraction
 Sub-component extraction
 Move the 3 internal sub-components to their own files within MatchCard/:
 

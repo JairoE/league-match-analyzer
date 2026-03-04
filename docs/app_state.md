@@ -4,14 +4,6 @@
 **Branch:** `frontend-chart`
 **Status:** BUILDING — Champion KDA History Chart implemented
 
----
-
-## Current Phase
-
-Active development on the `frontend-matches-paginated` branch. Server-side pagination is implemented for both match endpoints. Riot API sync is gated to page 1 only — subsequent pages query the database directly.
-
----
-
 ## What's Built
 
 ### Backend (FastAPI + ARQ)
@@ -182,6 +174,17 @@ Optional:
 - **Import path fixes**: All `../lib/` → `../../lib/` inside moved components; cross-component imports updated (`MatchesTable` → `../MatchRow/MatchRow`, `../MatchDetailPanel/MatchDetailPanel`, `../Pagination/Pagination`; `MatchDetailPanel` → `../MatchCard/MatchCard`); `Auth/SignInForm` + `SignUpForm` retain `./AuthForm` (same folder)
 - **Trivial fixes**: Added `type="button"` to all non-submit buttons in `Header`, `Pagination`, `MatchDetailPanel`, and `MatchesTable` tab buttons
 - **Verification**: `npm run lint` — 1 pre-existing warning (unchanged); `npm run build` — clean
+
+### Phase 1 Frontend Refactor — Hook Extraction (`frontend-components-refactor`, session 3)
+
+- **What changed**: Extracted hooks and sub-pieces from `MatchesTable.tsx`; zero behavior changes.
+- **New files**:
+  - `MatchesTable/useMatchSelection.ts` — `selectedMatchId` state + `handleRowClick` / `handleClosePanel` / `clearSelection`
+  - `MatchesTable/useMatchDetailData.ts` — all 3 fetch-on-select effects (`championById`, `rankByPuuid`, `laneStatsByMatchId`) with functional updater pattern; `eslint-disable` comments removed from champion and rank effects; timeline effect omits `matches`/`getParticipantForMatch`/`laneStatsByMatchId` from deps (stable within a selection)
+  - `MatchesTable/constants.ts` — `COLUMNS` array
+  - `MatchesTable/SkeletonRows.tsx` — skeleton row component
+- **`MatchesTable.tsx`** slimmed from ~397 → ~215 lines; tab click handlers use `clearSelection()` instead of `setSelectedMatchId(null)`
+- **Verification**: `npm run lint` — same 1 pre-existing warning; `npm run build` — clean
 
 ---
 
