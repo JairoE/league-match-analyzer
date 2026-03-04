@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-03 (session 2)
-**Branch:** `frontend-matches-paginated`
-**Status:** STABLE — ready for PR merge
+**Last Updated:** 2026-03-03 (session 3)
+**Branch:** `main`
+**Status:** BUILDING — rank badges + laning stats implemented
 
 ---
 
@@ -119,10 +119,35 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-03, session 3)
+
+### Step 1 — Per-Player Rank Badges
+- **Backend**: New `GET /rank/batch?puuids=<csv>` endpoint (`routers/rank.py`). Fetches up to 10 PUUIDs concurrently via `asyncio.gather`. Caches each PUUID individually in Redis (`rank:{puuid}`, TTL 1h). Registered in router registry.
+- **Frontend**: `MatchesTable` fetches `/rank/batch` via `useEffect` keyed on `selectedMatchId`. Only fetches PUUIDs not already in `rankByPuuid` cache. Passed down: `MatchesTable` → `MatchDetailPanel` → `MatchCard` → `Teams`. Each `PlayerRow` in `Teams` renders a `.rankBadge` span (purple, 10px) when rank data is available.
+
+### Step 2 — Timeline API (Laning Phase Analytics)
+- **Backend**: `fetch_match_timeline()` added to `RiotApiClient` (`MATCH_TIMELINE_URL + /timeline`). New `fetch_timeline_stats()` in `riot_sync.py` — fetches timeline, caches raw JSON in Redis indefinitely (`timeline:{matchId}`), parses CS/gold diffs at frames 10 and 15, identifies lane opponent by `individualPosition` on opposing team. New `LaneStats` Pydantic model in `schemas/match.py`. New `GET /matches/{matchId}/timeline-stats?participant_id=N` endpoint — returns compact `LaneStats`, never ships 1MB timeline to client.
+- **Frontend**: `MatchesTable` fetches `/matches/{matchId}/timeline-stats` on expand (keyed on `selectedMatchId + matchDetails`). Result stored in `laneStatsByMatchId`. Passed to `MatchCard` via `MatchDetailPanel`. `MatchCard` renders `CS@10`, `CS@15`, `G@10` diffs in a `.laningRow` below the CS stat — blue for positive, red for negative.
+
+### New CSS (`MatchCard.module.css`)
+- `.rankBadge` — purple 10px label next to summoner name in Teams
+- `.laningRow`, `.laningStat`, `.laningPos`, `.laningNeg` — laning diff display
+
+## Recent Changes (2026-03-03, session 4)
+
+### Bug fix — timeline-stats always returning 404
+
+- **Root cause**: `fetch_timeline_stats` read participant metadata (`individualPosition`, `teamId`, `championName`) from `timeline["info"]["participants"]`, but the Riot `/matches/{matchId}/timeline` endpoint only returns `participantId` + `puuid` per participant. Those fields are only present in the match detail response (`/matches/{matchId}`). So `current_pos` was always `""`, `opponent_meta` was always `None`, `result` was always empty, and `return result or None` returned `None` → 404.
+- **Fix** ([riot_sync.py](services/api/app/services/riot_sync.py)): replaced `p_info_list = (timeline.get("info") or {}).get("participants") or []` with `p_info_list = (match.game_info.get("info") or {}).get("participants") or []` — using the already-loaded `match` record's `game_info` JSONB column, which has the full participant details.
+- **Tests** ([test_riot_api_client_match_fetch.py](services/api/tests/test_riot_api_client_match_fetch.py)): 5 new unit tests with scripted `httpx` clients verifying:
+  - `fetch_match_by_id` returns the payload and calls the correct URL (no `/timeline`).
+  - `fetch_match_timeline` returns the payload and calls the correct URL (with `/timeline`).
+  - The timeline URL is exactly the match detail URL + `/timeline` — same Riot match ID, no UUID drift between the two endpoints.
+
 ## Next Recommended Steps
 
-1. **Merge `frontend-matches-paginated`** — pagination + account re-fetch bug fix are both complete; branch is ready for final PR review and merge.
-2. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
-3. **Consider server-side queue filtering** — current tab filtering is client-side; pages beyond 1 may show fewer items after filtering. Moving to server-side JSONB filtering would fix this but adds complexity.
-4. **Implement vector embeddings** — `pgvector` is enabled, `Match.to_embedding_text()` exists; wire up `sentence-transformers` worker job and embedding column.
-5. **LLM service** — `league-llm` service stub exists; implement tool-calling agent with `GetChampionPerformanceTool`.
+1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
+2. **Step 3** — Champion KDA History Chart (`recharts` bar chart, no backend changes needed).
+3. **Step 4** — Live Game integration (lowest priority, requires polling architecture).
+4. **Consider server-side queue filtering** — current tab filtering is client-side.
+5. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.

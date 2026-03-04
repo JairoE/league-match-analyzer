@@ -1,6 +1,6 @@
 """Router registry for the FastAPI application."""
 
-from app.api.routers import auth, champions, matches, ops, reset, search, users
+from app.api.routers import auth, champions, matches, ops, rank, reset, search, users
 
 all_routers = [
     auth.router,
@@ -8,6 +8,7 @@ all_routers = [
     matches.router,
     search.router,
     champions.router,
+    rank.router,
     reset.router,
     ops.router,
 ]

@@ -64,3 +64,14 @@ class PaginatedMatchList(SQLModel):
 
     data: list[MatchListItem] = Field(description="Match items for the current page.")
     meta: PaginationMeta = Field(description="Pagination metadata.")
+
+
+class LaneStats(SQLModel):
+    """Pre-computed laning phase stats derived from the Riot timeline."""
+
+    cs_diff_at_10: int | None = Field(default=None, description="CS diff vs lane opponent at 10 min.")
+    cs_diff_at_15: int | None = Field(default=None, description="CS diff vs lane opponent at 15 min.")
+    gold_diff_at_10: int | None = Field(default=None, description="Gold diff vs lane opponent at 10 min.")
+    gold_diff_at_15: int | None = Field(default=None, description="Gold diff vs lane opponent at 15 min.")
+    lane_opponent_name: str | None = Field(default=None, description="Display name of the lane opponent.")
+    lane_opponent_champion: str | None = Field(default=None, description="Champion name of the lane opponent.")

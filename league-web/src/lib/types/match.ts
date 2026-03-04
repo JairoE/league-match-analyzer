@@ -211,3 +211,12 @@ export type Team = {
   win?: boolean | string;
   [key: string]: unknown;
 };
+
+export type LaneStats = {
+  cs_diff_at_10?: number | null;
+  cs_diff_at_15?: number | null;
+  gold_diff_at_10?: number | null;
+  gold_diff_at_15?: number | null;
+  lane_opponent_name?: string | null;
+  lane_opponent_champion?: string | null;
+};

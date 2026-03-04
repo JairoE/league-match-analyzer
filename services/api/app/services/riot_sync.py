@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -242,6 +243,121 @@ async def backfill_match_details_inline(
         extra={"fetched": fetched, "total_missing": len(missing)},
     )
     return fetched
+
+
+def _get_cs(frame: dict) -> int:
+    """Extract total CS (minions + neutrals) from a timeline participant frame."""
+    return frame.get("minionsKilled", 0) + frame.get("jungleMinionsKilled", 0)
+
+
+def _find_lane_opponent(
+    participants: list[dict],
+    current_participant_id: int,
+    current_team_id: int,
+    current_position: str,
+) -> dict | None:
+    """Return the participant on the opposing team with the closest lane position."""
+    for p in participants:
+        if p.get("teamId") == current_team_id:
+            continue
+        if p.get("individualPosition") == current_position:
+            return p
+    return None
+
+
+async def fetch_timeline_stats(
+    session: AsyncSession,
+    match_identifier: str,
+    target_participant_id: int,
+) -> dict | None:
+    """Fetch and parse laning stats from the Riot timeline.
+
+    Caches the raw timeline in Redis only (key: timeline:{match_id}, no TTL).
+    Returns pre-computed LaneStats dict so the client never sees the 1MB payload.
+
+    Args:
+        session: Async database session (used to resolve match game_id).
+        match_identifier: Match UUID or Riot match ID.
+        target_participant_id: 1-based participantId of the tracked player.
+
+    Returns:
+        LaneStats dict, or None if timeline unavailable.
+    """
+    from app.services.riot_match_id import normalize_match_id
+    from app.services.cache import get_redis
+
+    # Resolve the canonical Riot match ID
+    match = await get_match_by_identifier(session, match_identifier)
+    stored_id = match.game_id if match else match_identifier
+    riot_match_id, _ = normalize_match_id(stored_id)
+
+    redis = get_redis()
+    cache_key = f"timeline:{riot_match_id}"
+
+    raw = await redis.get(cache_key)
+    if raw is None:
+        async with RiotApiClient() as client:
+            try:
+                timeline = await client.fetch_match_timeline(riot_match_id)
+            except Exception:
+                logger.exception("fetch_timeline_stats_error", extra={"match_id": riot_match_id})
+                return None
+        await redis.set(cache_key, json.dumps(timeline))
+        logger.info("fetch_timeline_cached", extra={"match_id": riot_match_id})
+    else:
+        timeline = json.loads(raw)
+
+    frames: list[dict] = (timeline.get("info") or {}).get("frames") or []
+    if not frames:
+        return None
+
+    def participant_frame(frame: dict, pid: int) -> dict:
+        return (frame.get("participantFrames") or {}).get(str(pid)) or {}
+
+    current_frame_10 = participant_frame(frames[10], target_participant_id) if len(frames) > 10 else {}
+    current_frame_15 = participant_frame(frames[15], target_participant_id) if len(frames) > 15 else {}
+
+    # Participant metadata (individualPosition, teamId, championName) lives in the match
+    # detail response, not the timeline — timeline participants only carry participantId + puuid.
+    p_info_list: list[dict] = []
+    if match and match.game_info:
+        p_info_list = (match.game_info.get("info") or {}).get("participants") or []
+    current_meta = next((p for p in p_info_list if p.get("participantId") == target_participant_id), {})
+    opponent_meta = None
+    current_pos = current_meta.get("individualPosition") or ""
+    current_team = current_meta.get("teamId") or 0
+    if current_pos and current_team:
+        opponent_meta = _find_lane_opponent(p_info_list, target_participant_id, current_team, current_pos)
+
+    result: dict = {}
+
+    if current_frame_10:
+        my_cs_10 = _get_cs(current_frame_10)
+        my_gold_10 = current_frame_10.get("totalGold", 0)
+        if opponent_meta:
+            opp_id = opponent_meta.get("participantId")
+            opp_frame_10 = participant_frame(frames[10], opp_id) if opp_id else {}
+            result["cs_diff_at_10"] = my_cs_10 - _get_cs(opp_frame_10)
+            result["gold_diff_at_10"] = my_gold_10 - opp_frame_10.get("totalGold", 0)
+
+    if current_frame_15:
+        my_cs_15 = _get_cs(current_frame_15)
+        my_gold_15 = current_frame_15.get("totalGold", 0)
+        if opponent_meta:
+            opp_id = opponent_meta.get("participantId")
+            opp_frame_15 = participant_frame(frames[15], opp_id) if opp_id else {}
+            result["cs_diff_at_15"] = my_cs_15 - _get_cs(opp_frame_15)
+            result["gold_diff_at_15"] = my_gold_15 - opp_frame_15.get("totalGold", 0)
+
+    if opponent_meta:
+        result["lane_opponent_name"] = (
+            opponent_meta.get("riotIdGameName")
+            or opponent_meta.get("summonerName")
+            or opponent_meta.get("puuid", "")[:8]
+        )
+        result["lane_opponent_champion"] = opponent_meta.get("championName")
+
+    return result or None
 
 
 async def fetch_match_detail(

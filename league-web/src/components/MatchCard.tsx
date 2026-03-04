@@ -14,7 +14,8 @@ import {memo, useMemo} from "react";
 import Image from "next/image";
 import styles from "./MatchCard.module.css";
 import type {Champion} from "../lib/types/champion";
-import type {MatchDetail, MatchSummary, Participant} from "../lib/types/match";
+import type {LaneStats, MatchDetail, MatchSummary, Participant} from "../lib/types/match";
+import type {RankInfo} from "../lib/types/rank";
 import type {UserSession} from "../lib/types/user";
 import {
   calculateKillParticipation,
@@ -37,6 +38,7 @@ import {
   getChampionImageUrl,
   getItemImageUrl,
   getKeystoneImageUrl,
+  getRuneStyleIconUrl,
   getSpellImageUrl,
   getSpellLabel,
 } from "../lib/constants/ddragon";
@@ -50,6 +52,8 @@ type MatchCardProps = {
   user: UserSession | null;
   isSearchView?: boolean;
   targetPuuid?: string | null;
+  rankByPuuid?: Record<string, RankInfo | null>;
+  laneStats?: LaneStats | null;
   expanded?: boolean;
 };
 
@@ -74,8 +78,6 @@ function ItemSlot({itemId, version}: {itemId: number; version: string}) {
   );
 }
 
-import {getRuneStyleIconUrl} from "../lib/constants/ddragon";
-
 // ── Sub-component: Teams (memoized — 10 images below the fold) ────────
 
 type TeamsProps = {
@@ -83,6 +85,7 @@ type TeamsProps = {
   current: Participant;
   currentPuuid: string | undefined;
   version: string;
+  rankByPuuid?: Record<string, RankInfo | null>;
 };
 
 const Teams = memo(function Teams({
@@ -90,6 +93,7 @@ const Teams = memo(function Teams({
   current,
   currentPuuid,
   version,
+  rankByPuuid,
 }: TeamsProps) {
   const allied = getAlliedTeam(participants, current);
   const enemy = getEnemyTeam(participants, current);
@@ -99,6 +103,11 @@ const Teams = memo(function Teams({
     const champName = p.championName ?? "Unknown";
     const summonerDisplay =
       p.riotIdGameName ?? p.summonerName ?? p.gameName ?? "Unknown";
+    const rankInfo = rankByPuuid && p.puuid ? rankByPuuid[p.puuid] : undefined;
+    const rankLabel =
+      rankInfo?.tier && rankInfo.rank
+        ? `${rankInfo.tier} ${rankInfo.rank}`
+        : null;
     return (
       <div
         className={`${styles.teamPlayer} ${isSelf ? styles.teamPlayerSelf : ""}`}
@@ -116,6 +125,7 @@ const Teams = memo(function Teams({
           }}
         />
         <span className={styles.teamSummonerName}>{summonerDisplay}</span>
+        {rankLabel && <span className={styles.rankBadge}>{rankLabel}</span>}
       </div>
     );
   }
@@ -145,6 +155,8 @@ export default function MatchCard({
   user,
   isSearchView = false,
   targetPuuid = null,
+  rankByPuuid,
+  laneStats,
 }: MatchCardProps) {
   // ── Participant resolution ──────────────────────────────────────────
   const participant = useMemo<Participant | null>(
@@ -163,19 +175,13 @@ export default function MatchCard({
   const kdaRatio = getKdaRatio(participant);
   const totalCs = getTotalCs(participant);
   const csPerMin = getCsPerMinute(participant);
-  const killParticipation = calculateKillParticipation(
-    participant,
-    participants
-  );
+  const killParticipation = calculateKillParticipation(participant, participants);
   const damageRank = getDamageRankPosition(participant, participants);
   const durationStr = formatGameDuration(gameDuration);
-  const relativeTime = formatRelativeTime(
-    match.game_start_timestamp ?? undefined
-  );
+  const relativeTime = formatRelativeTime(match.game_start_timestamp ?? undefined);
 
   // ── Display values ──────────────────────────────────────────────────
-  const championName =
-    champion?.name ?? participant?.championName ?? "Unknown Champion";
+  const championName = champion?.name ?? participant?.championName ?? "Unknown Champion";
   const champLevel = participant?.champLevel;
   const imageUrl = champion?.image_url ?? null;
   const queueId = detail?.info?.queueId ?? match.queueId ?? undefined;
@@ -208,8 +214,6 @@ export default function MatchCard({
   const hasSubStyle = subStyleId > 0;
 
   // ── Multikill badges ────────────────────────────────────────────────
-  // Riot cumulates lower tiers into higher ones (a Penta also increments Quadra/Triple/Double).
-  // Subtract higher-tier counts to get exclusive occurrences per tier, then drop zeroes.
   type MultikillEntry = {label: string; count: number; penta: boolean};
   const rawDoubles = participant?.doubleKills ?? 0;
   const rawTriples = participant?.tripleKills ?? 0;
@@ -224,11 +228,11 @@ export default function MatchCard({
     ] as MultikillEntry[]
   ).filter((mk) => mk.count > 0);
 
-  // ── Subjective badges (Victor / Downfall placeholder) ───────────────
+  // ── Subjective badges ───────────────────────────────────────────────
   const showVictor = outcome === "victory" && ((damageRank > 0 && damageRank <= 3) || kdaRatio > 5);
   const showDownfall = outcome === "defeat" && ((participant?.deaths ?? 0) > 8 || kdaRatio < 1);
 
-  // ── DDragon version (fallback for now; fetching deferred) ───────────
+  // ── DDragon version ─────────────────────────────────────────────────
   const version = FALLBACK_DDRAGON_VERSION;
 
   // ── Outcome → CSS modifier ──────────────────────────────────────────
@@ -247,23 +251,23 @@ export default function MatchCard({
         : styles.textGray;
 
   const outcomeLabel =
-    outcome === "victory"
-      ? "Victory"
-      : outcome === "defeat"
-        ? "Defeat"
-        : "Remake";
+    outcome === "victory" ? "Victory" : outcome === "defeat" ? "Defeat" : "Remake";
 
   const currentPuuid = isSearchView
     ? (targetPuuid ?? undefined)
     : (user?.riot_account?.puuid ?? undefined);
 
+  // ── Laning stat helpers ─────────────────────────────────────────────
+  function diffLabel(val: number | null | undefined): string | null {
+    if (val == null) return null;
+    return val > 0 ? `+${val}` : String(val);
+  }
+
   return (
     <article className={`${styles.card} ${outcomeClass}`}>
       {/* ── Column 1: Game Info ── */}
       <div className={styles.gameInfo}>
-        <div className={`${styles.queueType} ${textQueueClass}`}>
-          {queueModeLabel}
-        </div>
+        <div className={`${styles.queueType} ${textQueueClass}`}>{queueModeLabel}</div>
         <div className={styles.textGray}>{relativeTime}</div>
         <div className={styles.outcomeLine}>{outcomeLabel}</div>
         <div className={styles.textGray}>{durationStr}</div>
@@ -298,9 +302,7 @@ export default function MatchCard({
               width={20}
               height={20}
               loading="lazy"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
             {hasKeystone ? (
               <img
@@ -310,9 +312,7 @@ export default function MatchCard({
                 width={20}
                 height={20}
                 loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
               />
             ) : (
               <div className={styles.keystoneEmpty} aria-hidden="true" />
@@ -324,9 +324,7 @@ export default function MatchCard({
               width={20}
               height={20}
               loading="lazy"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
             {hasSubStyle ? (
               <img
@@ -336,9 +334,7 @@ export default function MatchCard({
                 width={20}
                 height={20}
                 loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
               />
             ) : (
               <div className={styles.keystoneEmpty} aria-hidden="true" />
@@ -353,9 +349,7 @@ export default function MatchCard({
               <span className={styles.slash}>/</span>
               <span className={styles.assists}>{participant?.assists ?? "-"}</span>
             </div>
-            <div className={styles.kdaRatioText}>
-              {kdaRatio.toFixed(2)}:1 KDA
-            </div>
+            <div className={styles.kdaRatioText}>{kdaRatio.toFixed(2)}:1 KDA</div>
           </div>
         </div>
 
@@ -370,10 +364,43 @@ export default function MatchCard({
 
       {/* ── Column 3: Stats & Badges ── */}
       <div className={styles.statsColumn}>
-        {killParticipation > 0 && <div className={styles.textGray}>P/Kill {killParticipation}%</div>}
-        <div className={styles.textGray}>
-          CS {totalCs} ({csPerMin.toFixed(1)})
-        </div>
+        {killParticipation > 0 && (
+          <div className={styles.textGray}>P/Kill {killParticipation}%</div>
+        )}
+        <div className={styles.textGray}>CS {totalCs} ({csPerMin.toFixed(1)})</div>
+
+        {/* Laning stats (only when timeline data is available) */}
+        {laneStats && (
+          <div className={styles.laningRow}>
+            {diffLabel(laneStats.cs_diff_at_10) != null && (
+              <span
+                className={`${styles.laningStat} ${
+                  (laneStats.cs_diff_at_10 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
+                }`}
+              >
+                CS@10 {diffLabel(laneStats.cs_diff_at_10)}
+              </span>
+            )}
+            {diffLabel(laneStats.cs_diff_at_15) != null && (
+              <span
+                className={`${styles.laningStat} ${
+                  (laneStats.cs_diff_at_15 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
+                }`}
+              >
+                CS@15 {diffLabel(laneStats.cs_diff_at_15)}
+              </span>
+            )}
+            {diffLabel(laneStats.gold_diff_at_10) != null && (
+              <span
+                className={`${styles.laningStat} ${
+                  (laneStats.gold_diff_at_10 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
+                }`}
+              >
+                G@10 {diffLabel(laneStats.gold_diff_at_10)}
+              </span>
+            )}
+          </div>
+        )}
 
         <div className={styles.badgesRow}>
           {multikills.map((mk) =>
@@ -396,10 +423,10 @@ export default function MatchCard({
             </span>
           )}
           {showVictor && (
-             <span className={`${styles.badge} ${styles.badgeGray}`}>Victor</span>
+            <span className={`${styles.badge} ${styles.badgeGray}`}>Victor</span>
           )}
           {showDownfall && (
-             <span className={`${styles.badge} ${styles.badgeGray}`}>Downfall</span>
+            <span className={`${styles.badge} ${styles.badgeGray}`}>Downfall</span>
           )}
         </div>
       </div>
@@ -411,6 +438,7 @@ export default function MatchCard({
           current={participant}
           currentPuuid={currentPuuid}
           version={version}
+          rankByPuuid={rankByPuuid}
         />
       )}
     </article>

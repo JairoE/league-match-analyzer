@@ -339,6 +339,32 @@
   font-weight: 700;
 }
 
+.rankBadge {
+  font-size: 10px;
+  color: #a78bfa;
+  opacity: 0.85;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Laning stats row ───────────────────────────────────────────────── */
+
+.laningRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.laningStat {
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.laningPos { color: #60a5fa; }
+.laningNeg { color: #f87171; }
+
 /* ── Responsive Container Styles (Auto-wrapping handles most) ────────── */
 
 /* Remove border when items wrap or screen is small */

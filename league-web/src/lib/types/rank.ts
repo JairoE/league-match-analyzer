@@ -7,3 +7,6 @@ export type RankInfo = {
   queueType?: string;
   [key: string]: unknown;
 };
+
+/** Shape returned by GET /rank/batch — keyed by PUUID */
+export type RankBatchResponse = Record<string, RankInfo | null>;
