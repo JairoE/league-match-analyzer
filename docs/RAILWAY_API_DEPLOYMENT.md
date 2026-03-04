@@ -51,6 +51,8 @@ Final deployment configuration for `services/api` on Railway, based on monorepo 
 
 **Start Command:** `/workspace/services/api/entrypoint.sh`
 
+**Pre-Deploy / Release Command:** `/workspace/services/api/release.sh`
+
 **Health Check Path:** `/health`
 
 **Health Check Timeout:** 100 seconds
@@ -139,15 +141,18 @@ CORS_ALLOW_ORIGINS=https://your-frontend.vercel.app
 
 ## Migration Strategy
 
-### Automatic Migrations on Deploy
+### Migrations in Release Step (Recommended)
 
-**Implementation:** `entrypoint.sh` runs migrations before starting API.
+**Implementation:** run migrations in Railway's pre-deploy/release command.
+`entrypoint.sh` starts the API immediately so the service binds `$PORT` fast.
 
 **Dockerfile:**
 
 ```dockerfile
 COPY services/api/entrypoint.sh /workspace/services/api/entrypoint.sh
+COPY services/api/release.sh /workspace/services/api/release.sh
 RUN chmod +x /workspace/services/api/entrypoint.sh
+RUN chmod +x /workspace/services/api/release.sh
 CMD ["/workspace/services/api/entrypoint.sh"]
 ```
 
@@ -157,12 +162,20 @@ CMD ["/workspace/services/api/entrypoint.sh"]
 #!/bin/bash
 set -e
 
-echo "Running database migrations..."
-cd /workspace/services/api
-alembic upgrade head
-
 echo "Starting FastAPI application..."
 exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+```
+
+**release.sh:**
+
+```bash
+#!/bin/bash
+set -e
+
+echo "Running database migrations (release step)..."
+cd /workspace/services/api
+alembic upgrade head
+echo "Database migrations complete."
 ```
 
 ### Idempotency
@@ -218,6 +231,7 @@ exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
    - Builder: Dockerfile
    - Dockerfile Path: `services/api/Dockerfile`
    - Start Command: `/workspace/services/api/entrypoint.sh`
+   - Pre-Deploy/Release Command: `/workspace/services/api/release.sh`
 3. **Add Supabase Database:**
    - Create Supabase project
    - Enable pgvector extension
@@ -239,10 +253,9 @@ exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
 
 1. Railway detects changes (via watch paths)
 2. Builds Docker image
-3. Starts container
-4. `entrypoint.sh` runs migrations
-5. API starts and accepts traffic
-6. Health check verifies `/health` endpoint
+3. Runs release command (`release.sh`) to apply migrations
+4. Starts container (`entrypoint.sh`) and binds `$PORT` quickly
+5. Health check verifies `/health` endpoint
 
 **No manual intervention required.**
 
@@ -319,9 +332,19 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 
 ### Issue: "Migrations not running"
 
-**Cause:** `startCommand` in railway.toml overriding Dockerfile CMD.
+**Cause:** No release/pre-deploy command configured.
 
-**Solution:** Remove railway.toml entirely, configure via dashboard.
+**Solution:** Set Pre-Deploy/Release Command to `/workspace/services/api/release.sh`.
+
+### Issue: "Network healthcheck failure" on worker service
+
+**Cause:** Worker service is configured as a public HTTP service.
+
+**Solution:**
+
+- Keep worker service private (no public domain/networking)
+- Do not configure an HTTP healthcheck path for worker
+- Use logs (`arq_startup`) as worker health signal
 
 ### Issue: "Connection timeout or migration failures"
 
@@ -368,6 +391,16 @@ league-match-analyzer/
 3. **Share database/redis variables** between services
 4. **No config file conflicts** - each service configured via dashboard
 
+## Worker Service (Private) Configuration
+
+For `league-worker` (ARQ), configure Railway as a private background service:
+
+- Start Command: `cd services/api && arq app.services.background_jobs.WorkerSettings`
+- Public Networking/Domain: **Disabled**
+- HTTP Health Check Path: **Unset**
+- Shared `DATABASE_URL` and `REDIS_URL` with API service
+- Verify via logs for `arq_startup` and scheduled job execution
+
 ---
 
 ## Related Documentation
@@ -383,6 +416,7 @@ league-match-analyzer/
 - [ ] Root Directory set to `/` in Railway
 - [ ] Dockerfile Path: `services/api/Dockerfile`
 - [ ] Start Command: `/workspace/services/api/entrypoint.sh`
+- [ ] Pre-Deploy/Release Command: `/workspace/services/api/release.sh`
 - [ ] Watch Paths: `services/api/**`
 - [ ] Supabase PostgreSQL provisioned with pgvector extension
 - [ ] Supabase connection uses **Session mode (port 5432)**, NOT Transaction mode
@@ -393,6 +427,8 @@ league-match-analyzer/
 - [ ] CORS_ALLOW_ORIGINS configured for frontend
 - [ ] Health check path: `/health`
 - [ ] entrypoint.sh uses `${PORT:-8000}` for dynamic port
+- [ ] Worker service has no public domain/networking
+- [ ] Worker service has no HTTP healthcheck path
 - [ ] No railway.toml file (configure via dashboard only)
 
 **Deployment Status:** ✅ Production deployment successful

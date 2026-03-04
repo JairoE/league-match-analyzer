@@ -66,6 +66,7 @@ Active development on the `frontend-matches-paginated` branch. Server-side pagin
 ## Recent Changes (2026-03-03)
 
 ### Pagination feature (`frontend-matches-paginated`)
+
 - Added `PaginationMeta` and `PaginatedMatchList` response schemas with `PaginationMeta.build()` helper.
 - `list_matches_for_riot_account` now accepts `page`/`limit` and returns `tuple[list[Match], int]` using `func.count()` + `offset()`/`limit()`.
 - Both match endpoints (`/riot-accounts/{id}/matches`, `/search/{riot_id}/matches`) return `PaginatedMatchList` with `?page=N&limit=N` query params.
@@ -88,6 +89,7 @@ Active development on the `frontend-matches-paginated` branch. Server-side pagin
 - **File changed**: `league-web/src/app/riot-account/[riotId]/page.tsx`
 
 ### Previous changes
+
 - Consolidated MatchCard redesign documentation into `docs/MATCHCARD_REDESIGN.md`.
 - Replaced match history card grid with table + side panel.
 - Queue-type tab filtering, champion preloading, keyboard accessibility improvements.
@@ -122,14 +124,17 @@ Optional:
 ## Recent Changes (2026-03-03, session 3)
 
 ### Step 1 — Per-Player Rank Badges
+
 - **Backend**: New `GET /rank/batch?puuids=<csv>` endpoint (`routers/rank.py`). Fetches up to 10 PUUIDs concurrently via `asyncio.gather`. Caches each PUUID individually in Redis (`rank:{puuid}`, TTL 1h). Registered in router registry.
 - **Frontend**: `MatchesTable` fetches `/rank/batch` via `useEffect` keyed on `selectedMatchId`. Only fetches PUUIDs not already in `rankByPuuid` cache. Passed down: `MatchesTable` → `MatchDetailPanel` → `MatchCard` → `Teams`. Each `PlayerRow` in `Teams` renders a `.rankBadge` span (purple, 10px) when rank data is available.
 
 ### Step 2 — Timeline API (Laning Phase Analytics)
+
 - **Backend**: `fetch_match_timeline()` added to `RiotApiClient` (`MATCH_TIMELINE_URL + /timeline`). New `fetch_timeline_stats()` in `riot_sync.py` — fetches timeline, caches raw JSON in Redis indefinitely (`timeline:{matchId}`), parses CS/gold diffs at frames 10 and 15, identifies lane opponent by `individualPosition` on opposing team. New `LaneStats` Pydantic model in `schemas/match.py`. New `GET /matches/{matchId}/timeline-stats?participant_id=N` endpoint — returns compact `LaneStats`, never ships 1MB timeline to client.
 - **Frontend**: `MatchesTable` fetches `/matches/{matchId}/timeline-stats` on expand (keyed on `selectedMatchId + matchDetails`). Result stored in `laneStatsByMatchId`. Passed to `MatchCard` via `MatchDetailPanel`. `MatchCard` renders `CS@10`, `CS@15`, `G@10` diffs in a `.laningRow` below the CS stat — blue for positive, red for negative.
 
 ### New CSS (`MatchCard.module.css`)
+
 - `.rankBadge` — purple 10px label next to summoner name in Teams
 - `.laningRow`, `.laningStat`, `.laningPos`, `.laningNeg` — laning diff display
 
@@ -154,6 +159,27 @@ Optional:
 ---
 
 ## Recent Changes (2026-03-04)
+
+### Railway Deploy Hardening (Healthcheck Stability)
+
+- **Root cause addressed**: API startup previously ran `alembic upgrade head` before binding `$PORT`, which could delay startup and trigger Railway `Network › Healthcheck failure` under transient DB slowness.
+- **Startup change**: `services/api/entrypoint.sh` now starts Uvicorn immediately (no migration step in runtime boot path).
+- **Release step added**: new `services/api/release.sh` runs `alembic upgrade head` for Railway Pre-Deploy/Release execution.
+- **Docker image update**: `services/api/Dockerfile` now marks both `entrypoint.sh` and `release.sh` executable.
+- **Docs updated**: `docs/RAILWAY_API_DEPLOYMENT.md` now specifies:
+  - API Start Command: `/workspace/services/api/entrypoint.sh`
+  - API Pre-Deploy/Release Command: `/workspace/services/api/release.sh`
+  - Worker must be private (no public domain/networking) and no HTTP healthcheck path.
+
+**Status impact**: deployment startup path is now faster and less likely to fail healthchecks due to migration latency.
+
+**Open operational note**: Railway dashboard must be configured to run `release.sh` as pre-deploy/release command for API service.
+
+**Next recommended steps (deployment validation)**:
+
+1. Confirm API service deploy settings include release command.
+2. Confirm worker service has no public domain and no HTTP healthcheck.
+3. Trigger deploy and verify logs show release migrations before API boot and stable `/health` pass.
 
 ### Champion KDA History Chart (`frontend-chart`)
 
