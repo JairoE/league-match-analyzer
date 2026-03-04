@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 from uuid import UUID
 
 from sqlmodel import Field, SQLModel
+
+
+class PaginationMeta(SQLModel):
+    """Pagination metadata included in paginated responses."""
+
+    page: int = Field(description="Current page number (1-based).")
+    limit: int = Field(description="Items per page.")
+    total: int = Field(description="Total matching items in the database.")
+    last_page: int = Field(description="Last available page number.")
+
+    @classmethod
+    def build(cls, *, page: int, limit: int, total: int) -> PaginationMeta:
+        return cls(
+            page=page,
+            limit=limit,
+            total=total,
+            last_page=max(1, math.ceil(total / limit)),
+        )
 
 
 class MatchResponse(SQLModel):
@@ -38,3 +57,10 @@ class MatchListItem(SQLModel):
     )
 
     model_config = {"from_attributes": True}
+
+
+class PaginatedMatchList(SQLModel):
+    """Paginated response wrapping a list of match items."""
+
+    data: list[MatchListItem] = Field(description="Match items for the current page.")
+    meta: PaginationMeta = Field(description="Pagination metadata.")

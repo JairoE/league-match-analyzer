@@ -13,7 +13,7 @@ import {useAppError} from "../../../lib/errors/error-store";
 import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
 import {getMatchId} from "../../../lib/match-utils";
-import type {MatchDetail, MatchSummary} from "../../../lib/types/match";
+import type {MatchDetail, MatchSummary, PaginatedMatchList, PaginationMeta} from "../../../lib/types/match";
 import type {RiotAccountData} from "../../../lib/types/user";
 
 export default function RiotAccountPage() {
@@ -39,6 +39,8 @@ export default function RiotAccountPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [hasSession, setHasSession] = useState(false);
+  const [page, setPage] = useState(1);
+  const [paginationMeta, setPaginationMeta] = useState<PaginationMeta | null>(null);
   const {errorMessage, reportError, clearError} = useAppError("riotAccount.load");
 
   const accountPuuid = account?.puuid ?? null;
@@ -50,6 +52,11 @@ export default function RiotAccountPage() {
     setHasSession(!!session);
     console.debug("[riot-account] session checked", {hasSession: !!session});
   }, []);
+
+  // Reset page when searching a new account
+  useEffect(() => {
+    setPage(1);
+  }, [riotId]);
 
   // Fetch searched account data + matches
   useEffect(() => {
@@ -68,10 +75,10 @@ export default function RiotAccountPage() {
         setPageError(null);
         clearError();
         const encodedQuery = encodeURIComponent(riotId);
-        console.debug("[riot-account] fetching", {riotId});
+        console.debug("[riot-account] fetching", {riotId, page});
 
         const [matchesResponse, accountResponse] = await Promise.all([
-          apiGet<MatchSummary[]>(`/search/${encodedQuery}/matches`, {
+          apiGet<PaginatedMatchList>(`/search/${encodedQuery}/matches?page=${page}&limit=20`, {
             useCache: false,
           }),
           apiGet<RiotAccountData>(`/search/${encodedQuery}/account`, {
@@ -86,12 +93,11 @@ export default function RiotAccountPage() {
         }
 
         setAccount(accountResponse);
-        setMatches(Array.isArray(matchesResponse) ? matchesResponse : []);
+        setMatches(Array.isArray(matchesResponse?.data) ? matchesResponse.data : []);
+        setPaginationMeta(matchesResponse?.meta ?? null);
         console.debug("[riot-account] loaded", {
           riotId: accountResponse.riot_id,
-          matchCount: Array.isArray(matchesResponse)
-            ? matchesResponse.length
-            : 0,
+          matchCount: matchesResponse?.data?.length ?? 0,
         });
       } catch (err) {
         console.debug("[riot-account] load failed", {err});
@@ -115,7 +121,7 @@ export default function RiotAccountPage() {
     return () => {
       isActive = false;
     };
-  }, [riotId, decodeError, clearError, reportError]);
+  }, [riotId, decodeError, page, clearError, reportError]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -172,16 +178,17 @@ export default function RiotAccountPage() {
       }
 
       try {
-        const fresh = await apiGet<MatchSummary[]>(
-          `/search/${encodedQuery}/matches`,
+        const fresh = await apiGet<PaginatedMatchList>(
+          `/search/${encodedQuery}/matches?page=${page}&limit=20`,
           {useCache: false}
         );
         if (!isActive) return;
 
-        const freshArray = Array.isArray(fresh) ? fresh : [];
+        const freshArray = Array.isArray(fresh?.data) ? fresh.data : [];
         const stillMissing = freshArray.some((m) => !m.game_info?.info);
 
         setMatches(freshArray);
+        setPaginationMeta(fresh?.meta ?? null);
 
         if (!stillMissing) {
           console.debug("[riot-account] all details populated, stopping poll");
@@ -201,7 +208,13 @@ export default function RiotAccountPage() {
       isActive = false;
       clearInterval(poll);
     };
-  }, [riotId, hasMatches, missingDetailCount, isLoading]);
+  }, [riotId, page, hasMatches, missingDetailCount, isLoading]);
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    setMatchDetails({});
+    window.scrollTo(0, 0);
+  };
 
   const error = pageError ?? errorMessage;
 
@@ -238,6 +251,8 @@ export default function RiotAccountPage() {
         isSearchView
         targetPuuid={accountPuuid}
         isLoading={isLoading}
+        paginationMeta={paginationMeta}
+        onPageChange={handlePageChange}
       />
     </div>
   );
