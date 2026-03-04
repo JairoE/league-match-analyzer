@@ -4,6 +4,7 @@ import React, {useEffect, useMemo, useState, useCallback} from "react";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "./MatchRow";
 import MatchDetailPanel from "./MatchDetailPanel";
+import Pagination from "./Pagination";
 import {apiGet} from "../lib/api";
 import {
   getMatchId,
@@ -11,7 +12,7 @@ import {
   getParticipantForUser,
 } from "../lib/match-utils";
 import type {Champion} from "../lib/types/champion";
-import type {MatchDetail, MatchSummary, Participant} from "../lib/types/match";
+import type {MatchDetail, MatchSummary, PaginationMeta, Participant} from "../lib/types/match";
 import type {UserSession} from "../lib/types/user";
 import {
   GameQueueGroup,
@@ -27,6 +28,8 @@ type MatchesTableProps = {
   isSearchView?: boolean;
   targetPuuid?: string | null;
   isLoading?: boolean;
+  paginationMeta?: PaginationMeta | null;
+  onPageChange?: (page: number) => void;
 };
 
 const COLUMNS: {key: string; label: string; colWidth: string}[] = [
@@ -66,6 +69,8 @@ export default function MatchesTable({
   isSearchView = false,
   targetPuuid = null,
   isLoading = false,
+  paginationMeta = null,
+  onPageChange,
 }: MatchesTableProps) {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
@@ -268,6 +273,11 @@ export default function MatchesTable({
               onClose={handleClosePanel}
             />
           </div>
+        )}
+      </div>
+      <div>
+        {paginationMeta && onPageChange && (
+          <Pagination meta={paginationMeta} onPageChange={onPageChange} />
         )}
       </div>
     </div>

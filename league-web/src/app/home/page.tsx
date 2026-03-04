@@ -17,7 +17,7 @@ import {
   getUserPuuid,
 } from "../../lib/user-utils";
 import {getMatchId} from "../../lib/match-utils";
-import type {MatchDetail, MatchSummary} from "../../lib/types/match";
+import type {MatchDetail, MatchSummary, PaginatedMatchList, PaginationMeta} from "../../lib/types/match";
 import type {RankInfo} from "../../lib/types/rank";
 import type {UserSession} from "../../lib/types/user";
 
@@ -31,6 +31,8 @@ export default function HomePage() {
   const [rank, setRank] = useState<RankInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshIndex, setRefreshIndex] = useState(0);
+  const [page, setPage] = useState(1);
+  const [paginationMeta, setPaginationMeta] = useState<PaginationMeta | null>(null);
   const {errorMessage, reportError, clearError} = useAppError("home.overview");
 
   const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
@@ -59,9 +61,9 @@ export default function HomePage() {
       try {
         setIsLoading(true);
         clearError();
-        console.debug("[home] fetching matches + rank", {riotAccountId});
+        console.debug("[home] fetching matches + rank", {riotAccountId, page});
         const [matchesResponse, rankResponse] = await Promise.all([
-          apiGet<MatchSummary[]>(`/riot-accounts/${riotAccountId}/matches`, {
+          apiGet<PaginatedMatchList>(`/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20`, {
             cacheTtlMs: 60_000,
           }),
           apiGet<RankInfo>(`/riot-accounts/${riotAccountId}/fetch_rank`, {
@@ -70,10 +72,11 @@ export default function HomePage() {
         ]);
 
         if (!isActive) return;
-        const nextMatches = Array.isArray(matchesResponse)
-          ? matchesResponse
+        const nextMatches = Array.isArray(matchesResponse?.data)
+          ? matchesResponse.data
           : [];
         setMatches(nextMatches);
+        setPaginationMeta(matchesResponse?.meta ?? null);
         setRank(rankResponse ?? null);
         console.debug("[home] overview loaded", {
           matchCount: nextMatches.length,
@@ -95,7 +98,7 @@ export default function HomePage() {
     return () => {
       isActive = false;
     };
-  }, [riotAccountId, refreshIndex, clearError, reportError]);
+  }, [riotAccountId, refreshIndex, page, clearError, reportError]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -143,16 +146,17 @@ export default function HomePage() {
       }
 
       try {
-        const fresh = await apiGet<MatchSummary[]>(
-          `/riot-accounts/${riotAccountId}/matches`,
+        const fresh = await apiGet<PaginatedMatchList>(
+          `/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20`,
           {useCache: false}
         );
         if (!isActive) return;
 
-        const freshArray = Array.isArray(fresh) ? fresh : [];
+        const freshArray = Array.isArray(fresh?.data) ? fresh.data : [];
         const stillMissing = freshArray.some((m) => !m.game_info?.info);
 
         setMatches(freshArray);
+        setPaginationMeta(fresh?.meta ?? null);
 
         if (!stillMissing) {
           console.debug("[home] all details populated, stopping poll");
@@ -172,11 +176,18 @@ export default function HomePage() {
       isActive = false;
       clearInterval(poll);
     };
-  }, [riotAccountId, refreshIndex, hasMatches, missingDetailCount]);
+  }, [riotAccountId, refreshIndex, page, hasMatches, missingDetailCount]);
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    setMatchDetails({});
+    window.scrollTo(0, 0);
+  };
 
   const handleRefresh = () => {
     console.debug("[home] manual refresh");
     clearCache();
+    setPage(1);
     setRefreshIndex((prev) => prev + 1);
   };
 
@@ -213,6 +224,8 @@ export default function HomePage() {
         user={user}
         targetPuuid={userPuuid}
         isLoading={isLoading}
+        paginationMeta={paginationMeta}
+        onPageChange={handlePageChange}
       />
     </div>
   );

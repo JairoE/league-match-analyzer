@@ -1,14 +1,14 @@
 # App State
 
-**Last Updated:** 2026-03-03
-**Branch:** `frontend-4-error-handling`
-**Status:** BUILDING
+**Last Updated:** 2026-03-03 (session 2)
+**Branch:** `frontend-matches-paginated`
+**Status:** STABLE — ready for PR merge
 
 ---
 
 ## Current Phase
 
-Active development on the `frontend-4-error-handling` branch. Core search-to-home flow is functional. Frontend error handling is now complete — all machine-readable backend codes are translated to user-facing messages.
+Active development on the `frontend-matches-paginated` branch. Server-side pagination is implemented for both match endpoints. Riot API sync is gated to page 1 only — subsequent pages query the database directly.
 
 ---
 
@@ -16,7 +16,9 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
 
 ### Backend (FastAPI + ARQ)
 
-- **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue full details in background.
+- **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue full details in background. Supports `?page=N&limit=N` pagination.
+- **Auth match flow**: `GET /riot-accounts/{id}/matches` — paginated match list with Riot API sync on page 1 only.
+- **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page).
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
 - **Background jobs**: `fetch_match_details_job` (batch), `sync_all_riot_accounts_matches` (cron every 6h).
@@ -35,6 +37,7 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
   - Right-side detail overlay (`MatchDetailPanel`) renders `MatchCard` in `expanded` mode.
   - Queue type modeling is centralized in `src/lib/types/queue.ts` with coarse tab grouping (`GameQueueGroup`) and granular row labels (`GameQueueMode`).
 - **Match card**: `MatchCard` now supports `expanded?: boolean` for backward-compatible reuse in the detail panel.
+- **Pagination**: Reusable `Pagination` component with Previous/Next buttons, "Page X of Y", total count. Hidden when single page. Wired into `MatchesTable` via optional `paginationMeta`/`onPageChange` props.
 - **Error handling** (`src/lib/errors/`):
   - `ApiError` class with `status`, `detail`, `riotStatus` fields.
   - `buildApiErrorFromResponse` / `toApiError` for normalising HTTP and plain errors.
@@ -62,42 +65,49 @@ Active development on the `frontend-4-error-handling` branch. Core search-to-hom
 
 ## Recent Changes (2026-03-03)
 
-- Consolidated the overly complex MatchCard redesign documentation (5 separate files) into a single, cohesive, simplified `docs/MATCHCARD_REDESIGN.md`.
-- Replaced match history card grid architecture with a table + side panel implementation.
-- Added queue-type tab filtering with queue ID fallback resolution:
-  `detail.info.queueId` -> `match.queueId` -> `undefined`.
-- Cleaned now-unused page-level CSS rules related to old card-grid containers.
-- Fixed `MatchCard` expanded mode behavior: details now render from `showDetails`, and the toggle
-  button is hidden when `expanded` is true so side panel cards stay consistently expanded.
-- Removed row-level champion metadata fetching from `MatchRow`; `MatchesTable` now preloads champion
-  data once into a shared `championById` map to reduce request fan-out and duplicate fetch churn.
-- Improved keyboard row activation accessibility: Space key now calls `preventDefault()` before row
-  selection to avoid unintended page scrolling.
-- Stabilized queue tab UX order using a fixed display sequence
-  (Ranked Solo, Ranked Flex, Normal, ARAM, Arena, Swiftplay, Event, Other) and render-only-present
-  tabs in that order.
+### Pagination feature (`frontend-matches-paginated`)
+- Added `PaginationMeta` and `PaginatedMatchList` response schemas with `PaginationMeta.build()` helper.
+- `list_matches_for_riot_account` now accepts `page`/`limit` and returns `tuple[list[Match], int]` using `func.count()` + `offset()`/`limit()`.
+- Both match endpoints (`/riot-accounts/{id}/matches`, `/search/{riot_id}/matches`) return `PaginatedMatchList` with `?page=N&limit=N` query params.
+- Riot API sync gated to page 1 only — page 2+ queries DB directly, skipping Riot API calls entirely.
+- Search endpoint on page 2+ resolves riot account from DB via `get_riot_account_by_riot_id` instead of hitting Riot API.
+- New `Pagination` component with Previous/Next controls and "Page X of Y" display.
+- `MatchesTable` accepts optional `paginationMeta`/`onPageChange` props; renders `<Pagination>` below the table.
+- Home and Search pages manage `page` state, pass pagination to `MatchesTable`, clear `matchDetails` on page change, scroll to top.
+- Search page resets `page` to 1 when `riotId` changes.
+- Tab filtering remains client-side (some pages may show fewer items after tab filter — acceptable trade-off).
 
-Why this changed:
+### Bug fix — account re-fetch on page change (`frontend-matches-paginated`, session 2)
 
-- Consolidated documentation avoids over-engineering and keeps the implementation plan simple, actionable, and centralized.
-- Improve scanability and dense comparison for match history.
-- Keep page components focused on data ownership while localizing interaction state in `MatchesTable`.
-- Reuse `MatchCard` rendering logic for consistency and reduced duplication.
-- Improve side panel reliability, reduce avoidable network burstiness, and make tab/filter behavior
-  predictable for repeated user sessions.
+- **Root cause**: the combined `Promise.all` effect in `riot-account/[riotId]/page.tsx` included `page` in its dependency array, causing the `/search/{riotId}/account` endpoint to be called on every page navigation — firing `fetch_account_by_riot_id` + `fetch_summoner_by_puuid` against the Riot API unnecessarily and contradicting the PR's stated goal of avoiding rate-limit consumption on page 2+.
+- **Fix**: split the single combined effect into two independent effects:
+  - **Account effect** (deps: `[riotId, decodeError, clearError, reportError]`) — fetches `/search/${encodedQuery}/account` once per searched summoner; never triggered by `page`.
+  - **Matches effect** (deps: `[riotId, decodeError, page, clearError, reportError]`) — fetches `/search/${encodedQuery}/matches?page=N` on every page or riotId change; does not touch the account endpoint.
+- Decode-error guard preserved in both effects without introducing a race that could clear the page error.
+- Each effect has its own `isActive` cancellation flag and independent error handling.
+- **File changed**: `league-web/src/app/riot-account/[riotId]/page.tsx`
+
+### Previous changes
+- Consolidated MatchCard redesign documentation into `docs/MATCHCARD_REDESIGN.md`.
+- Replaced match history card grid with table + side panel.
+- Queue-type tab filtering, champion preloading, keyboard accessibility improvements.
 
 ---
 
 ## Request Flow Summary
 
 ```
-User → Search (Riot ID) → GET /search/{riot_id}/matches
+User → Search (Riot ID) → GET /search/{riot_id}/matches?page=1
   → find_or_create_riot_account (DB upsert)
   → Rate limit check (Redis)
   → Fetch match IDs (Riot API)
   → Upsert match IDs (DB)
   → Backfill basic details inline (Riot API)
-  → Return match list → Home page
+  → Return paginated match list + meta
+
+User → Page 2+ → GET /search/{riot_id}/matches?page=N
+  → Resolve riot account from DB (no Riot API)
+  → Return paginated match list + meta
 
 Background (async):
   → Enqueue full details → Redis → ARQ worker
@@ -111,8 +121,8 @@ Optional:
 
 ## Next Recommended Steps
 
-1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
-2. **Validate table architecture** — verify keyboard navigation, responsive behavior, and panel accessibility on both match pages.
-3. **Merge `frontend-4-error-handling`** — error handling and match-history UX updates are ready for PR review.
+1. **Merge `frontend-matches-paginated`** — pagination + account re-fetch bug fix are both complete; branch is ready for final PR review and merge.
+2. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
+3. **Consider server-side queue filtering** — current tab filtering is client-side; pages beyond 1 may show fewer items after filtering. Moving to server-side JSONB filtering would fix this but adds complexity.
 4. **Implement vector embeddings** — `pgvector` is enabled, `Match.to_embedding_text()` exists; wire up `sentence-transformers` worker job and embedding column.
 5. **LLM service** — `league-llm` service stub exists; implement tool-calling agent with `GetChampionPerformanceTool`.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -31,30 +32,48 @@ def parse_match_uuid(identifier: str) -> UUID | None:
 async def list_matches_for_riot_account(
     session: AsyncSession,
     riot_account_id: UUID,
-) -> list[Match]:
-    """List matches for a given riot account, ordered by most recently played first.
+    page: int = 1,
+    limit: int = 20,
+) -> tuple[list[Match], int]:
+    """List matches for a given riot account with pagination.
 
     Args:
         session: Async database session for queries.
         riot_account_id: UUID of the riot account.
+        page: Page number (1-based).
+        limit: Items per page.
 
     Returns:
-        List of Match records associated with the riot account,
-        sorted by game_start_timestamp DESC. Matches without timestamps appear last.
+        Tuple of (matches, total_count). Matches are sorted by
+        game_start_timestamp DESC with nulls last.
     """
     logger.info("list_matches_for_riot_account_start", extra={"riot_account_id": str(riot_account_id)})
-    result = await session.execute(
+
+    base_filter = (
         select(Match)
         .join(RiotAccountMatch, RiotAccountMatch.match_id == Match.id)
         .where(RiotAccountMatch.riot_account_id == riot_account_id)
-        .order_by(Match.game_start_timestamp.desc().nulls_last()),
+    )
+
+    count_result = await session.execute(
+        select(func.count()).select_from(base_filter.subquery())
+    )
+    total = count_result.scalar_one()
+
+    offset = (page - 1) * limit
+    result = await session.execute(
+        base_filter
+        .order_by(Match.game_start_timestamp.desc().nulls_last())
+        .offset(offset)
+        .limit(limit),
     )
     matches = list(result.scalars().all())
+
     logger.info(
         "list_matches_for_riot_account_done",
-        extra={"riot_account_id": str(riot_account_id), "match_count": len(matches)},
+        extra={"riot_account_id": str(riot_account_id), "match_count": len(matches), "total": total},
     )
-    return matches
+    return matches, total
 
 
 async def get_match_by_identifier(session: AsyncSession, identifier: str) -> Match | None:

@@ -1,12 +1,12 @@
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.api.routers.match_detail_enqueue import enqueue_details_background
 from app.db.session import get_session
-from app.schemas.match import MatchListItem
+from app.schemas.match import MatchListItem, PaginatedMatchList, PaginationMeta
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_accounts import resolve_riot_account_identifier
 from app.services.riot_sync import (
@@ -22,49 +22,56 @@ logger = get_logger("league_api.matches")
 
 @router.get(
     "/riot-accounts/{riot_account_id}/matches",
-    response_model=list[MatchListItem],
+    response_model=PaginatedMatchList,
     response_model_exclude_none=True,
     status_code=status.HTTP_200_OK,
 )
 async def list_riot_account_matches(
     riot_account_id: str,
     background_tasks: BackgroundTasks,
+    page: int = Query(default=1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
     session: AsyncSession = Depends(get_session),
-) -> list[MatchListItem]:
-    """Return match list entries for a riot account.
+) -> PaginatedMatchList:
+    """Return paginated match list entries for a riot account.
 
     Args:
         riot_account_id: Riot account identifier from the route.
         background_tasks: FastAPI background task runner.
+        page: Page number (1-based).
+        limit: Items per page (max 100).
         session: Async database session for queries.
 
     Returns:
-        List of match list items ordered by most recent first.
+        Paginated match list with metadata.
     """
     logger.info("list_riot_account_matches_start", extra={"riot_account_id": riot_account_id})
-    match_ids = await fetch_match_list_for_riot_account(session, riot_account_id, 0, 20)
-    if match_ids is None:
-        logger.info("list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id})
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
-    logger.info(
-        "list_riot_account_matches_synced",
-        extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
-    )
 
-    background_tasks.add_task(
-        enqueue_details_background,
-        logger=logger,
-        match_ids=match_ids,
-        context={"riot_account_id": riot_account_id},
-        success_event="list_riot_account_matches_enqueued_details",
-        failure_event="list_riot_account_matches_enqueue_failed",
-    )
+    # Only sync with Riot API on page 1; page 2+ just queries DB
+    if page == 1:
+        match_ids = await fetch_match_list_for_riot_account(session, riot_account_id, 0, 20)
+        if match_ids is None:
+            logger.info("list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id})
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
+        logger.info(
+            "list_riot_account_matches_synced",
+            extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
+        )
+
+        background_tasks.add_task(
+            enqueue_details_background,
+            logger=logger,
+            match_ids=match_ids,
+            context={"riot_account_id": riot_account_id},
+            success_event="list_riot_account_matches_enqueued_details",
+            failure_event="list_riot_account_matches_enqueue_failed",
+        )
 
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
         logger.info("list_riot_account_matches_not_found_after_sync", extra={"riot_account_id": riot_account_id})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
-    matches = await list_matches_for_riot_account(session, riot_account.id)
+    matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)
 
     # Inline backfill: fetch missing game_info directly from Riot API
     # so matches render immediately without needing the ARQ worker.
@@ -77,7 +84,10 @@ async def list_riot_account_matches(
         await backfill_match_details_inline(session, matches)
 
     logger.info("list_riot_account_matches_done", extra={"riot_account_id": riot_account_id, "count": len(matches)})
-    return [MatchListItem.model_validate(match) for match in matches]
+    return PaginatedMatchList(
+        data=[MatchListItem.model_validate(match) for match in matches],
+        meta=PaginationMeta.build(page=page, limit=limit, total=total),
+    )
 
 
 @router.get("/matches/{match_id}", status_code=status.HTTP_200_OK)

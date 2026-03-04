@@ -1,3 +1,15 @@
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  last_page: number;
+};
+
+export type PaginatedMatchList = {
+  data: MatchSummary[];
+  meta: PaginationMeta;
+};
+
 export type MatchSummary = {
   id?: string;
   matchId?: string;

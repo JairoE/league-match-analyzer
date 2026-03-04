@@ -1,0 +1,46 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.total {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-strong);
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pageInfo {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  min-width: 100px;
+  text-align: center;
+}
