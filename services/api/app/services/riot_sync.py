@@ -307,15 +307,21 @@ async def fetch_timeline_stats(
     else:
         timeline = json.loads(raw)
 
-    frames: list[dict] = (timeline.get("info") or {}).get("frames") or []
+    timeline_info: dict = timeline.get("info") or {}
+    frames: list[dict] = timeline_info.get("frames") or []
     if not frames:
         return None
+
+    # frameInterval is in ms; default 60 000 ms = 1 frame/min
+    frame_interval_ms: int = timeline_info.get("frameInterval") or 60_000
+    idx_10 = round(10 * 60_000 / frame_interval_ms)
+    idx_15 = round(15 * 60_000 / frame_interval_ms)
 
     def participant_frame(frame: dict, pid: int) -> dict:
         return (frame.get("participantFrames") or {}).get(str(pid)) or {}
 
-    current_frame_10 = participant_frame(frames[10], target_participant_id) if len(frames) > 10 else {}
-    current_frame_15 = participant_frame(frames[15], target_participant_id) if len(frames) > 15 else {}
+    current_frame_10 = participant_frame(frames[idx_10], target_participant_id) if len(frames) > idx_10 else {}
+    current_frame_15 = participant_frame(frames[idx_15], target_participant_id) if len(frames) > idx_15 else {}
 
     # Participant metadata (individualPosition, teamId, championName) lives in the match
     # detail response, not the timeline — timeline participants only carry participantId + puuid.
@@ -336,7 +342,7 @@ async def fetch_timeline_stats(
         my_gold_10 = current_frame_10.get("totalGold", 0)
         if opponent_meta:
             opp_id = opponent_meta.get("participantId")
-            opp_frame_10 = participant_frame(frames[10], opp_id) if opp_id else {}
+            opp_frame_10 = participant_frame(frames[idx_10], opp_id) if opp_id else {}
             result["cs_diff_at_10"] = my_cs_10 - _get_cs(opp_frame_10)
             result["gold_diff_at_10"] = my_gold_10 - opp_frame_10.get("totalGold", 0)
 
@@ -345,7 +351,7 @@ async def fetch_timeline_stats(
         my_gold_15 = current_frame_15.get("totalGold", 0)
         if opponent_meta:
             opp_id = opponent_meta.get("participantId")
-            opp_frame_15 = participant_frame(frames[15], opp_id) if opp_id else {}
+            opp_frame_15 = participant_frame(frames[idx_15], opp_id) if opp_id else {}
             result["cs_diff_at_15"] = my_cs_15 - _get_cs(opp_frame_15)
             result["gold_diff_at_15"] = my_gold_15 - opp_frame_15.get("totalGold", 0)
 

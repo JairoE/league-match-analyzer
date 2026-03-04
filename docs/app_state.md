@@ -144,6 +144,15 @@ Optional:
   - `fetch_match_timeline` returns the payload and calls the correct URL (with `/timeline`).
   - The timeline URL is exactly the match detail URL + `/timeline` — same Riot match ID, no UUID drift between the two endpoints.
 
+## Recent Changes (2026-03-03, session 5)
+
+### Bug fix — hard-coded frame indices in `fetch_timeline_stats`
+
+- **Root cause**: `frames[10]` and `frames[15]` assumed a 60-second `frameInterval`, never validating the `frameInterval` field from the timeline response. If Riot changes the interval the indices would silently reference wrong timestamps.
+- **Fix** ([riot_sync.py](services/api/app/services/riot_sync.py) lines 310–327): reads `timeline_info["frameInterval"]` (ms, default `60_000`) and computes `idx_10 = round(10 * frames_per_minute)` / `idx_15 = round(15 * frames_per_minute)`. All four frame accesses (current + opponent at 10 and 15 min) now use `idx_10`/`idx_15`.
+
+---
+
 ## Next Recommended Steps
 
 1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
