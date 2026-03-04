@@ -43,7 +43,8 @@ import {
   getSpellImageUrl,
   getSpellLabel,
 } from "../lib/constants/ddragon";
-import {BarChart, Bar, Cell, Tooltip, XAxis, ResponsiveContainer} from "recharts";
+import {BarChart, Bar, Tooltip, XAxis, ResponsiveContainer} from "recharts";
+import type {BarShapeProps} from "recharts/types/cartesian/Bar";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -196,22 +197,31 @@ function ChampionKdaChart({history, currentMatchId}: ChampionKdaChartProps) {
               );
             }}
           />
-          <Bar dataKey="kda" radius={[2, 2, 0, 0]}>
-            {data.map((entry, i) => (
-              <Cell
-                key={i}
-                fill={
-                  entry.isCurrent
-                    ? "#ffffff"
-                    : entry.outcome === "victory"
-                      ? "#60a5fa55"
-                      : entry.outcome === "defeat"
-                        ? "#f8717155"
-                        : "#6b728055"
-                }
-              />
-            ))}
-          </Bar>
+          <Bar
+            dataKey="kda"
+            radius={[2, 2, 0, 0]}
+            shape={(props: BarShapeProps) => {
+              const entry = props as BarShapeProps & { isCurrent?: boolean; outcome?: string };
+              const fill = entry.isCurrent
+                ? "#ffffff"
+                : entry.outcome === "victory"
+                  ? "#60a5fa55"
+                  : entry.outcome === "defeat"
+                    ? "#f8717155"
+                    : "#6b728055";
+              return (
+                <rect
+                  x={entry.x}
+                  y={entry.y}
+                  width={entry.width}
+                  height={entry.height}
+                  fill={fill}
+                  rx={2}
+                  ry={2}
+                />
+              );
+            }}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>
