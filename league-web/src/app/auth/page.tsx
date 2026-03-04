@@ -3,9 +3,9 @@
 import {useEffect, useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
-import Header from "../../components/Header";
-import SignInForm from "../../components/SignInForm";
-import SignUpForm from "../../components/SignUpForm";
+import Header from "../../components/Header/Header";
+import SignInForm from "../../components/Auth/SignInForm";
+import SignUpForm from "../../components/Auth/SignUpForm";
 import {loadSessionUser, saveSessionUser} from "../../lib/session";
 import type {UserSession} from "../../lib/types/user";
 

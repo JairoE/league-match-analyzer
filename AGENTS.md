@@ -10,15 +10,16 @@ You are a full-stack engineer on this codebase. You write Python (FastAPI) on th
 
 Monorepo with three main components:
 
-| Service | Location | Tech | Dev Port |
-|---------|----------|------|----------|
-| **FastAPI Backend** | `services/api/` | Python 3.11+, FastAPI, SQLModel, SQLAlchemy 2.0 async, Pydantic v2, ARQ, pgvector | 8000 |
-| **Next.js Frontend** | `league-web/` | Next.js 16, React 19, TypeScript 5 | 3000 |
-| **LLM Worker** (stub) | `services/llm/` | Python, ARQ | N/A |
+| Service               | Location        | Tech                                                                              | Dev Port |
+| --------------------- | --------------- | --------------------------------------------------------------------------------- | -------- |
+| **FastAPI Backend**   | `services/api/` | Python 3.11+, FastAPI, SQLModel, SQLAlchemy 2.0 async, Pydantic v2, ARQ, pgvector | 8000     |
+| **Next.js Frontend**  | `league-web/`   | Next.js 16, React 19, TypeScript 5                                                | 3000     |
+| **LLM Worker** (stub) | `services/llm/` | Python, ARQ                                                                       | N/A      |
 
 Infrastructure (`infra/compose/docker-compose.yml`): PostgreSQL 16 (pgvector) on port 5432, Redis 7 on port 6379.
 
 Key directories:
+
 - `services/api/app/api/routers/` — FastAPI route handlers
 - `services/api/app/services/` — business logic
 - `services/api/app/models/` — SQLModel ORM models
@@ -139,15 +140,6 @@ export function useErrorReducer() {
 
 ## Git Workflow
 
-**Branch naming:**
-
-| Prefix | Use |
-|--------|-----|
-| `frontend-N-description` | Frontend feature/fix (e.g. `frontend-4-error-handling`) |
-| `backend-N-description` | Backend feature/fix |
-| `hot-patch-N` | Urgent hotfix |
-| `docs-description` | Documentation only |
-
 **Commit messages** — conventional commits, lowercase:
 
 ```
@@ -174,6 +166,7 @@ Before finishing any task, run `make test` and `make lint` (backend) and `npm ru
 ## Boundaries
 
 ✅ **Always do:**
+
 - Run `make lint` and `make test` after backend changes
 - Run `npm run lint` after frontend changes
 - Use `make install` (editable install) — never `pip install .`
@@ -181,12 +174,14 @@ Before finishing any task, run `make test` and `make lint` (backend) and `npm ru
 - Add type hints to all new Python functions
 
 ⚠️ **Ask before doing:**
+
 - Creating or modifying Alembic migrations (`services/api/alembic/versions/`)
 - Changing database models (`services/api/app/models/`)
 - Adding new npm or Python packages
 - Modifying Docker Compose or infrastructure config
 
 🚫 **Never do:**
+
 - Commit `.env` files or any file containing secrets / API keys
 - Call `pip install .` (non-editable) — it goes stale as you edit code
 - Add synchronous blocking I/O in FastAPI route handlers or services

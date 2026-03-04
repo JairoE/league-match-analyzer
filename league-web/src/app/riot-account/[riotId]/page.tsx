@@ -3,9 +3,9 @@
 import {useEffect, useMemo, useState} from "react";
 import {useParams, useRouter} from "next/navigation";
 import styles from "./page.module.css";
-import Header from "../../../components/Header";
-import SubHeader from "../../../components/SubHeader";
-import SearchBar from "../../../components/SearchBar";
+import Header from "../../../components/Header/Header";
+import SubHeader from "../../../components/SubHeader/SubHeader";
+import SearchBar from "../../../components/SearchBar/SearchBar";
 import MatchesTable from "../../../components/MatchesTable";
 import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";

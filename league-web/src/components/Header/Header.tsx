@@ -3,7 +3,7 @@
 import {useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./Header.module.css";
-import {loadSessionUser, clearSessionUser} from "../lib/session";
+import {loadSessionUser, clearSessionUser} from "../../lib/session";
 
 type HeaderProps = {
   showBack?: boolean;
@@ -37,15 +37,15 @@ export default function Header({
         </div>
         <div className={styles.actions}>
           {showBack ? (
-            <button className={styles.backButton} onClick={() => router.back()}>
+            <button type="button" className={styles.backButton} onClick={() => router.back()}>
               &larr; Back
             </button>
           ) : hasSession ? (
-            <button className={styles.signOutButton} onClick={handleSignOut}>
+            <button type="button" className={styles.signOutButton} onClick={handleSignOut}>
               Sign out
             </button>
           ) : (
-            <button className={styles.loginButton} onClick={handleLogin}>
+            <button type="button" className={styles.loginButton} onClick={handleLogin}>
               Login
             </button>
           )}

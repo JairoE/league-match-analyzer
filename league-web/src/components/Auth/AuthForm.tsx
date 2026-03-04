@@ -2,9 +2,9 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import styles from "./AuthForm.module.css";
-import { apiPost } from "../lib/api";
-import { useAppError } from "../lib/errors/error-store";
-import type { UserAuthPayload, UserSession } from "../lib/types/user";
+import { apiPost } from "../../lib/api";
+import { useAppError } from "../../lib/errors/error-store";
+import type { UserAuthPayload, UserSession } from "../../lib/types/user";
 
 type AuthFormProps = {
   title: string;

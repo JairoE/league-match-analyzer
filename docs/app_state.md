@@ -1,16 +1,8 @@
 # App State
 
 **Last Updated:** 2026-03-04
-**Branch:** `frontend-chart`
-**Status:** BUILDING — Champion KDA History Chart implemented
-
----
-
-## Current Phase
-
-Active development on the `frontend-matches-paginated` branch. Server-side pagination is implemented for both match endpoints. Riot API sync is gated to page 1 only — subsequent pages query the database directly.
-
----
+**Branch:** `frontend-components-refactor`
+**Status:** STABLE — Champion pre-fetch filter restored
 
 ## What's Built
 
@@ -36,7 +28,7 @@ Active development on the `frontend-matches-paginated` branch. Server-side pagin
   - Table uses sticky headers, queue-group tabs, row-level selection, and skeleton states.
   - Right-side detail overlay (`MatchDetailPanel`) renders `MatchCard` in `expanded` mode.
   - Queue type modeling is centralized in `src/lib/types/queue.ts` with coarse tab grouping (`GameQueueGroup`) and granular row labels (`GameQueueMode`).
-- **Match card**: `MatchCard` now supports `expanded?: boolean` for backward-compatible reuse in the detail panel.
+- **Match card**: `MatchCard` is decomposed into `ItemSlot`, `Teams`, `ChampionKdaChart`, `match-card.utils.ts`, and `types.ts` within `MatchCard/`. The main file is a ~200-line orchestrator, `memo`-wrapped at export.
 - **Pagination**: Reusable `Pagination` component with Previous/Next buttons, "Page X of Y", total count. Hidden when single page. Wired into `MatchesTable` via optional `paginationMeta`/`onPageChange` props.
 - **Error handling** (`src/lib/errors/`):
   - `ApiError` class with `status`, `detail`, `riotStatus` fields.
@@ -193,7 +185,64 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-04, session 2)
+
+### Phase 1 Frontend Refactor — Folderize (`frontend-components-refactor`)
+
+- **What changed**: Folderized all 10 components in `league-web/src/components/` — each component now lives in its own subdirectory with its CSS module. Zero logic changes.
+- **New structure**: `Auth/`, `FeatureCard/`, `Header/`, `MatchCard/`, `MatchDetailPanel/`, `MatchesTable/`, `MatchRow/`, `Pagination/`, `SearchBar/`, `SubHeader/`
+- **Barrel files added**: `MatchCard/index.ts` and `MatchesTable/index.ts` (re-export defaults; will grow in Phase 2/3)
+- **Import path fixes**: All `../lib/` → `../../lib/` inside moved components; cross-component imports updated (`MatchesTable` → `../MatchRow/MatchRow`, `../MatchDetailPanel/MatchDetailPanel`, `../Pagination/Pagination`; `MatchDetailPanel` → `../MatchCard/MatchCard`); `Auth/SignInForm` + `SignUpForm` retain `./AuthForm` (same folder)
+- **Trivial fixes**: Added `type="button"` to all non-submit buttons in `Header`, `Pagination`, `MatchDetailPanel`, and `MatchesTable` tab buttons
+- **Verification**: `npm run lint` — 1 pre-existing warning (unchanged); `npm run build` — clean
+
+### Phase 1 Frontend Refactor — Hook Extraction (`frontend-components-refactor`, session 3)
+
+- **What changed**: Extracted hooks and sub-pieces from `MatchesTable.tsx`; zero behavior changes.
+- **New files**:
+  - `MatchesTable/useMatchSelection.ts` — `selectedMatchId` state + `handleRowClick` / `handleClosePanel` / `clearSelection`
+  - `MatchesTable/useMatchDetailData.ts` — all 3 fetch-on-select effects (`championById`, `rankByPuuid`, `laneStatsByMatchId`) with functional updater pattern; `eslint-disable` comments removed from champion and rank effects; timeline effect omits `matches`/`getParticipantForMatch`/`laneStatsByMatchId` from deps (stable within a selection)
+  - `MatchesTable/constants.ts` — `COLUMNS` array
+  - `MatchesTable/SkeletonRows.tsx` — skeleton row component
+- **`MatchesTable.tsx`** slimmed from ~397 → ~215 lines; tab click handlers use `clearSelection()` instead of `setSelectedMatchId(null)`
+- **Verification**: `npm run lint` — same 1 pre-existing warning; `npm run build` — clean
+
+## Recent Changes (2026-03-04, session 3)
+
+### Phase 2 Frontend Refactor — MatchCard Decomposition + CSS Var Extraction (`frontend-components-refactor`)
+
+- **What changed**: Decomposed `MatchCard.tsx` (535 lines) into 5 focused files; extracted CSS vars. Zero behavior changes.
+- **New files**:
+  - `MatchCard/types.ts` — `MatchCardProps`, `TeamsProps`, `ChampionKdaChartProps`, `MultikillEntry`
+  - `MatchCard/ItemSlot.tsx` — standalone item slot
+  - `MatchCard/Teams.tsx` — memoized teams column (`memo` preserved)
+  - `MatchCard/ChampionKdaChart.tsx` — recharts chart; bar fills use `--match-bar-*` CSS vars; X-axis tick fill uses `--match-text-muted`
+  - `MatchCard/match-card.utils.ts` — `diffLabel`, `getMultikillBadges`, `getOutcomeDisplay`
+- **`MatchCard.tsx`** slimmed from 535 → ~200 lines; now `memo`-wrapped at export
+- **CSS vars added to `globals.css`**: `--match-victory-bg`, `--match-defeat-bg`, `--match-remake-bg`, `--match-text-blue`, `--match-text-red`, `--match-text-muted`, `--badge-gold`, `--match-bar-victory`, `--match-bar-defeat`, `--match-bar-remake`
+- **`MatchCard.module.css`**: outcome background/border colors, text colors, badge backgrounds, KDA chart label replaced with CSS vars; `laningPos`/`laningNeg` kept as raw hex with an explanatory comment (intentionally distinct shades)
+- **Verification**: `npm run lint` — same 1 pre-existing warning; `npm run build` — clean
+
+### Bug fix — champion fetch pre-fetch filter (`useMatchDetailData`)
+
+- **Issue**: Champion effect was requesting every `championIdsToLoad` on each run; only the `setChampionById` updater skipped already-loaded IDs, so network/cache work still ran for all IDs.
+- **Fix**: Compute `missingIds = championIdsToLoad.filter((id) => championById[id] == null)` at effect start; early-return if `missingIds.length === 0`; call `apiGet` only for `missingIds`. Dependency array now includes `championById` so the filter sees current state.
+
+---
+
 ## Next Recommended Steps
+
+### Documentation Guardrail (Drift Prevention)
+
+- Treat `docs/RIOT_API_PARTICIPANT_FIELDS.md` as the source of truth for Riot
+  participant field coverage, priority, and DDragon mapping references.
+- Keep these files synchronized whenever participant data usage changes:
+  - `docs/RIOT_API_PARTICIPANT_FIELDS.md`
+  - `league-web/src/lib/types/match.ts`
+  - `league-web/src/components/MatchCard/MatchCard.tsx`
+  - `league-web/src/lib/constants/ddragon.ts`
+  - `docs/MATCHCARD_REDESIGN.md`
+  - `docs/app_state.md`
 
 1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
 2. **Step 2** — Live Game integration (lowest priority, requires polling architecture + `LiveGameCard` component).

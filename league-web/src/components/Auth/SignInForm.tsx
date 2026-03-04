@@ -1,7 +1,7 @@
 "use client";
 
 import AuthForm from "./AuthForm";
-import type { UserSession } from "../lib/types/user";
+import type { UserSession } from "../../lib/types/user";
 
 type SignInFormProps = {
   onAuthSuccess: (user: UserSession) => void;
