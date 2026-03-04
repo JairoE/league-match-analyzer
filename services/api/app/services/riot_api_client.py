@@ -38,6 +38,7 @@ class RiotApiClient:
     RANK_BY_PUUID_URL = "https://na1.api.riotgames.com/lol/league/v4/entries/by-puuid/"
     MATCH_IDS_BY_PUUID_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/"
     MATCH_DETAIL_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/"
+    MATCH_TIMELINE_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/"
 
     # Retry configuration
     MAX_RETRIES = 3
@@ -187,6 +188,24 @@ class RiotApiClient:
         logger.info("riot_match_fetch_start", extra={"match_id": match_id})
         url = self.MATCH_DETAIL_URL + quote(match_id)
         payload = await self._get_json("match_detail", url)
+        return payload
+
+    async def fetch_match_timeline(self, match_id: str) -> dict[str, Any]:
+        """Retrieve match timeline by Riot match id.
+
+        Retrieves: Riot timeline payload (participant frames per minute).
+        Transforms: None, returns raw timeline JSON.
+        Why: Enables laning phase analytics (CS/gold diff at 10/15 min).
+
+        Args:
+            match_id: Riot match ID.
+
+        Returns:
+            Timeline payload.
+        """
+        logger.info("riot_match_timeline_fetch_start", extra={"match_id": match_id})
+        url = self.MATCH_TIMELINE_URL + quote(match_id) + "/timeline"
+        payload = await self._get_json("match_timeline", url)
         return payload
 
     async def _get_json(self, bucket: str, url: str) -> dict[str, Any] | list[Any]:

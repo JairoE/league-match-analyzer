@@ -6,13 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.api.routers.match_detail_enqueue import enqueue_details_background
 from app.db.session import get_session
-from app.schemas.match import MatchListItem, PaginatedMatchList, PaginationMeta
+from app.schemas.match import LaneStats, MatchListItem, PaginatedMatchList, PaginationMeta
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_accounts import resolve_riot_account_identifier
 from app.services.riot_sync import (
     backfill_match_details_inline,
     fetch_match_detail,
     fetch_match_list_for_riot_account,
+    fetch_timeline_stats,
 )
 
 
@@ -111,3 +112,37 @@ async def get_match(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
     logger.info("get_match_success", extra={"match_id": match_id})
     return result
+
+
+@router.get(
+    "/matches/{match_id}/timeline-stats",
+    response_model=LaneStats,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_200_OK,
+)
+async def get_match_timeline_stats(
+    match_id: str,
+    participant_id: int = Query(description="1-based participantId of the tracked player"),
+    session: AsyncSession = Depends(get_session),
+) -> LaneStats:
+    """Return pre-computed laning stats for one participant from the match timeline.
+
+    Fetches the Riot timeline (cached indefinitely in Redis), parses CS/gold
+    diffs vs the lane opponent at 10 and 15 minutes, and returns a compact
+    LaneStats payload — no 1MB+ timeline JSON is ever shipped to the client.
+
+    Args:
+        match_id: Match UUID or Riot match ID.
+        participant_id: 1-based participantId of the player to analyse.
+        session: Async database session for queries.
+
+    Returns:
+        LaneStats with available diff fields and opponent info.
+    """
+    logger.info("get_timeline_stats_start", extra={"match_id": match_id, "participant_id": participant_id})
+    stats = await fetch_timeline_stats(session, match_id, participant_id)
+    if stats is None:
+        logger.info("get_timeline_stats_unavailable", extra={"match_id": match_id})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Timeline not available")
+    logger.info("get_timeline_stats_done", extra={"match_id": match_id})
+    return LaneStats(**stats)

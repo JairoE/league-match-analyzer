@@ -12,7 +12,8 @@ import {
   getParticipantForUser,
 } from "../lib/match-utils";
 import type {Champion} from "../lib/types/champion";
-import type {MatchDetail, MatchSummary, PaginationMeta, Participant} from "../lib/types/match";
+import type {LaneStats, MatchDetail, MatchSummary, PaginationMeta, Participant} from "../lib/types/match";
+import type {RankBatchResponse, RankInfo} from "../lib/types/rank";
 import type {UserSession} from "../lib/types/user";
 import {
   GameQueueGroup,
@@ -75,6 +76,8 @@ export default function MatchesTable({
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
   const [championById, setChampionById] = useState<Record<number, Champion>>({});
+  const [rankByPuuid, setRankByPuuid] = useState<Record<string, RankInfo | null>>({});
+  const [laneStatsByMatchId, setLaneStatsByMatchId] = useState<Record<string, LaneStats | null>>({});
 
   const handleRowClick = useCallback((matchId: string) => {
     setSelectedMatchId((prev) => (prev === matchId ? null : matchId));
@@ -153,6 +156,63 @@ export default function MatchesTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [championIdsToLoad]);
 
+  // Fetch rank data for all 10 participants when a match is expanded
+  useEffect(() => {
+    if (!selectedMatchId) return;
+    const detail = matchDetails[selectedMatchId];
+    if (!detail?.info?.participants) return;
+
+    const puuids = detail.info.participants
+      .map((p) => p.puuid)
+      .filter((puuid): puuid is string => !!puuid && rankByPuuid[puuid] === undefined);
+
+    if (puuids.length === 0) return;
+
+    let isActive = true;
+    void apiGet<RankBatchResponse>(`/rank/batch?puuids=${puuids.join(",")}`, {
+      cacheTtlMs: 3_600_000,
+    }).then((data) => {
+      if (!isActive) return;
+      setRankByPuuid((prev) => ({...prev, ...data}));
+    }).catch(() => {/* silently ignore rank errors */});
+
+    return () => {
+      isActive = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMatchId, matchDetails]);
+
+  // Fetch timeline stats for the selected participant when a match is expanded
+  useEffect(() => {
+    if (!selectedMatchId) return;
+    if (laneStatsByMatchId[selectedMatchId] !== undefined) return;
+
+    const detail = matchDetails[selectedMatchId];
+    if (!detail?.info?.participants) return;
+
+    const m = matches.find((x) => getMatchId(x) === selectedMatchId);
+    const participant = m ? getParticipantForMatch(m) : null;
+
+    const participantId = participant?.participantId;
+    if (!participantId) return;
+
+    let isActive = true;
+    void apiGet<LaneStats>(
+      `/matches/${selectedMatchId}/timeline-stats?participant_id=${participantId}`
+    ).then((data) => {
+      if (!isActive) return;
+      setLaneStatsByMatchId((prev) => ({...prev, [selectedMatchId]: data}));
+    }).catch(() => {
+      if (!isActive) return;
+      setLaneStatsByMatchId((prev) => ({...prev, [selectedMatchId]: null}));
+    });
+
+    return () => {
+      isActive = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMatchId, matchDetails]);
+
   // Derive queue group tabs from data in fixed display order
   const queueGroups = useMemo(() => {
     const groups = new Set<GameQueueGroup>();
@@ -186,6 +246,9 @@ export default function MatchesTable({
     selectedParticipant?.championId != null
       ? (championById[selectedParticipant.championId] ?? null)
       : null;
+  const selectedLaneStats = selectedMatchId
+    ? (laneStatsByMatchId[selectedMatchId] ?? null)
+    : null;
 
   return (
     <div className={styles.wrapper}>
@@ -270,6 +333,8 @@ export default function MatchesTable({
               user={user}
               isSearchView={isSearchView}
               targetPuuid={targetPuuid}
+              rankByPuuid={rankByPuuid}
+              laneStats={selectedLaneStats}
               onClose={handleClosePanel}
             />
           </div>

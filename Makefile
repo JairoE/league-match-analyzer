@@ -49,7 +49,7 @@ db-revision:
 	cd services/api && ../../.venv/bin/alembic revision --autogenerate -m "$$msg"
 
 lint:
-	ruff check services/api services/llm
+	./.venv/bin/ruff check services/api services/llm
 
 test:
-	pytest services/api services/llm
+	./.venv/bin/pytest services/api services/llm
