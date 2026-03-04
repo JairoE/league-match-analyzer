@@ -15,32 +15,24 @@ type UseMatchDetailDataParams = {
   championIdsToLoad: number[];
 };
 
-type UseMatchDetailDataResult = {
-  championById: Record<number, Champion>;
-  rankByPuuid: Record<string, RankInfo | null>;
-  laneStatsByMatchId: Record<string, LaneStats | null>;
-};
-
 export function useMatchDetailData({
   selectedMatchId,
   matches,
   matchDetails,
   getParticipantForMatch,
   championIdsToLoad,
-}: UseMatchDetailDataParams): UseMatchDetailDataResult {
+}: UseMatchDetailDataParams) {
   const [championById, setChampionById] = useState<Record<number, Champion>>({});
   const [rankByPuuid, setRankByPuuid] = useState<Record<string, RankInfo | null>>({});
   const [laneStatsByMatchId, setLaneStatsByMatchId] = useState<Record<string, LaneStats | null>>({});
 
-  // Champion fetch — triggered by championIdsToLoad; uses functional updater to avoid stale closure
+  // Champion fetch — missingIds computed inside the functional updater so it reads
+  // the latest championById rather than the stale closure value.
   useEffect(() => {
-    const missingIds = championIdsToLoad.filter((id) => championById[id] == null);
-    if (missingIds.length === 0) return;
-
     let isActive = true;
 
     void Promise.allSettled(
-      missingIds.map(async (id) => {
+      championIdsToLoad.map(async (id) => {
         const champion = await apiGet<Champion>(`/champions/${id}`, {cacheTtlMs: 60_000});
         return {id, champion};
       })
@@ -52,16 +44,17 @@ export function useMatchDetailData({
       if (loaded.length === 0) return;
       setChampionById((prev) => {
         const next = {...prev};
-        for (const {id, champion} of loaded) next[id] = champion;
-        return next;
+        for (const {id, champion} of loaded) {
+          if (prev[id] == null) next[id] = champion; // skip if already cached
+        }
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
       });
     });
 
     return () => {
       isActive = false;
     };
-  }, [championIdsToLoad]); // eslint-disable-line react-hooks/exhaustive-deps
-  // championById intentionally omitted — functional updater `prev =>` avoids stale closure
+  }, [championIdsToLoad]);
 
   // Rank fetch — triggered by selectedMatchId; functional updater avoids stale rankByPuuid
   useEffect(() => {
@@ -69,11 +62,10 @@ export function useMatchDetailData({
     const detail = matchDetails[selectedMatchId];
     if (!detail?.info?.participants) return;
 
-    const puuids = detail.info.participants
+    const missing = detail.info.participants
       .map((p) => p.puuid)
-      .filter((puuid): puuid is string => !!puuid);
+      .filter((puuid): puuid is string => !!puuid && rankByPuuid[puuid] === undefined);
 
-    const missing = puuids.filter((puuid) => rankByPuuid[puuid] === undefined);
     if (missing.length === 0) return;
 
     let isActive = true;
@@ -90,9 +82,7 @@ export function useMatchDetailData({
   }, [selectedMatchId, matchDetails]); // eslint-disable-line react-hooks/exhaustive-deps
   // rankByPuuid intentionally omitted — functional updater `prev =>` avoids stale closure
 
-  // Timeline fetch — triggered by selectedMatchId; functional updater used so laneStatsByMatchId
-  // is NOT needed as a dep (reading stale value for the cache-hit check is intentional —
-  // a re-render will provide a fresh value before this effect fires again).
+  // Timeline fetch — triggered by selectedMatchId
   useEffect(() => {
     if (!selectedMatchId) return;
     if (laneStatsByMatchId[selectedMatchId] !== undefined) return;

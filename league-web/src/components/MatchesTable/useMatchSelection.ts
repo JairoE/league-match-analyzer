@@ -9,9 +9,7 @@ export function useMatchSelection() {
     setSelectedMatchId((prev) => (prev === matchId ? null : matchId));
   }, []);
 
-  const handleClosePanel = useCallback(() => setSelectedMatchId(null), []);
-
   const clearSelection = useCallback(() => setSelectedMatchId(null), []);
 
-  return {selectedMatchId, handleRowClick, handleClosePanel, clearSelection};
+  return {selectedMatchId, handleRowClick, handleClosePanel: clearSelection, clearSelection};
 }
