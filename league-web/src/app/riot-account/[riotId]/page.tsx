@@ -58,49 +58,75 @@ export default function RiotAccountPage() {
     setPage(1);
   }, [riotId]);
 
-  // Fetch searched account data + matches
+  // Fetch account — only re-runs when riotId changes, never on page change
   useEffect(() => {
     let isActive = true;
 
     const load = async () => {
-      try {
-        if (decodeError) {
-          console.debug("[riot-account] decode error, aborting fetch");
-          setPageError("Invalid Riot ID in URL. Please re-run your search.");
-          clearError();
-          setIsLoading(false);
-          return;
-        }
-        setIsLoading(true);
-        setPageError(null);
+      if (decodeError) {
+        console.debug("[riot-account] decode error, aborting account fetch");
+        setPageError("Invalid Riot ID in URL. Please re-run your search.");
         clearError();
-        const encodedQuery = encodeURIComponent(riotId);
-        console.debug("[riot-account] fetching", {riotId, page});
-
-        const [matchesResponse, accountResponse] = await Promise.all([
-          apiGet<PaginatedMatchList>(`/search/${encodedQuery}/matches?page=${page}&limit=20`, {
-            useCache: false,
-          }),
-          apiGet<RiotAccountData>(`/search/${encodedQuery}/account`, {
-            useCache: false,
-          }),
-        ]);
-
+        return;
+      }
+      const encodedQuery = encodeURIComponent(riotId);
+      console.debug("[riot-account] fetching account", {riotId});
+      try {
+        const accountResponse = await apiGet<RiotAccountData>(
+          `/search/${encodedQuery}/account`,
+          {useCache: false}
+        );
         if (!isActive) return;
-
         if (!accountResponse?.puuid) {
           throw new Error("Account not found. Please check the Riot ID and try again.");
         }
-
         setAccount(accountResponse);
+        console.debug("[riot-account] account loaded", {riotId: accountResponse.riot_id});
+      } catch (err) {
+        if (!isActive) return;
+        console.debug("[riot-account] account fetch failed", {err});
+        if (isApiError(err) && err.detail === "riot_api_failed" && err.riotStatus === 404) {
+          setPageError(`No search results for the summoner "${riotId}".`);
+          clearError();
+        } else {
+          reportError(err);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      isActive = false;
+    };
+  }, [riotId, decodeError, clearError, reportError]);
+
+  // Fetch matches — re-runs on riotId or page change, but never touches the account endpoint
+  useEffect(() => {
+    let isActive = true;
+
+    const load = async () => {
+      if (decodeError) {
+        setIsLoading(false);
+        return;
+      }
+      setIsLoading(true);
+      setPageError(null);
+      clearError();
+      const encodedQuery = encodeURIComponent(riotId);
+      console.debug("[riot-account] fetching matches", {riotId, page});
+      try {
+        const matchesResponse = await apiGet<PaginatedMatchList>(
+          `/search/${encodedQuery}/matches?page=${page}&limit=20`,
+          {useCache: false}
+        );
+        if (!isActive) return;
         setMatches(Array.isArray(matchesResponse?.data) ? matchesResponse.data : []);
         setPaginationMeta(matchesResponse?.meta ?? null);
-        console.debug("[riot-account] loaded", {
-          riotId: accountResponse.riot_id,
+        console.debug("[riot-account] matches loaded", {
           matchCount: matchesResponse?.data?.length ?? 0,
         });
       } catch (err) {
-        console.debug("[riot-account] load failed", {err});
+        console.debug("[riot-account] matches fetch failed", {err});
         if (isActive) {
           if (isApiError(err) && err.detail === "riot_api_failed" && err.riotStatus === 404) {
             setPageError(`No search results for the summoner "${riotId}".`);
@@ -110,14 +136,11 @@ export default function RiotAccountPage() {
           }
         }
       } finally {
-        if (isActive) {
-          setIsLoading(false);
-        }
+        if (isActive) setIsLoading(false);
       }
     };
 
     void load();
-
     return () => {
       isActive = false;
     };

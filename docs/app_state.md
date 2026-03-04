@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-03
+**Last Updated:** 2026-03-03 (session 2)
 **Branch:** `frontend-matches-paginated`
-**Status:** BUILDING
+**Status:** STABLE — ready for PR merge
 
 ---
 
@@ -77,6 +77,16 @@ Active development on the `frontend-matches-paginated` branch. Server-side pagin
 - Search page resets `page` to 1 when `riotId` changes.
 - Tab filtering remains client-side (some pages may show fewer items after tab filter — acceptable trade-off).
 
+### Bug fix — account re-fetch on page change (`frontend-matches-paginated`, session 2)
+
+- **Root cause**: the combined `Promise.all` effect in `riot-account/[riotId]/page.tsx` included `page` in its dependency array, causing the `/search/{riotId}/account` endpoint to be called on every page navigation — firing `fetch_account_by_riot_id` + `fetch_summoner_by_puuid` against the Riot API unnecessarily and contradicting the PR's stated goal of avoiding rate-limit consumption on page 2+.
+- **Fix**: split the single combined effect into two independent effects:
+  - **Account effect** (deps: `[riotId, decodeError, clearError, reportError]`) — fetches `/search/${encodedQuery}/account` once per searched summoner; never triggered by `page`.
+  - **Matches effect** (deps: `[riotId, decodeError, page, clearError, reportError]`) — fetches `/search/${encodedQuery}/matches?page=N` on every page or riotId change; does not touch the account endpoint.
+- Decode-error guard preserved in both effects without introducing a race that could clear the page error.
+- Each effect has its own `isActive` cancellation flag and independent error handling.
+- **File changed**: `league-web/src/app/riot-account/[riotId]/page.tsx`
+
 ### Previous changes
 - Consolidated MatchCard redesign documentation into `docs/MATCHCARD_REDESIGN.md`.
 - Replaced match history card grid with table + side panel.
@@ -111,7 +121,7 @@ Optional:
 
 ## Next Recommended Steps
 
-1. **Merge `frontend-matches-paginated`** — pagination feature is complete and ready for PR review.
+1. **Merge `frontend-matches-paginated`** — pagination + account re-fetch bug fix are both complete; branch is ready for final PR review and merge.
 2. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
 3. **Consider server-side queue filtering** — current tab filtering is client-side; pages beyond 1 may show fewer items after filtering. Moving to server-side JSONB filtering would fix this but adds complexity.
 4. **Implement vector embeddings** — `pgvector` is enabled, `Match.to_embedding_text()` exists; wire up `sentence-transformers` worker job and embedding column.
