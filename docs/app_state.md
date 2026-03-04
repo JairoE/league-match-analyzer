@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-04
 **Branch:** `frontend-components-refactor`
-**Status:** STABLE — MatchCard decomposition + CSS var extraction complete
+**Status:** STABLE — Champion pre-fetch filter restored
 
 ## What's Built
 
@@ -201,6 +201,11 @@ Optional:
 - **CSS vars added to `globals.css`**: `--match-victory-bg`, `--match-defeat-bg`, `--match-remake-bg`, `--match-text-blue`, `--match-text-red`, `--match-text-muted`, `--badge-gold`, `--match-bar-victory`, `--match-bar-defeat`, `--match-bar-remake`
 - **`MatchCard.module.css`**: outcome background/border colors, text colors, badge backgrounds, KDA chart label replaced with CSS vars; `laningPos`/`laningNeg` kept as raw hex with an explanatory comment (intentionally distinct shades)
 - **Verification**: `npm run lint` — same 1 pre-existing warning; `npm run build` — clean
+
+### Bug fix — champion fetch pre-fetch filter (`useMatchDetailData`)
+
+- **Issue**: Champion effect was requesting every `championIdsToLoad` on each run; only the `setChampionById` updater skipped already-loaded IDs, so network/cache work still ran for all IDs.
+- **Fix**: Compute `missingIds = championIdsToLoad.filter((id) => championById[id] == null)` at effect start; early-return if `missingIds.length === 0`; call `apiGet` only for `missingIds`. Dependency array now includes `championById` so the filter sees current state.
 
 ---
 

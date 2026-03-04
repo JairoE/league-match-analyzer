@@ -30,12 +30,15 @@ export function useMatchDetailData({
   const fetchedRankMatchIds = useRef<Set<string>>(new Set());
   const fetchedTimelineMatchIds = useRef<Set<string>>(new Set());
 
-  // Champion fetch
+  // Champion fetch — only request IDs not already in championById
   useEffect(() => {
+    const missingIds = championIdsToLoad.filter((id) => championById[id] == null);
+    if (missingIds.length === 0) return;
+
     let isActive = true;
 
     void Promise.allSettled(
-      championIdsToLoad.map(async (id) => {
+      missingIds.map(async (id) => {
         const champion = await apiGet<Champion>(`/champions/${id}`, {cacheTtlMs: 60_000});
         return {id, champion};
       })
@@ -57,7 +60,7 @@ export function useMatchDetailData({
     return () => {
       isActive = false;
     };
-  }, [championIdsToLoad]);
+  }, [championIdsToLoad, championById]);
 
   // Rank fetch — fires for each newly expanded matchId
   useEffect(() => {
