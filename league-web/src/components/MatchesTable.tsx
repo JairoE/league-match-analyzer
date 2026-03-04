@@ -8,11 +8,12 @@ import Pagination from "./Pagination";
 import {apiGet} from "../lib/api";
 import {
   getMatchId,
+  getMatchOutcome,
   getParticipantByPuuid,
   getParticipantForUser,
 } from "../lib/match-utils";
 import type {Champion} from "../lib/types/champion";
-import type {LaneStats, MatchDetail, MatchSummary, PaginationMeta, Participant} from "../lib/types/match";
+import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary, PaginationMeta, Participant} from "../lib/types/match";
 import type {RankBatchResponse, RankInfo} from "../lib/types/rank";
 import type {UserSession} from "../lib/types/user";
 import {
@@ -233,6 +234,48 @@ export default function MatchesTable({
     });
   }, [matches, resolveQueueId, activeTab]);
 
+  // Build KDA history per champion, keyed by matchId.
+  // Only includes matches whose details have loaded; only entries with 2+ games on the champion are stored.
+  const championHistoryByMatchId = useMemo<Record<string, ChampionKdaPoint[]>>(() => {
+    const groupByChamp: Record<number, ChampionKdaPoint[]> = {};
+
+    for (const match of matches) {
+      const matchId = getMatchId(match);
+      if (!matchId) continue;
+      const detail = matchDetails[matchId] ?? null;
+      if (!detail) continue;
+      const participant = getParticipantForMatch(match);
+      const championId = participant?.championId;
+      if (typeof championId !== "number") continue;
+
+      if (!groupByChamp[championId]) groupByChamp[championId] = [];
+      groupByChamp[championId].push({
+        matchId,
+        kills: participant?.kills ?? 0,
+        deaths: participant?.deaths ?? 0,
+        assists: participant?.assists ?? 0,
+        outcome: getMatchOutcome(participant, detail?.info?.gameDuration),
+        timestamp: match.game_start_timestamp ?? match.gameCreation ?? 0,
+      });
+    }
+
+    for (const points of Object.values(groupByChamp)) {
+      points.sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    const result: Record<string, ChampionKdaPoint[]> = {};
+    for (const match of matches) {
+      const matchId = getMatchId(match);
+      if (!matchId) continue;
+      const participant = getParticipantForMatch(match);
+      const championId = participant?.championId;
+      if (typeof championId !== "number") continue;
+      const history = groupByChamp[championId];
+      if (history && history.length > 1) result[matchId] = history;
+    }
+    return result;
+  }, [matches, matchDetails, getParticipantForMatch]);
+
   const selectedMatch = selectedMatchId
     ? filteredMatches.find((m) => getMatchId(m) === selectedMatchId) ?? null
     : null;
@@ -335,6 +378,7 @@ export default function MatchesTable({
               targetPuuid={targetPuuid}
               rankByPuuid={rankByPuuid}
               laneStats={selectedLaneStats}
+              championHistory={selectedMatchId ? (championHistoryByMatchId[selectedMatchId] ?? []) : []}
               onClose={handleClosePanel}
             />
           </div>

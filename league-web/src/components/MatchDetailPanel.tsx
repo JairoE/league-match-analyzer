@@ -4,7 +4,7 @@ import React from "react";
 import styles from "./MatchDetailPanel.module.css";
 import MatchCard from "./MatchCard";
 import type {Champion} from "../lib/types/champion";
-import type {LaneStats, MatchDetail, MatchSummary} from "../lib/types/match";
+import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary} from "../lib/types/match";
 import type {RankInfo} from "../lib/types/rank";
 import type {UserSession} from "../lib/types/user";
 
@@ -17,6 +17,7 @@ type MatchDetailPanelProps = {
   targetPuuid: string | null;
   rankByPuuid?: Record<string, RankInfo | null>;
   laneStats?: LaneStats | null;
+  championHistory?: ChampionKdaPoint[];
   onClose: () => void;
 };
 
@@ -42,6 +43,7 @@ export default function MatchDetailPanel({
   targetPuuid,
   rankByPuuid,
   laneStats,
+  championHistory,
   onClose,
 }: MatchDetailPanelProps) {
   return (
@@ -69,6 +71,7 @@ export default function MatchDetailPanel({
             targetPuuid={targetPuuid}
             rankByPuuid={rankByPuuid}
             laneStats={laneStats}
+            championHistory={championHistory}
             expanded
           />
         )}

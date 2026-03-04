@@ -4,113 +4,7 @@ All core redesign steps (types, DDragon constants, match utilities, MatchCard UI
 
 ---
 
-## Step 1 — Per-Player Rank Badges
-
-Show a rank badge (e.g., `Gold 2`) next to each player name in the expanded 10-player team list inside `Teams` (MatchCard.tsx:88–137).
-
-### Backend
-
-`fetch_rank_by_puuid()` already exists. Needs a **batch endpoint** to avoid 10 sequential calls per match:
-
-```
-GET /rank/batch?puuids=<csv>
-```
-
-- Accepts up to 10 PUUIDs as a comma-separated query param.
-- Internally calls `fetch_rank_by_puuid()` concurrently via `asyncio.gather`.
-- Returns `Record<puuid, { tier: string; rank: string; lp: number } | null>`.
-- Cache key: `rank:{puuid}` — TTL: 1 hour (rank changes slowly).
-- Cache at the individual PUUID level so a cache miss for one player doesn't invalidate others.
-
-### Frontend
-
-**Where to call it:** `MatchesTable.tsx` — fetch rank data when a match is expanded (i.e., when `selectedMatchId` changes). Do not fetch proactively for all matches.
-
-**State shape:**
-```typescript
-// MatchesTable.tsx
-const [rankByPuuid, setRankByPuuid] = useState<Record<string, RankInfo | null>>({});
-```
-
-**Fetch trigger:** in a `useEffect` keyed on `selectedMatchId`. Extract the 10 PUUIDs from `selectedDetail?.info.participants`, filter out already-cached entries, then call `/rank/batch`.
-
-**Pass down:** `MatchDetailPanel` → `MatchCard` → `Teams` (new prop `rankByPuuid: Record<string, RankInfo | null>`).
-
-**UI in `Teams`:**
-
-```tsx
-// MatchCard.tsx — inside PlayerRow
-const rank = rankByPuuid[p.puuid ?? ""];
-const rankLabel = rank ? `${rank.tier} ${rank.rank}` : null;
-
-// Render next to summonerDisplay
-{rankLabel && <span className={styles.rankBadge}>{rankLabel}</span>}
-```
-
-**CSS in `MatchCard.module.css`:**
-```css
-.rankBadge {
-  font-size: 10px;
-  color: #a78bfa;
-  opacity: 0.85;
-  white-space: nowrap;
-}
-```
-
-**Effort:** ~3 hours (batch endpoint + useEffect fetch + UI badge).
-
----
-
-## Step 2 — Timeline API (Laning Phase Analytics)
-
-Enables CS diff, gold diff, and lane opponent identification at 10 and 15 minutes.
-
-### Backend
-
-**Riot Endpoint:** `GET /lol/match/v5/matches/{matchId}/timeline`
-
-- Timelines are immutable once a match ends → cache indefinitely (`ttl=None` or very long TTL).
-- Cache key: `timeline:{matchId}`.
-- Store the raw Riot payload in `Match.timeline_info` (new nullable JSONB column alongside the existing `game_info`).
-- Or: fetch on-demand and cache in Redis only (no DB storage) if storage is a concern.
-
-**New internal endpoint:**
-```
-GET /matches/{matchId}/timeline-stats
-```
-Returns pre-computed laning stats to avoid shipping the full 1MB+ timeline JSON to the client:
-
-```python
-class LaneStats(BaseModel):
-    cs_diff_at_10: int | None
-    cs_diff_at_15: int | None
-    gold_diff_at_10: int | None
-    gold_diff_at_15: int | None
-    lane_opponent_name: str | None
-    lane_opponent_champion: str | None
-```
-
-**Parsing logic:** In the Riot timeline payload, look at `frames[N].participantFrames[participantId]` for `totalMinionsKilled + neutralMinionsKilled` and `totalGold` at frame index 10 and 15 (each frame = 1 minute). The lane opponent is the participant with the opposite `teamId` and closest `individualPosition`.
-
-### Frontend
-
-- Fetch `/matches/{matchId}/timeline-stats` lazily when a match is expanded (same trigger as rank fetch in Step 1).
-- Add `laneStats: LaneStats | null` prop to `MatchCard`.
-- Render below the existing stats column or in a new "Laning" row:
-
-```tsx
-{laneStats?.cs_diff_at_10 != null && (
-  <div className={styles.textGray}>
-    CS@10 {laneStats.cs_diff_at_10 > 0 ? "+" : ""}{laneStats.cs_diff_at_10}
-  </div>
-)}
-```
-
-**Effort:** ~5 hours (new DB column or Redis-only caching, timeline parsing, endpoint, frontend integration).
-
----
-
-## Step 3 — Champion KDA History Chart
+## Step 1 — Champion KDA History Chart
 
 For each MatchCard, render a small bar chart showing K/D/A across all loaded matches played on the **same champion**. The current match is highlighted. Gives immediate context: "Is this a typical game for me on this champion?"
 
@@ -202,7 +96,15 @@ Add a new `ChampionKdaChart` sub-component. Only renders when `championHistory.l
 The chart shows one bar per match. Each bar is **stacked KDA** (kills on top, assists in middle, deaths at bottom — or use separate bars per K/D/A). The **current match** bar is highlighted white; others use muted outcome-tinted colors.
 
 ```tsx
-import {BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip} from "recharts";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  ResponsiveContainer,
+  Cell,
+  Tooltip,
+} from "recharts";
 import type {ChampionKdaPoint} from "../lib/types/match";
 
 type ChampionKdaChartProps = {
@@ -227,7 +129,11 @@ function ChampionKdaChart({history, currentMatchId}: ChampionKdaChartProps) {
     <div className={styles.kdaChart}>
       <div className={styles.kdaChartLabel}>Champion KDA History</div>
       <ResponsiveContainer width="100%" height={80}>
-        <BarChart data={data} margin={{top: 4, right: 0, left: 0, bottom: 0}} barCategoryGap="10%">
+        <BarChart
+          data={data}
+          margin={{top: 4, right: 0, left: 0, bottom: 0}}
+          barCategoryGap="10%"
+        >
           <XAxis dataKey="matchId" hide />
           <YAxis hide />
           <Tooltip
@@ -296,16 +202,21 @@ function ChampionKdaChart({history, currentMatchId}: ChampionKdaChartProps) {
 Add at the bottom of `<article>`, after the `Teams` column:
 
 ```tsx
-{/* ── KDA History Chart ── */}
-{championHistory && championHistory.length >= 2 && (
-  <ChampionKdaChart
-    history={championHistory}
-    currentMatchId={getMatchId(match) ?? ""}
-  />
-)}
+{
+  /* ── KDA History Chart ── */
+}
+{
+  championHistory && championHistory.length >= 2 && (
+    <ChampionKdaChart
+      history={championHistory}
+      currentMatchId={getMatchId(match) ?? ""}
+    />
+  );
+}
 ```
 
 **Notes:**
+
 - Chart only appears when ≥2 matches are loaded for that champion — graceful progressive enhancement.
 - No backend changes needed — all data already exists in `matchDetails`.
 - `getMatchId` is already imported in `MatchCard.tsx`'s parent; import it in `MatchCard` too.
@@ -315,7 +226,7 @@ Add at the bottom of `<article>`, after the `Teams` column:
 
 ---
 
-## Step 4 — Live Game Integration
+## Step 2 — Live Game Integration
 
 Show a live game indicator when the searched summoner is currently in-game.
 

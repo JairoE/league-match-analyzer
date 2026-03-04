@@ -377,3 +377,30 @@
     flex: 1 1 100%;
   }
 }
+
+/* ── KDA History Chart (full-width row below columns) ──────────────── */
+
+.kdaChart {
+  flex: 0 0 100%;
+  width: 100%;
+  padding: 4px 8px 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  order: 99;
+}
+
+.kdaChartLabel {
+  font-size: 10px;
+  color: #6b7280;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kdaTooltip {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: #f8fafc;
+}
