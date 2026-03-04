@@ -66,6 +66,7 @@ Active development on the `frontend-matches-paginated` branch. Server-side pagin
 ## Recent Changes (2026-03-03)
 
 ### Pagination feature (`frontend-matches-paginated`)
+
 - Added `PaginationMeta` and `PaginatedMatchList` response schemas with `PaginationMeta.build()` helper.
 - `list_matches_for_riot_account` now accepts `page`/`limit` and returns `tuple[list[Match], int]` using `func.count()` + `offset()`/`limit()`.
 - Both match endpoints (`/riot-accounts/{id}/matches`, `/search/{riot_id}/matches`) return `PaginatedMatchList` with `?page=N&limit=N` query params.
@@ -88,6 +89,7 @@ Active development on the `frontend-matches-paginated` branch. Server-side pagin
 - **File changed**: `league-web/src/app/riot-account/[riotId]/page.tsx`
 
 ### Previous changes
+
 - Consolidated MatchCard redesign documentation into `docs/MATCHCARD_REDESIGN.md`.
 - Replaced match history card grid with table + side panel.
 - Queue-type tab filtering, champion preloading, keyboard accessibility improvements.
@@ -122,14 +124,17 @@ Optional:
 ## Recent Changes (2026-03-03, session 3)
 
 ### Step 1 — Per-Player Rank Badges
+
 - **Backend**: New `GET /rank/batch?puuids=<csv>` endpoint (`routers/rank.py`). Fetches up to 10 PUUIDs concurrently via `asyncio.gather`. Caches each PUUID individually in Redis (`rank:{puuid}`, TTL 1h). Registered in router registry.
 - **Frontend**: `MatchesTable` fetches `/rank/batch` via `useEffect` keyed on `selectedMatchId`. Only fetches PUUIDs not already in `rankByPuuid` cache. Passed down: `MatchesTable` → `MatchDetailPanel` → `MatchCard` → `Teams`. Each `PlayerRow` in `Teams` renders a `.rankBadge` span (purple, 10px) when rank data is available.
 
 ### Step 2 — Timeline API (Laning Phase Analytics)
+
 - **Backend**: `fetch_match_timeline()` added to `RiotApiClient` (`MATCH_TIMELINE_URL + /timeline`). New `fetch_timeline_stats()` in `riot_sync.py` — fetches timeline, caches raw JSON in Redis indefinitely (`timeline:{matchId}`), parses CS/gold diffs at frames 10 and 15, identifies lane opponent by `individualPosition` on opposing team. New `LaneStats` Pydantic model in `schemas/match.py`. New `GET /matches/{matchId}/timeline-stats?participant_id=N` endpoint — returns compact `LaneStats`, never ships 1MB timeline to client.
 - **Frontend**: `MatchesTable` fetches `/matches/{matchId}/timeline-stats` on expand (keyed on `selectedMatchId + matchDetails`). Result stored in `laneStatsByMatchId`. Passed to `MatchCard` via `MatchDetailPanel`. `MatchCard` renders `CS@10`, `CS@15`, `G@10` diffs in a `.laningRow` below the CS stat — blue for positive, red for negative.
 
 ### New CSS (`MatchCard.module.css`)
+
 - `.rankBadge` — purple 10px label next to summoner name in Teams
 - `.laningRow`, `.laningStat`, `.laningPos`, `.laningNeg` — laning diff display
 
@@ -167,7 +172,32 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-04, session 2)
+
+### Phase 1 Frontend Refactor — Folderize (`frontend-components-refactor`)
+
+- **What changed**: Folderized all 10 components in `league-web/src/components/` — each component now lives in its own subdirectory with its CSS module. Zero logic changes.
+- **New structure**: `Auth/`, `FeatureCard/`, `Header/`, `MatchCard/`, `MatchDetailPanel/`, `MatchesTable/`, `MatchRow/`, `Pagination/`, `SearchBar/`, `SubHeader/`
+- **Barrel files added**: `MatchCard/index.ts` and `MatchesTable/index.ts` (re-export defaults; will grow in Phase 2/3)
+- **Import path fixes**: All `../lib/` → `../../lib/` inside moved components; cross-component imports updated (`MatchesTable` → `../MatchRow/MatchRow`, `../MatchDetailPanel/MatchDetailPanel`, `../Pagination/Pagination`; `MatchDetailPanel` → `../MatchCard/MatchCard`); `Auth/SignInForm` + `SignUpForm` retain `./AuthForm` (same folder)
+- **Trivial fixes**: Added `type="button"` to all non-submit buttons in `Header`, `Pagination`, `MatchDetailPanel`, and `MatchesTable` tab buttons
+- **Verification**: `npm run lint` — 1 pre-existing warning (unchanged); `npm run build` — clean
+
+---
+
 ## Next Recommended Steps
+
+### Documentation Guardrail (Drift Prevention)
+
+- Treat `docs/RIOT_API_PARTICIPANT_FIELDS.md` as the source of truth for Riot
+  participant field coverage, priority, and DDragon mapping references.
+- Keep these files synchronized whenever participant data usage changes:
+  - `docs/RIOT_API_PARTICIPANT_FIELDS.md`
+  - `league-web/src/lib/types/match.ts`
+  - `league-web/src/components/MatchCard.tsx`
+  - `league-web/src/lib/constants/ddragon.ts`
+  - `docs/MATCHCARD_REDESIGN.md`
+  - `docs/app_state.md`
 
 1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
 2. **Step 2** — Live Game integration (lowest priority, requires polling architecture + `LiveGameCard` component).

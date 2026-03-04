@@ -4,9 +4,9 @@ import {useEffect, useState, Suspense} from "react";
 import {useRouter, useSearchParams} from "next/navigation";
 import styles from "./page.module.css";
 import {loadSessionUser} from "../lib/session";
-import Header from "../components/Header";
-import SearchBar from "../components/SearchBar";
-import FeatureCard from "../components/FeatureCard";
+import Header from "../components/Header/Header";
+import SearchBar from "../components/SearchBar/SearchBar";
+import FeatureCard from "../components/FeatureCard/FeatureCard";
 
 const FEATURES = [
   {

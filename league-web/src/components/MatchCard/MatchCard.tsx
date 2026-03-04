@@ -13,10 +13,10 @@
 import {memo, useMemo} from "react";
 import Image from "next/image";
 import styles from "./MatchCard.module.css";
-import type {Champion} from "../lib/types/champion";
-import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary, Participant} from "../lib/types/match";
-import type {RankInfo} from "../lib/types/rank";
-import type {UserSession} from "../lib/types/user";
+import type {Champion} from "../../lib/types/champion";
+import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary, Participant} from "../../lib/types/match";
+import type {RankInfo} from "../../lib/types/rank";
+import type {UserSession} from "../../lib/types/user";
 import {
   calculateKillParticipation,
   formatGameDuration,
@@ -32,8 +32,8 @@ import {
   getParticipantForUser,
   getTotalCs,
   ordinalSuffix,
-} from "../lib/match-utils";
-import {getQueueMode, getQueueModeLabel} from "../lib/types/queue";
+} from "../../lib/match-utils";
+import {getQueueMode, getQueueModeLabel} from "../../lib/types/queue";
 import {
   FALLBACK_DDRAGON_VERSION,
   getChampionImageUrl,
@@ -42,7 +42,7 @@ import {
   getRuneStyleIconUrl,
   getSpellImageUrl,
   getSpellLabel,
-} from "../lib/constants/ddragon";
+} from "../../lib/constants/ddragon";
 import {BarChart, Bar, Tooltip, XAxis, ResponsiveContainer} from "recharts";
 import type {BarShapeProps} from "recharts/types/cartesian/Bar";
 

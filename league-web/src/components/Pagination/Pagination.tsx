@@ -1,6 +1,6 @@
 "use client";
 
-import type {PaginationMeta} from "../lib/types/match";
+import type {PaginationMeta} from "../../lib/types/match";
 import styles from "./Pagination.module.css";
 
 type PaginationProps = {
@@ -20,6 +20,7 @@ export default function Pagination({meta, onPageChange}: PaginationProps) {
       </span>
       <div className={styles.controls}>
         <button
+          type="button"
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
           className={styles.button}
@@ -30,6 +31,7 @@ export default function Pagination({meta, onPageChange}: PaginationProps) {
           Page {page} of {last_page}
         </span>
         <button
+          type="button"
           onClick={() => onPageChange(page + 1)}
           disabled={page >= last_page}
           className={styles.button}

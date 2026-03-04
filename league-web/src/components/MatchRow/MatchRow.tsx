@@ -3,16 +3,16 @@
 import React, {useMemo} from "react";
 import Image from "next/image";
 import styles from "./MatchRow.module.css";
-import type {Champion} from "../lib/types/champion";
-import type {MatchDetail, MatchSummary, Participant} from "../lib/types/match";
-import type {UserSession} from "../lib/types/user";
+import type {Champion} from "../../lib/types/champion";
+import type {MatchDetail, MatchSummary, Participant} from "../../lib/types/match";
+import type {UserSession} from "../../lib/types/user";
 import {
   getCsPerMinute,
   getKdaRatio,
   getParticipantByPuuid,
   getParticipantForUser,
-} from "../lib/match-utils";
-import {getQueueMode, getQueueModeLabel} from "../lib/types/queue";
+} from "../../lib/match-utils";
+import {getQueueMode, getQueueModeLabel} from "../../lib/types/queue";
 
 type MatchRowProps = {
   match: MatchSummary;

@@ -2,26 +2,26 @@
 
 import React, {useEffect, useMemo, useState, useCallback} from "react";
 import styles from "./MatchesTable.module.css";
-import MatchRow from "./MatchRow";
-import MatchDetailPanel from "./MatchDetailPanel";
-import Pagination from "./Pagination";
-import {apiGet} from "../lib/api";
+import MatchRow from "../MatchRow/MatchRow";
+import MatchDetailPanel from "../MatchDetailPanel/MatchDetailPanel";
+import Pagination from "../Pagination/Pagination";
+import {apiGet} from "../../lib/api";
 import {
   getMatchId,
   getMatchOutcome,
   getParticipantByPuuid,
   getParticipantForUser,
-} from "../lib/match-utils";
-import type {Champion} from "../lib/types/champion";
-import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary, PaginationMeta, Participant} from "../lib/types/match";
-import type {RankBatchResponse, RankInfo} from "../lib/types/rank";
-import type {UserSession} from "../lib/types/user";
+} from "../../lib/match-utils";
+import type {Champion} from "../../lib/types/champion";
+import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary, PaginationMeta, Participant} from "../../lib/types/match";
+import type {RankBatchResponse, RankInfo} from "../../lib/types/rank";
+import type {UserSession} from "../../lib/types/user";
 import {
   GameQueueGroup,
   getQueueGroup,
   getQueueGroupLabel,
   QUEUE_GROUP_DISPLAY_ORDER,
-} from "../lib/types/queue";
+} from "../../lib/types/queue";
 
 type MatchesTableProps = {
   matches: MatchSummary[];
@@ -297,6 +297,7 @@ export default function MatchesTable({
     <div className={styles.wrapper}>
       <div className={styles.tabBar}>
         <button
+          type="button"
           className={activeTab === "all" ? styles.tabActive : styles.tab}
           onClick={() => {
             setSelectedMatchId(null);
@@ -307,6 +308,7 @@ export default function MatchesTable({
         </button>
         {queueGroups.map((group) => (
           <button
+            type="button"
             key={group}
             className={activeTab === group ? styles.tabActive : styles.tab}
             onClick={() => {

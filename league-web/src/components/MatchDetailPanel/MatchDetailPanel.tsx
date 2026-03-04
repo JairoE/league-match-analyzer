@@ -2,11 +2,11 @@
 
 import React from "react";
 import styles from "./MatchDetailPanel.module.css";
-import MatchCard from "./MatchCard";
-import type {Champion} from "../lib/types/champion";
-import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary} from "../lib/types/match";
-import type {RankInfo} from "../lib/types/rank";
-import type {UserSession} from "../lib/types/user";
+import MatchCard from "../MatchCard/MatchCard";
+import type {Champion} from "../../lib/types/champion";
+import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary} from "../../lib/types/match";
+import type {RankInfo} from "../../lib/types/rank";
+import type {UserSession} from "../../lib/types/user";
 
 type MatchDetailPanelProps = {
   match: MatchSummary;
@@ -51,6 +51,7 @@ export default function MatchDetailPanel({
       <div className={styles.panelHeader}>
         <span className={styles.panelTitle}>Match Details</span>
         <button
+          type="button"
           className={styles.closeButton}
           onClick={onClose}
           aria-label="Close match detail"
