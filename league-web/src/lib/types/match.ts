@@ -220,3 +220,12 @@ export type LaneStats = {
   lane_opponent_name?: string | null;
   lane_opponent_champion?: string | null;
 };
+
+export type ChampionKdaPoint = {
+  matchId: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  outcome: "victory" | "defeat" | "remake";
+  timestamp: number;
+};

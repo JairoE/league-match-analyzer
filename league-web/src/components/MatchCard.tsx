@@ -14,7 +14,7 @@ import {memo, useMemo} from "react";
 import Image from "next/image";
 import styles from "./MatchCard.module.css";
 import type {Champion} from "../lib/types/champion";
-import type {LaneStats, MatchDetail, MatchSummary, Participant} from "../lib/types/match";
+import type {ChampionKdaPoint, LaneStats, MatchDetail, MatchSummary, Participant} from "../lib/types/match";
 import type {RankInfo} from "../lib/types/rank";
 import type {UserSession} from "../lib/types/user";
 import {
@@ -26,6 +26,7 @@ import {
   getDamageRankPosition,
   getEnemyTeam,
   getKdaRatio,
+  getMatchId,
   getMatchOutcome,
   getParticipantByPuuid,
   getParticipantForUser,
@@ -42,6 +43,7 @@ import {
   getSpellImageUrl,
   getSpellLabel,
 } from "../lib/constants/ddragon";
+import {BarChart, Bar, Cell, Tooltip, XAxis, ResponsiveContainer} from "recharts";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -54,6 +56,7 @@ type MatchCardProps = {
   targetPuuid?: string | null;
   rankByPuuid?: Record<string, RankInfo | null>;
   laneStats?: LaneStats | null;
+  championHistory?: ChampionKdaPoint[];
   expanded?: boolean;
 };
 
@@ -146,6 +149,75 @@ const Teams = memo(function Teams({
   );
 });
 
+// ── Sub-component: Champion KDA History Chart ─────────────────────────
+
+type ChampionKdaChartProps = {
+  history: ChampionKdaPoint[];
+  currentMatchId: string | null;
+};
+
+function ChampionKdaChart({history, currentMatchId}: ChampionKdaChartProps) {
+  if (history.length < 2) return null;
+
+  const data = history.map((p) => ({
+    matchId: p.matchId,
+    kda: parseFloat(((p.kills + p.assists) / Math.max(1, p.deaths)).toFixed(2)),
+    kills: p.kills,
+    deaths: p.deaths,
+    assists: p.assists,
+    outcome: p.outcome,
+    isCurrent: p.matchId === currentMatchId,
+    date: p.timestamp
+      ? new Date(p.timestamp).toLocaleDateString(undefined, {month: "numeric", day: "numeric"})
+      : "",
+  }));
+
+  return (
+    <div className={styles.kdaChart}>
+      <div className={styles.kdaChartLabel}>Champion KDA History</div>
+      <ResponsiveContainer width="100%" height={100}>
+        <BarChart data={data} margin={{top: 4, right: 0, bottom: 0, left: 0}}>
+          <XAxis
+            dataKey="date"
+            tick={{fontSize: 9, fill: "#6b7280"}}
+            tickLine={false}
+            axisLine={false}
+            interval={0}
+          />
+          <Tooltip
+            cursor={{fill: "rgba(255,255,255,0.04)"}}
+            content={({active, payload}) => {
+              if (!active || !payload?.length) return null;
+              const d = payload[0].payload;
+              return (
+                <div className={styles.kdaTooltip}>
+                  {d.kills}/{d.deaths}/{d.assists}
+                </div>
+              );
+            }}
+          />
+          <Bar dataKey="kda" radius={[2, 2, 0, 0]}>
+            {data.map((entry, i) => (
+              <Cell
+                key={i}
+                fill={
+                  entry.isCurrent
+                    ? "#ffffff"
+                    : entry.outcome === "victory"
+                      ? "#60a5fa55"
+                      : entry.outcome === "defeat"
+                        ? "#f8717155"
+                        : "#6b728055"
+                }
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────
 
 export default function MatchCard({
@@ -157,6 +229,7 @@ export default function MatchCard({
   targetPuuid = null,
   rankByPuuid,
   laneStats,
+  championHistory = [],
 }: MatchCardProps) {
   // ── Participant resolution ──────────────────────────────────────────
   const participant = useMemo<Participant | null>(
@@ -169,6 +242,7 @@ export default function MatchCard({
 
   const participants = detail?.info?.participants ?? [];
   const gameDuration = detail?.info?.gameDuration;
+  const currentMatchId = getMatchId(match) ?? null;
 
   // ── Derived stats ───────────────────────────────────────────────────
   const outcome = getMatchOutcome(participant, gameDuration);
@@ -440,6 +514,11 @@ export default function MatchCard({
           version={version}
           rankByPuuid={rankByPuuid}
         />
+      )}
+
+      {/* ── KDA History Chart (full-width row) ── */}
+      {championHistory.length >= 2 && (
+        <ChampionKdaChart history={championHistory} currentMatchId={currentMatchId} />
       )}
     </article>
   );

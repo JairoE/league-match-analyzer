@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-03 (session 3)
-**Branch:** `main`
-**Status:** BUILDING — rank badges + laning stats implemented
+**Last Updated:** 2026-03-04
+**Branch:** `frontend-chart`
+**Status:** BUILDING — Champion KDA History Chart implemented
 
 ---
 
@@ -153,10 +153,23 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-04)
+
+### Champion KDA History Chart (`frontend-chart`)
+
+- **New dependency**: `recharts` installed in `league-web/`
+- **New type**: `ChampionKdaPoint` added to `league-web/src/lib/types/match.ts` — `{ matchId, kills, deaths, assists, outcome, timestamp }`
+- **MatchesTable**: new `championHistoryByMatchId` useMemo groups all loaded matches by `championId`, sorts oldest→newest, passes `championHistory` array to `MatchDetailPanel` via prop
+- **MatchDetailPanel**: threads `championHistory` straight through to `MatchCard` (no logic change)
+- **MatchCard**: added `ChampionKdaChart` internal sub-component (recharts `BarChart`, height 100px). Current match bar = white; wins = blue-tinted; losses = red-tinted. X-axis shows M/D date labels from `timestamp`. Renders only when `history.length >= 2`. Chart sits below the 4 flex columns via `flex: 0 0 100%; order: 99` — no layout changes to existing columns.
+- **CSS**: appended `.kdaChart`, `.kdaChartLabel`, `.kdaTooltip` to `MatchCard.module.css`
+- **No backend changes** — all data was already available in `matchDetails`
+
+---
+
 ## Next Recommended Steps
 
 1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
-2. **Step 3** — Champion KDA History Chart (`recharts` bar chart, no backend changes needed).
-3. **Step 4** — Live Game integration (lowest priority, requires polling architecture).
-4. **Consider server-side queue filtering** — current tab filtering is client-side.
-5. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
+2. **Step 2** — Live Game integration (lowest priority, requires polling architecture + `LiveGameCard` component).
+3. **Consider server-side queue filtering** — current tab filtering is client-side.
+4. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
