@@ -261,10 +261,6 @@ export default function MatchesTable({
           </tbody>
         </table>
 
-        {paginationMeta && onPageChange && (
-          <Pagination meta={paginationMeta} onPageChange={onPageChange} />
-        )}
-
         {selectedMatchId !== null && selectedMatch !== null && (
           <div className={styles.panelOverlay}>
             <MatchDetailPanel
@@ -277,6 +273,11 @@ export default function MatchesTable({
               onClose={handleClosePanel}
             />
           </div>
+        )}
+      </div>
+      <div>
+        {paginationMeta && onPageChange && (
+          <Pagination meta={paginationMeta} onPageChange={onPageChange} />
         )}
       </div>
     </div>
