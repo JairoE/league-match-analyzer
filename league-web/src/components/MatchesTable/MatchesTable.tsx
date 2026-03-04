@@ -1,6 +1,6 @@
 "use client";
 
-import {useMemo, useState, useCallback} from "react";
+import React, {useMemo, useState, useCallback} from "react";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "../MatchRow/MatchRow";
 import MatchDetailPanel from "../MatchDetailPanel/MatchDetailPanel";
@@ -45,7 +45,7 @@ export default function MatchesTable({
   paginationMeta = null,
   onPageChange,
 }: MatchesTableProps) {
-  const {selectedMatchId, handleRowClick, handleClosePanel, clearSelection} = useMatchSelection();
+  const {expandedMatchIds, toggleMatch, closeMatch, clearAll} = useMatchSelection();
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
 
   /** Resolve queueId from detail or match-level fallback */
@@ -82,7 +82,7 @@ export default function MatchesTable({
   }, [getParticipantForMatch, matches]);
 
   const {championById, rankByPuuid, laneStatsByMatchId} = useMatchDetailData({
-    selectedMatchId,
+    expandedMatchIds,
     matches,
     matchDetails,
     getParticipantForMatch,
@@ -151,17 +151,6 @@ export default function MatchesTable({
     return result;
   }, [matches, matchDetails, getParticipantForMatch]);
 
-  const selectedMatch = selectedMatchId
-    ? filteredMatches.find((m) => getMatchId(m) === selectedMatchId) ?? null
-    : null;
-  const selectedDetail = selectedMatchId ? (matchDetails[selectedMatchId] ?? null) : null;
-  const selectedParticipant = selectedMatch ? getParticipantForMatch(selectedMatch) : null;
-  const selectedChampion =
-    selectedParticipant?.championId != null
-      ? (championById[selectedParticipant.championId] ?? null)
-      : null;
-  const selectedLaneStats = selectedMatchId ? (laneStatsByMatchId[selectedMatchId] ?? null) : null;
-
   return (
     <div className={styles.wrapper}>
       <div className={styles.tabBar}>
@@ -169,7 +158,7 @@ export default function MatchesTable({
           type="button"
           className={activeTab === "all" ? styles.tabActive : styles.tab}
           onClick={() => {
-            clearSelection();
+            clearAll();
             setActiveTab("all");
           }}
         >
@@ -181,7 +170,7 @@ export default function MatchesTable({
             key={group}
             className={activeTab === group ? styles.tabActive : styles.tab}
             onClick={() => {
-              clearSelection();
+              clearAll();
               setActiveTab(group);
             }}
           >
@@ -217,41 +206,53 @@ export default function MatchesTable({
               filteredMatches.map((match, index) => {
                 const matchId = getMatchId(match);
                 const detail = matchId ? (matchDetails[matchId] ?? null) : null;
+                const isExpanded = matchId ? expandedMatchIds.has(matchId) : false;
+                const participant = getParticipantForMatch(match);
+                const championId = participant?.championId ?? null;
+                const champion =
+                  championId != null ? (championById[championId] ?? null) : null;
+                const laneStats = matchId ? (laneStatsByMatchId[matchId] ?? null) : null;
+                const championHistory = matchId
+                  ? (championHistoryByMatchId[matchId] ?? [])
+                  : [];
+
                 return (
-                  <MatchRow
-                    key={matchId ?? `match-${index}`}
-                    match={match}
-                    detail={detail}
-                    user={user}
-                    isSearchView={isSearchView}
-                    targetPuuid={targetPuuid}
-                    isSelected={matchId === selectedMatchId}
-                    index={index}
-                    championById={championById}
-                    onClick={() => matchId && handleRowClick(matchId)}
-                  />
+                  <React.Fragment key={matchId ?? `match-${index}`}>
+                    <MatchRow
+                      match={match}
+                      detail={detail}
+                      user={user}
+                      isSearchView={isSearchView}
+                      targetPuuid={targetPuuid}
+                      isSelected={isExpanded}
+                      index={index}
+                      championById={championById}
+                      onClick={() => matchId && toggleMatch(matchId)}
+                    />
+                    {isExpanded && matchId && (
+                      <tr>
+                        <td colSpan={COLUMNS.length} className={styles.panelCell}>
+                          <MatchDetailPanel
+                            match={match}
+                            detail={detail}
+                            champion={champion}
+                            user={user}
+                            isSearchView={isSearchView}
+                            targetPuuid={targetPuuid}
+                            rankByPuuid={rankByPuuid}
+                            laneStats={laneStats}
+                            championHistory={championHistory}
+                            onClose={() => closeMatch(matchId)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })
             )}
           </tbody>
         </table>
-
-        {selectedMatchId !== null && selectedMatch !== null && (
-          <div className={styles.panelOverlay}>
-            <MatchDetailPanel
-              match={selectedMatch}
-              detail={selectedDetail}
-              champion={selectedChampion}
-              user={user}
-              isSearchView={isSearchView}
-              targetPuuid={targetPuuid}
-              rankByPuuid={rankByPuuid}
-              laneStats={selectedLaneStats}
-              championHistory={selectedMatchId ? (championHistoryByMatchId[selectedMatchId] ?? []) : []}
-              onClose={handleClosePanel}
-            />
-          </div>
-        )}
       </div>
       <div>
         {paginationMeta && onPageChange && (

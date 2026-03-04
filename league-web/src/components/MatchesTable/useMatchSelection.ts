@@ -3,13 +3,30 @@
 import {useState, useCallback} from "react";
 
 export function useMatchSelection() {
-  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const [expandedMatchIds, setExpandedMatchIds] = useState<Set<string>>(new Set());
 
-  const handleRowClick = useCallback((matchId: string) => {
-    setSelectedMatchId((prev) => (prev === matchId ? null : matchId));
+  const toggleMatch = useCallback((matchId: string) => {
+    setExpandedMatchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(matchId)) {
+        next.delete(matchId);
+      } else {
+        next.add(matchId);
+      }
+      return next;
+    });
   }, []);
 
-  const clearSelection = useCallback(() => setSelectedMatchId(null), []);
+  const closeMatch = useCallback((matchId: string) => {
+    setExpandedMatchIds((prev) => {
+      if (!prev.has(matchId)) return prev;
+      const next = new Set(prev);
+      next.delete(matchId);
+      return next;
+    });
+  }, []);
 
-  return {selectedMatchId, handleRowClick, handleClosePanel: clearSelection, clearSelection};
+  const clearAll = useCallback(() => setExpandedMatchIds(new Set()), []);
+
+  return {expandedMatchIds, toggleMatch, closeMatch, clearAll};
 }
