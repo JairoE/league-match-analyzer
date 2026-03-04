@@ -33,6 +33,50 @@
   color: #fff;
 }
 
+.summaryBar {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+}
+
+.summaryLabel {
+  font-weight: 600;
+  opacity: 0.7;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.summaryValue {
+  font-weight: 700;
+}
+
+.summaryWin {
+  color: var(--match-text-blue);
+}
+
+.summaryLoss {
+  color: var(--match-text-red);
+}
+
+.summaryStreak {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.summaryChampIcon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
 .tableContainer {
   position: relative;
   width: 100%;

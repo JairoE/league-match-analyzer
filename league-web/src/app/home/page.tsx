@@ -17,6 +17,8 @@ import {
   getUserPuuid,
 } from "../../lib/user-utils";
 import {getMatchId} from "../../lib/match-utils";
+import {useLiveGame} from "../../lib/hooks/useLiveGame";
+import {LiveGameCard} from "../../components/LiveGameCard";
 import type {MatchDetail, MatchSummary, PaginatedMatchList, PaginationMeta} from "../../lib/types/match";
 import type {RankInfo} from "../../lib/types/rank";
 import type {UserSession} from "../../lib/types/user";
@@ -38,6 +40,7 @@ export default function HomePage() {
   const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
+  const {liveGame, isLive} = useLiveGame(userPuuid);
 
   const hasMatches = matches.length > 0;
   const missingDetailCount = useMemo(
@@ -215,6 +218,13 @@ export default function HomePage() {
       />
 
       <SearchBar />
+
+      {isLive && userPuuid ? (
+        <LiveGameCard
+          game={liveGame!}
+          targetPuuid={userPuuid}
+        />
+      ) : null}
 
       {errorMessage ? <p className={styles.error}>{errorMessage}</p> : null}
 
