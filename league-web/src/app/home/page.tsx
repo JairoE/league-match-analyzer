@@ -40,7 +40,7 @@ export default function HomePage() {
   const riotAccountId = useMemo(() => getRiotAccountId(user), [user]);
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
-  const {liveGame, isLive} = useLiveGame(userPuuid);
+  const {liveGame} = useLiveGame(userPuuid);
 
   const hasMatches = matches.length > 0;
   const missingDetailCount = useMemo(
@@ -219,9 +219,9 @@ export default function HomePage() {
 
       <SearchBar />
 
-      {isLive && userPuuid ? (
+      {liveGame && userPuuid ? (
         <LiveGameCard
-          game={liveGame!}
+          game={liveGame}
           targetPuuid={userPuuid}
         />
       ) : null}

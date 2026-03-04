@@ -46,7 +46,7 @@ export default function RiotAccountPage() {
   const {errorMessage, reportError, clearError} = useAppError("riotAccount.load");
 
   const accountPuuid = account?.puuid ?? null;
-  const {liveGame, isLive} = useLiveGame(accountPuuid);
+  const {liveGame} = useLiveGame(accountPuuid);
   const displayLabel = account?.riot_id ?? riotId;
 
   // Check session (optional for search)
@@ -268,9 +268,9 @@ export default function RiotAccountPage() {
 
       <SearchBar />
 
-      {isLive && accountPuuid ? (
+      {liveGame && accountPuuid ? (
         <LiveGameCard
-          game={liveGame!}
+          game={liveGame}
           targetPuuid={accountPuuid}
         />
       ) : null}

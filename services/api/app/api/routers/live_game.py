@@ -16,6 +16,7 @@ router = APIRouter(prefix="/live-game", tags=["live-game"])
 logger = get_logger("league_api.live_game")
 
 POLL_INTERVAL_SECONDS = 30
+MAX_CONSECUTIVE_ERRORS = 3
 
 
 @router.get("/{puuid}/stream")
@@ -23,7 +24,7 @@ async def live_game_stream(puuid: str, request: Request) -> StreamingResponse:
     """Stream live game status for a summoner via Server-Sent Events.
 
     Polls the Riot Spectator v5 API every 30 seconds and pushes events
-    to the connected client.
+    to the connected client. Stops after 3 consecutive errors.
 
     Events:
         live_game — summoner is in an active game (data contains game payload).
@@ -40,6 +41,7 @@ async def live_game_stream(puuid: str, request: Request) -> StreamingResponse:
     logger.info("live_game_stream_start", extra={"puuid": puuid})
 
     async def event_generator():  # type: ignore[return]
+        consecutive_errors = 0
         while True:
             if await request.is_disconnected():
                 logger.info("live_game_stream_disconnected", extra={"puuid": puuid})
@@ -47,12 +49,25 @@ async def live_game_stream(puuid: str, request: Request) -> StreamingResponse:
 
             try:
                 payload = await get_live_game(puuid)
+                consecutive_errors = 0
             except RiotRequestError as exc:
+                consecutive_errors += 1
                 logger.warning(
                     "live_game_stream_error",
-                    extra={"puuid": puuid, "status": exc.status, "message": exc.message},
+                    extra={
+                        "puuid": puuid,
+                        "status": exc.status,
+                        "message": exc.message,
+                        "consecutive_errors": consecutive_errors,
+                    },
                 )
                 yield f"event: error\ndata: {json.dumps({'detail': exc.message})}\n\n"
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    logger.warning(
+                        "live_game_stream_max_errors",
+                        extra={"puuid": puuid},
+                    )
+                    break
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
                 continue
 

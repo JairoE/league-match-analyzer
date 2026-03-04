@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useState} from "react";
 import styles from "./LiveGameCard.module.css";
 import type {LiveGameData, LiveGameParticipant} from "../../lib/types/live-game";
 import type {Champion} from "../../lib/types/champion";
@@ -17,13 +17,70 @@ type LiveGameCardProps = {
   targetPuuid: string;
 };
 
+function hideOnError(e: React.SyntheticEvent<HTMLImageElement>) {
+  (e.target as HTMLImageElement).style.display = "none";
+}
+
+type ParticipantRowProps = {
+  p: LiveGameParticipant;
+  targetPuuid: string;
+  championById: Record<number, Champion>;
+};
+
+function ParticipantRow({p, targetPuuid, championById}: ParticipantRowProps) {
+  const isSelf = p.puuid === targetPuuid;
+  const champ = championById[p.championId];
+  const champName = champ?.name ?? `Champion ${p.championId}`;
+  // Spectator v5 returns riotId ("Name#Tag") and summonerName
+  const summonerDisplay = p.riotId
+    ? p.riotId.split("#")[0]
+    : (p.summonerName ?? "Summoner");
+
+  return (
+    <div
+      className={`${styles.participant} ${isSelf ? styles.self : ""}`}
+    >
+      {champ?.image_url ? (
+        <img
+          src={champ.image_url}
+          alt={champName}
+          className={styles.champIcon}
+          width={24}
+          height={24}
+          loading="lazy"
+          onError={hideOnError}
+        />
+      ) : (
+        <span className={styles.champIconPlaceholder} />
+      )}
+      <img
+        src={getSpellImageUrl(p.spell1Id)}
+        alt="Spell 1"
+        className={styles.spellIcon}
+        width={14}
+        height={14}
+        loading="lazy"
+        onError={hideOnError}
+      />
+      <img
+        src={getSpellImageUrl(p.spell2Id)}
+        alt="Spell 2"
+        className={styles.spellIcon}
+        width={14}
+        height={14}
+        loading="lazy"
+        onError={hideOnError}
+      />
+      <span className={styles.summonerName}>{summonerDisplay}</span>
+    </div>
+  );
+}
+
 export default function LiveGameCard({
   game,
   targetPuuid,
 }: LiveGameCardProps) {
-  const [championById, setChampionById] = useState<
-    Record<number, Champion>
-  >({});
+  const [championById, setChampionById] = useState<Record<number, Champion>>({});
   const [elapsed, setElapsed] = useState(game.gameLength);
 
   // Fetch champion list once for ID → name mapping
@@ -34,20 +91,12 @@ export default function LiveGameCard({
         if (!active) return;
         const map: Record<number, Champion> = {};
         for (const c of list) {
-          // API returns champ_id (Riot numeric ID), not id
-          const champId =
-            (c as Record<string, unknown>).champ_id as
-              | number
-              | undefined;
-          if (champId != null) map[champId] = c;
+          if (c.champ_id != null) map[c.champ_id] = c;
         }
         setChampionById(map);
       })
       .catch((err) => {
-        console.debug(
-          "[LiveGameCard] champion fetch failed",
-          err
-        );
+        console.debug("[LiveGameCard] champion fetch failed", err);
       });
     return () => {
       active = false;
@@ -60,90 +109,19 @@ export default function LiveGameCard({
     if (!gameStartMs || gameStartMs <= 0) return;
 
     const id = setInterval(() => {
-      const secs = Math.max(
-        0,
-        Math.floor((Date.now() - gameStartMs) / 1000)
-      );
+      const secs = Math.max(0, Math.floor((Date.now() - gameStartMs) / 1000));
       setElapsed(secs);
     }, 1000);
     return () => clearInterval(id);
   }, [game.gameStartTime]);
 
-  const queueLabel = getQueueModeLabel(
-    getQueueMode(game.gameQueueConfigId)
-  );
+  const queueLabel = getQueueModeLabel(getQueueMode(game.gameQueueConfigId));
   const minutes = Math.floor(elapsed / 60);
   const seconds = elapsed % 60;
   const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
 
-  const blueTeam = useMemo(
-    () => game.participants.filter((p) => p.teamId === 100),
-    [game.participants]
-  );
-  const redTeam = useMemo(
-    () => game.participants.filter((p) => p.teamId === 200),
-    [game.participants]
-  );
-
-  function ParticipantRow({p}: {p: LiveGameParticipant}) {
-    const isSelf = p.puuid === targetPuuid;
-    const champ = championById[p.championId];
-    const champName = champ?.name ?? `Champion ${p.championId}`;
-    // Spectator v5 returns riotId ("Name#Tag") and summonerName
-    const summonerDisplay = p.riotId
-      ? p.riotId.split("#")[0]
-      : (p.summonerName ?? "Summoner");
-
-    return (
-      <div
-        className={`${styles.participant} ${isSelf ? styles.self : ""}`}
-      >
-        {champ?.image_url ? (
-          <img
-            src={champ.image_url}
-            alt={champName}
-            className={styles.champIcon}
-            width={24}
-            height={24}
-            loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display =
-                "none";
-            }}
-          />
-        ) : (
-          <span className={styles.champIconPlaceholder} />
-        )}
-        <img
-          src={getSpellImageUrl(p.spell1Id)}
-          alt="Spell 1"
-          className={styles.spellIcon}
-          width={14}
-          height={14}
-          loading="lazy"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display =
-              "none";
-          }}
-        />
-        <img
-          src={getSpellImageUrl(p.spell2Id)}
-          alt="Spell 2"
-          className={styles.spellIcon}
-          width={14}
-          height={14}
-          loading="lazy"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display =
-              "none";
-          }}
-        />
-        <span className={styles.summonerName}>
-          {summonerDisplay}
-        </span>
-      </div>
-    );
-  }
+  const blueTeam = game.participants.filter((p) => p.teamId === 100);
+  const redTeam = game.participants.filter((p) => p.teamId === 200);
 
   return (
     <div className={styles.card}>
@@ -160,13 +138,23 @@ export default function LiveGameCard({
         <div className={styles.team}>
           <div className={styles.teamLabel}>Blue Team</div>
           {blueTeam.map((p) => (
-            <ParticipantRow key={p.puuid} p={p} />
+            <ParticipantRow
+              key={p.puuid}
+              p={p}
+              targetPuuid={targetPuuid}
+              championById={championById}
+            />
           ))}
         </div>
         <div className={styles.team}>
           <div className={styles.teamLabel}>Red Team</div>
           {redTeam.map((p) => (
-            <ParticipantRow key={p.puuid} p={p} />
+            <ParticipantRow
+              key={p.puuid}
+              p={p}
+              targetPuuid={targetPuuid}
+              championById={championById}
+            />
           ))}
         </div>
       </div>
@@ -185,10 +173,7 @@ export default function LiveGameCard({
                 width={20}
                 height={20}
                 loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display =
-                    "none";
-                }}
+                onError={hideOnError}
               />
             ) : null;
           })}
