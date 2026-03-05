@@ -185,6 +185,51 @@ async def fetch_match_list_for_riot_account(
     return match_ids
 
 
+async def _backfill_single_match(
+    client: RiotApiClient,
+    match: Match,
+) -> bool:
+    """Fetch and persist game_info for a single match.
+
+    Args:
+        client: Active Riot API client.
+        match: Match record to populate.
+
+    Returns:
+        True if the match was successfully backfilled.
+    """
+    try:
+        riot_match_id, _ = normalize_match_id(match.game_id)
+        payload = await client.fetch_match_by_id(riot_match_id)
+        match.game_info = payload
+        if (
+            payload
+            and "info" in payload
+            and "gameStartTimestamp" in payload["info"]
+        ):
+            match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+        return True
+    except Exception:
+        logger.exception(
+            "backfill_single_match_error",
+            extra={"game_id": match.game_id},
+        )
+        return False
+
+
+async def _commit_and_refresh_backfilled(
+    session: AsyncSession,
+    matches: list[Match],
+    fetched: int,
+) -> None:
+    """Commit and refresh matches that were backfilled."""
+    if fetched:
+        await session.commit()
+        for match in matches:
+            if match.game_info:
+                await session.refresh(match)
+
+
 async def backfill_match_details_inline(
     session: AsyncSession,
     matches: list[Match],
@@ -212,31 +257,14 @@ async def backfill_match_details_inline(
         extra={"missing": len(missing), "max_fetch": max_fetch},
     )
 
+    to_process = missing[:max_fetch]
     fetched = 0
     async with RiotApiClient() as client:
-        for match in missing[:max_fetch]:
-            try:
-                riot_match_id, _ = normalize_match_id(match.game_id)
-                payload = await client.fetch_match_by_id(riot_match_id)
-                match.game_info = payload
-                if (
-                    payload
-                    and "info" in payload
-                    and "gameStartTimestamp" in payload["info"]
-                ):
-                    match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+        for match in to_process:
+            if await _backfill_single_match(client, match):
                 fetched += 1
-            except Exception:
-                logger.exception(
-                    "backfill_match_details_inline_error",
-                    extra={"game_id": match.game_id},
-                )
 
-    if fetched:
-        await session.commit()
-        for match in missing[:max_fetch]:
-            if match.game_info:
-                await session.refresh(match)
+    await _commit_and_refresh_backfilled(session, to_process, fetched)
 
     logger.info(
         "backfill_match_details_inline_done",
@@ -294,31 +322,14 @@ async def backfill_match_details_by_game_ids(
         extra={"missing": len(missing), "max_fetch": max_fetch},
     )
 
+    to_process = missing[:max_fetch]
     fetched = 0
     async with RiotApiClient() as client:
-        for match in missing[:max_fetch]:
-            try:
-                riot_match_id, _ = normalize_match_id(match.game_id)
-                payload = await client.fetch_match_by_id(riot_match_id)
-                match.game_info = payload
-                if (
-                    payload
-                    and "info" in payload
-                    and "gameStartTimestamp" in payload["info"]
-                ):
-                    match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+        for match in to_process:
+            if await _backfill_single_match(client, match):
                 fetched += 1
-            except Exception:
-                logger.exception(
-                    "backfill_by_game_ids_error",
-                    extra={"game_id": match.game_id},
-                )
 
-    if fetched:
-        await session.commit()
-        for match in missing[:max_fetch]:
-            if match.game_info:
-                await session.refresh(match)
+    await _commit_and_refresh_backfilled(session, to_process, fetched)
 
     logger.info(
         "backfill_by_game_ids_done",

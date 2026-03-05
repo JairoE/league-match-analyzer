@@ -106,11 +106,12 @@ async def search_riot_account_matches(
     # Return the paginated match list
     matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)
 
-    # Inline backfill: fetch missing game_info directly from Riot API
+    # Safety-net backfill: should be a no-op after the pre-query step on page 1.
+    # If this triggers, something unexpected happened (partial failure, race, page 2+).
     missing_count = sum(1 for m in matches if not m.game_info)
     if missing_count:
-        logger.info(
-            "search_matches_backfill_start",
+        logger.warning(
+            "search_matches_backfill_fallback",
             extra={"riot_id": riot_id, "missing": missing_count},
         )
         await backfill_match_details_inline(session, matches)

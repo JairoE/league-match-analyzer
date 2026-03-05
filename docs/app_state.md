@@ -276,6 +276,12 @@ Optional:
 - **Safety net**: post-query `backfill_match_details_inline()` remains as a fallback for edge cases.
 - **Tests**: 19/19 pass. No new lint issues.
 
+### Code review follow-ups (session 3)
+
+- **`enqueue_match_timelines.py`** — added Redis `MGET` pre-filter so only uncached timelines are enqueued (previously enqueued all 20 blindly, relying on job-level Redis check).
+- **`riot_sync.py`** — extracted `_backfill_single_match()` and `_commit_and_refresh_backfilled()` helpers; both `backfill_match_details_inline` and `backfill_match_details_by_game_ids` now share the same fetch-and-persist logic instead of duplicating it.
+- **`matches.py` / `search.py`** — post-query backfill log level upgraded from `info` to `warning` (event names: `*_backfill_fallback`). If this safety net ever fires, it now stands out in logs.
+
 ---
 
 ## Next Recommended Steps

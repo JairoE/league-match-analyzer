@@ -80,12 +80,12 @@ async def list_riot_account_matches(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
     matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)
 
-    # Inline backfill: fetch missing game_info directly from Riot API
-    # so matches render immediately without needing the ARQ worker.
+    # Safety-net backfill: should be a no-op after the pre-query step on page 1.
+    # If this triggers, something unexpected happened (partial failure, race, page 2+).
     missing_count = sum(1 for m in matches if not m.game_info)
     if missing_count:
-        logger.info(
-            "list_riot_account_matches_backfill_start",
+        logger.warning(
+            "list_riot_account_matches_backfill_fallback",
             extra={"riot_account_id": riot_account_id, "missing": missing_count},
         )
         await backfill_match_details_inline(session, matches)
