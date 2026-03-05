@@ -261,7 +261,10 @@ Optional:
   - `docs/MATCHCARD_REDESIGN.md`
   - `docs/app_state.md`
 
-1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
-2. **Step 2** — Live Game integration (lowest priority, requires polling architecture + `LiveGameCard` component).
-3. **Consider server-side queue filtering** — current tab filtering is client-side.
-4. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
+1. **Commit uncommitted cleanup** on `llm-phase-0` — Float column fix, RiotApiClient leak fix, and TeamState snapshot simplification.
+2. **LLM Pipeline Step 3 — Win Probability Model**: Train logistic regression on extracted state vectors. Start with stored `match_state_vector` features + match outcomes.
+3. **LLM Pipeline Step 4–6 — ΔW Scoring + Aggregation**: Score actions via the trained model, compute per-action ΔW, aggregate by (champion, action, rank) with K≥50 threshold.
+4. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
+5. **Wire `extract_match_timeline_job` into existing match ingestion flow** — enqueue after `fetch_match_details_job` completes.
+6. **Fix race condition** (see Open Tickets) — blocks production reliability.
+7. **Consider server-side queue filtering** — current tab filtering is client-side.

@@ -1,156 +1,255 @@
 # Technical Architecture & Design Patterns
 
-**Last Updated:** February 13, 2026
-**Scope:** Full codebase read of `league-match-analyzer` (FastAPI + Next.js + Infrastructure)
+**Last Updated:** March 5, 2026
+**Scope:** Full codebase of `league-match-analyzer` (FastAPI + Next.js + Infrastructure + LLM Pipeline)
 
 ## Executive Summary
 
-The `league-match-analyzer` is a high-performance, asynchronous full-stack application designed to ingest, analyze, and serve League of Legends match data. It leverages a modern Python backend (FastAPI, SQLModel, ARQ) and a Next.js frontend, orchestrated via Docker Compose.
+The `league-match-analyzer` is a high-performance, asynchronous full-stack application designed to ingest, analyze, and serve League of Legends match data. It leverages a modern Python backend (FastAPI, SQLModel, ARQ) and a Next.js frontend, orchestrated via Docker Compose and deployed on Railway.
 
-Key architectural highlights include a robust **3-tier rate limiting system** for the Riot API, an **upsert-heavy synchronization strategy** that blends real-time user requests with background ingestion, and a **hybrid data model** using Relational + JSONB storage.
+Key architectural highlights include a robust **Redis-backed rate limiting system** for the Riot API, an **upsert-heavy synchronization strategy** that blends real-time user requests with background ingestion, a **hybrid data model** using Relational + JSONB storage, and an **LLM data pipeline** for win probability-based match analysis following the xPetu thesis framework.
 
 ## 1. System Architecture
 
 ### 1.1 High-Level Components
 
-- **API Service (`league-api`)**: FastAPI application serving REST endpoints. Handles auth, data synchronization, and business logic.
-- **Worker Service (`league-worker`)**: ARQ (Redis-backed) worker process for background tasks (match ingestion, details fetching).
-- **LLM Service (`league-llm`)**: Dedicated service for AI operations (embeddings, RAG), currently skeletal/provisioned.
-- **Frontend (`league-web`)**: Next.js 16 application using App Router and React Server Components.
-- **Data Stores**:
-  - **PostgreSQL**: Primary data store with `pgvector` extension enabled.
-  - **Redis**: Caching, Rate Limiting counters, and Task Queue (ARQ).
+| Component | Location | Tech | Port |
+|---|---|---|---|
+| **API Service** (`league-api`) | `services/api/` | FastAPI, SQLModel, SQLAlchemy 2.0 async, Pydantic v2 | 8000 |
+| **Worker Service** (`league-worker`) | `services/api/` (shared code) | ARQ (Redis-backed) | N/A |
+| **Frontend** (`league-web`) | `league-web/` | Next.js 16, React 19, TypeScript 5, recharts | 3000 |
+| **LLM Service** (stub) | `services/llm/` | Python, ARQ | N/A |
+
+**Data Stores:**
+- **PostgreSQL 16**: Primary data store with `pgvector` extension enabled (port 5432)
+- **Redis 7**: Caching, rate limiting counters, task queue, timeline cache (port 6379)
 
 ### 1.2 Data Flow & Synchronization
 
-The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern, particularly visible in the `/search` endpoints:
+The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern:
 
-1.  **Request**: User searches for a Riot ID (`GameName#Tag`).
-2.  **Live Fetch**: API client fetches Account, Summoner, and Match IDs directly from Riot API (ensuring freshness).
-3.  **Idempotent Upsert**:
-    - `find_or_create_riot_account`: Upserts identity data.
-    - `upsert_matches_for_riot_account`: efficiently inserts new match IDs and links them to the account.
-4.  **Hybrid Backfill**:
-    - **Inline**: For the specific matches requested, missing details are fetched immediately (`backfill_match_details_inline`) to unblock the UI.
-    - **Background**: A task is enqueued (`enqueue_details_background`) to fetch full details for all other matches asynchronously.
+1. **Request**: User searches for a Riot ID (`GameName#Tag`).
+2. **Live Fetch** (page 1 only): API client fetches Account, Summoner, and Match IDs from Riot API.
+3. **Idempotent Upsert**: `find_or_create_riot_account` upserts identity data; `upsert_matches_for_riot_account` inserts new match IDs.
+4. **Hybrid Backfill**:
+   - **Inline**: Missing match details fetched immediately (`backfill_match_details_inline`) for UI responsiveness.
+   - **Background**: Full details enqueued (`enqueue_details_background`) for async processing via ARQ.
+5. **Pagination**: Page 2+ resolves from DB only — no Riot API calls.
+
+### 1.3 LLM Data Pipeline
+
+An 8-step pipeline (Steps 1–2 implemented) for win probability-based match analysis:
+
+1. **Ingest**: Fetch timeline from Riot API with Redis caching (1h TTL).
+2. **Extract**: Pull per-minute state vectors and discrete action events from timeline data.
+3. **Score** (future): Apply win probability model $w(x)$ to pre/post-action states.
+4. **Compute ΔW** (future): $\Delta W(d) = w(z) - w(x)$ per action.
+5. **Aggregate** (future): Mean ΔW per action type with K≥50 sample threshold.
+6. **Compare** (future): Rank summoner choices vs. population-optimal alternatives.
+7. **Prompt LLM** (future): Submit gap analysis to Claude for recommendations.
+8. **Store** (future): Persist output to `llm_analysis` table.
+
+See `docs/LLM_DATA_PIPELINE.md` for the full specification.
 
 ## 2. Backend Design Patterns (Python/FastAPI)
 
 ### 2.1 Riot API Integration (`app/services/riot_api_client.py`)
 
-- **Resilience**: Implements exponential backoff with jitter for network errors and 5xx responses.
+- **Resilience**: Exponential backoff with jitter for network errors and 5xx responses.
 - **Rate Limiting Compliance**:
-  - **Custom Rate Limiter**: `RiotRateLimiter` (Redis-backed) implements the sliding window algorithm.
+  - **Custom Rate Limiter** (`RiotRateLimiter`): Redis-backed sliding window algorithm.
   - **Dynamic Configuration**: Parses `X-App-Rate-Limit` and `X-Method-Rate-Limit` headers from every response to adjust limits in real-time.
   - **Global Backoff**: Respects `Retry-After` headers globally across all workers.
 - **Async Context**: Designed as an async context manager (`async with RiotApiClient()`) for deterministic resource cleanup.
+- **Timeline Support**: `fetch_match_timeline()` for the `/timeline` endpoint, used by both laning stats and the LLM pipeline.
 
-### 2.2 Background Jobs (`app/services/background_jobs.py`)
+### 2.2 Background Jobs (`app/jobs/`)
 
 - **Library**: `arq` (Async Redis Queue).
 - **Shared Context**: Workers initialize a shared `RiotApiClient` on startup to reuse connection pools and rate limiters.
 - **Job Types**:
   - `fetch_riot_account_matches_job`: Pagination-aware match ID fetching.
   - `fetch_match_details_job`: Batch fetching of match payloads.
+  - `extract_match_timeline_job`: Timeline ingest, state vector + action extraction, DB persistence. Idempotent (skips if vectors already exist). Manages `RiotApiClient` lifecycle with `owns_client` pattern.
   - **Cron**: `sync_all_riot_accounts_matches` runs every 6 hours.
 
-### 2.3 Database Modeling (`app/models`)
+### 2.3 Service Layer (`app/services/`)
 
-- **Library**: `SQLModel` (SQLAlchemy + Pydantic).
-- **Hybrid Storage**:
-  - **Relational**: Core entities (`User`, `RiotAccount`, `Match`) have structured columns for indexing/querying.
-  - **Document**: `Match.game_info` uses `JSONB` to store the raw, schema-less Riot payload, allowing for flexibility and preventing schema drift.
-  - **Vector Ready**: Infrastructure includes `pgvector` dependencies, preparing `Match` models for future embedding columns.
-- **Many-to-Many**: `RiotAccountMatch` join table allows efficient querying of matches per user without data duplication.
+| Service | Purpose |
+|---|---|
+| `riot_api_client.py` | HTTP client for all Riot API endpoints with rate limiting |
+| `riot_sync.py` | Match synchronization, timeline stats (laning phase CS/gold diffs) |
+| `match_sync.py` | Find-or-create matches, upsert match records |
+| `riot_account_upsert.py` | Riot account upsert logic |
+| `state_vector.py` | Game state vector extraction from timeline data |
+| `action_extraction.py` | Discrete action extraction (item purchases, objective kills) |
+| `live_game.py` | Live game spectator data with SSE streaming |
+| `champions.py` | Champion data management |
+| `champion_seed.py` | Auto-seed champions from Data Dragon on startup |
+| `matches.py` | Match query and listing |
+| `rate_limiter.py` | Redis-backed sliding window rate limiter |
+| `cache.py` | Redis cache helpers |
+| `worker_metrics.py` | Job metric tracking via `increment_metric_safe` |
+
+### 2.4 State Vector Extraction (`app/services/state_vector.py`)
+
+Extracts per-minute `GameStateVector` from Riot timeline data following the xPetu thesis framework (Table 5: 75.9% accuracy, 0.90% ECE):
+
+- **Per-player features (x10)**: `position.x/y`, `level`, `totalGold`, `damageDealtToChampions`, `damageTaken`, kills/deaths/assists (from `CHAMPION_KILL` events)
+- **Per-team features (x2)**: voidgrubs, dragons, barons, turrets, inhibitors (from `ELITE_MONSTER_KILL` and `BUILDING_KILL` events)
+- **Global features**: `timestamp`, `average_rank`
+- **Design**: Cumulative KDA and objective trackers; nearest-frame snapping (no sub-minute interpolation per thesis Markov assumption)
+- **Output**: `GameStateVector.to_feature_dict()` flattens into named keys (`p1_level`, `t100_dragons`, etc.) for model input
+
+### 2.5 Action Extraction (`app/services/action_extraction.py`)
+
+V1 action types for ΔW computation:
+
+- **Item Purchases** (`ITEM_PURCHASE`): Legendary items only (90+ item IDs in `LEGENDARY_ITEM_IDS` set). Tracks `ITEM_UNDO`, `ITEM_SOLD`, `ITEM_DESTROYED` for post-state determination.
+- **Objective Kills** (`OBJECTIVE_KILL`): Dragon, Baron, Rift Herald. Post-state set to 4 minutes after kill (buff window).
+- **Clamping**: Post-state minutes clamped to available state vector range.
+
+### 2.6 Database Modeling (`app/models/`)
+
+- **Library**: SQLModel (SQLAlchemy + Pydantic).
+- **Core Tables**:
+
+| Model | Table | Key Columns |
+|---|---|---|
+| `User` | `user` | Auth credentials |
+| `RiotAccount` | `riot_account` | PUUID, game name, tag line, summoner data |
+| `Match` | `match` | `game_id`, `game_info` (JSONB), basic match metadata |
+| `RiotAccountMatch` | `riot_account_match` | M2M join table |
+| `UserRiotAccount` | `user_riot_account` | User-to-Riot account link |
+| `Champion` | `champion` | Name, image URL (auto-seeded from DDragon) |
+
+- **LLM Pipeline Tables**:
+
+| Model | Table | Key Columns |
+|---|---|---|
+| `MatchStateVector` | `match_state_vector` | `match_id` FK, `minute`, `features` (JSONB). Unique on `(match_id, minute)`. |
+| `MatchActionRecord` | `match_action` | `match_id` FK, `action_type`, `participant_id`, `action_detail` (JSONB), `pre_state_minute`, `post_state_minute`, `delta_w`/`pre_win_prob`/`post_win_prob` (nullable, populated by scorer). |
+| `LLMAnalysis` | `llm_analysis` | `riot_account_id` FK, `champion_name`, `rank_tier`, `match_ids`, `schema_version`, `input_payload`/`output_payload`/`recommendations` (JSONB), `model_name`, token counts. |
+
+- **Storage Strategy**: Hybrid relational + JSONB. Structured columns for indexing/querying; `JSONB` for flexible payloads (`game_info`, `features`, `action_detail`).
 - **UUIDs**: Universally used for primary keys (`default_factory=uuid4`).
+- **pgvector**: Extension enabled for future vector search.
 
-### 2.4 Observability
+### 2.7 API Routers (`app/api/routers/`)
+
+| Router | Endpoints | Purpose |
+|---|---|---|
+| `search.py` | `GET /search/{riot_id}/matches` | Paginated search-first match lookup |
+| `matches.py` | `GET /riot-accounts/{id}/matches`, `GET /matches/{id}/timeline-stats` | Auth match list, laning stats |
+| `auth.py` | `POST /users/sign_in`, `POST /users/sign_up` | Authentication |
+| `rank.py` | `GET /rank/batch?puuids=csv` | Batch rank lookup (Redis-cached) |
+| `live_game.py` | `GET /live-game/{riot_id}` | SSE live game stream |
+| `champions.py` | `GET /champions/{id}` | Champion data |
+| `ops.py` | `GET /health` | Health check |
+
+### 2.8 Observability
 
 - **Structured Logging**: `app.core.logging` enables JSON logging with `extra` context dictionary support (`logger.info("event", extra={...})`).
-- **Metrics**: `increment_metric_safe` helper for tracking job success/failure rates and API status codes.
+- **Metrics**: `increment_metric_safe` helper for tracking job success/failure rates, API status codes, and pipeline stage counts.
 
 ## 3. Frontend Architecture (Next.js/TypeScript)
 
 ### 3.1 Application Structure
 
-- **Framework**: Next.js 16 with App Router and React Server Components
-- **Language**: TypeScript with strict type checking
-- **Styling**: CSS Modules for component-scoped styles + global CSS
+- **Framework**: Next.js 16 with App Router and React 19
+- **Language**: TypeScript 5 with strict type checking
+- **Styling**: CSS Modules for component-scoped styles + global CSS with CSS custom properties (`--match-victory-bg`, `--match-text-blue`, etc.)
+- **Charts**: recharts for Champion KDA history bar charts
 - **Build System**: Next.js built-in bundler with Turbopack support
 
-### 3.2 Routing & Navigation
+### 3.2 Routing & Pages
 
-- **App Router**: Uses Next.js 13+ App Router pattern with `app/` directory
-- **Pages**:
-  - `/` - Search interface with optional authentication
-  - `/home` - Match results dashboard
-  - Future: `/matches/[id]` - Detailed match view
-- **Navigation**: Client-side routing with `next/router` hooks
+| Route | Page | Description |
+|---|---|---|
+| `/` | `page.tsx` | Search interface with optional auth |
+| `/home` | `home/page.tsx` | Match results dashboard (auth flow) |
+| `/riot-account/[riotId]` | `riot-account/[riotId]/page.tsx` | Search results view with pagination |
+| `/auth` | `auth/` | Authentication pages |
 
-### 3.3 State Management & Data Flow
+### 3.3 Component Architecture
 
-- **Session Management**:
-  - `sessionStorage` for user authentication state
-  - `UserSession` type with TypeScript interfaces
-  - `useSession` custom hooks for session access
-- **Component State**: React hooks (`useState`, `useEffect`) for local state
-- **Data Fetching**: Custom `api.ts` client with typed responses
+All components are folderized in `src/components/`, each with its own CSS module:
 
-### 3.4 Networking & Caching
+| Component | Files | Purpose |
+|---|---|---|
+| `MatchesTable/` | `MatchesTable.tsx`, `useMatchSelection.ts`, `useMatchDetailData.ts`, `constants.ts`, `SkeletonRows.tsx` | Table + tabs + pagination + detail data fetching |
+| `MatchCard/` | `MatchCard.tsx`, `ItemSlot.tsx`, `Teams.tsx`, `ChampionKdaChart.tsx`, `match-card.utils.ts`, `types.ts` | Decomposed match detail card (~200-line orchestrator, `memo`-wrapped) |
+| `MatchDetailPanel/` | Side overlay rendering `MatchCard` in expanded mode |
+| `MatchRow/` | Individual match table row |
+| `Pagination/` | Previous/Next + "Page X of Y" |
+| `LiveGameCard/` | Live game display with SSE |
+| `Auth/` | `AuthForm`, `SignInForm`, `SignUpForm` |
+| `Header/`, `SubHeader/`, `SearchBar/`, `FeatureCard/` | Layout and UI primitives |
 
-- **Typed API Client** (`src/lib/api.ts`):
-  - Generic wrappers (`apiGet<T>`, `apiPost<T>`) for type safety
-  - Request/response interceptors for error handling
-  - Base URL configuration via environment variables
-- **Client-Side Cache** (`src/lib/cache.ts`):
-  - Simple in-memory LRU-like cache with TTL support
-  - Reduces redundant network calls during navigation
-  - Cache invalidation strategies for different data types
-- **Error Handling**: Centralized error boundaries and toast notifications
+### 3.4 State Management & Data Flow
 
-### 3.5 Component Architecture
+- **Session Management**: `sessionStorage`-backed `useSession` hook
+- **Match Selection**: `useMatchSelection` hook — `selectedMatchId`, `handleRowClick`, `handleClosePanel`, `clearSelection`
+- **Detail Data Fetching**: `useMatchDetailData` hook — fetches champion data, rank badges, and laning stats on match selection; uses functional updater pattern for state merging
+- **Queue Filtering**: Client-side tab grouping via `GameQueueGroup` / `GameQueueMode` types in `src/lib/types/queue.ts`
+- **Error Handling**: `useAppError(scope)` hook with `reportError`/`clearError`; page-level interception for context-specific messages
 
-- **Composition Pattern**:
-  - `AuthForm` - Shared form logic for sign in/up
-  - `SignInForm` / `SignUpForm` - Specific implementations
-  - `MatchCard` - Reusable match display component
-- **Hydration Handling**:
-  - `isHydrated` pattern to prevent hydration mismatches
-  - Client-side only state initialization with `useEffect`
-- **Type Safety**: Full TypeScript coverage with shared type definitions
+### 3.5 Networking & Caching
+
+- **Typed API Client** (`src/lib/api.ts`): Generic `apiGet<T>` / `apiPost<T>` wrappers with base URL from environment
+- **Client-Side Cache** (`src/lib/cache.ts`): In-memory LRU-like cache with TTL
+- **Error Normalization** (`src/lib/errors/`):
+  - `ApiError` class with `status`, `detail`, `riotStatus` fields
+  - `buildApiErrorFromResponse` / `toApiError` for HTTP and plain error normalization
+  - `formatApiError` — translates backend codes via `DETAIL_MESSAGES` lookup; handles `riot_api_failed` with `riotStatus` branching (404/429/other); HTTP status fallbacks
+  - `useAppError(scope)` React hook — `{ errorMessage, reportError, clearError }`
 
 ### 3.6 Performance Optimizations
 
-- **Code Splitting**: Automatic route-based code splitting
-- **Image Optimization**: Next.js Image component for match assets
-- **Bundle Analysis**: Built-in webpack bundle analyzer
-- **Caching Strategy**: Multi-layer caching (client + API)
+- **Code Splitting**: Automatic route-based code splitting via App Router
+- **Memoization**: `MatchCard` and `Teams` wrapped in `React.memo`; selective `useMemo` for champion history grouping and date formatting
+- **Selective Fetching**: Champion data fetched only for missing IDs; rank batch only fetches PUUIDs not already cached
+- **Pagination**: Riot API sync gated to page 1; pages 2+ are DB-only (zero Riot API calls)
+- **Effect Separation**: Search page splits account fetch (once per riotId) from matches fetch (per page change) to avoid redundant API calls
 
 ## 4. Infrastructure & DevOps
 
 ### 4.1 Deployment
 
-- **Docker Compose**: Orchestrates `api`, `worker`, `db`, and `redis` services.
-- **Makefile**: providing simplified commands for development (`api-dev`, `worker-dev`, `db-migrate`).
-- **Railway**: Configured via `railway.json` using `nixpacks` builder for production deployment.
+- **Docker Compose** (`infra/compose/docker-compose.yml`): Orchestrates `api`, `worker`, `db`, and `redis` services
+- **Makefile**: Simplified development commands (`api-dev`, `db-up`, `db-migrate`, `lint`, `test`)
+- **Railway**: Deployed via `railway.json` + nixpacks builder
+  - API Start Command: `entrypoint.sh` (Uvicorn only, no migrations at boot)
+  - API Release Command: `release.sh` (runs `alembic upgrade head` as pre-deploy step)
+  - Worker: Private service, no public domain, no HTTP healthcheck
 
 ### 4.2 Database Management
 
-- **Alembic**: Async migration environment.
-- **Connection Pooling**: `asyncpg` with `pool_pre_ping=True` to handle dropped connections in long-running workers.
+- **Alembic**: Async migration environment with Railway pre-deploy release step
+- **Connection Pooling**: `asyncpg` with `pool_pre_ping=True` for long-running workers
+- **Migrations**: `services/api/app/db/migrations/versions/` — latest: `20260305_0002_llm_pipeline_tables.py`
 
-## 5. Key Updates from Previous Read
+### 4.3 Testing
 
-- **Riot API Client Evolution**: The client now includes a highly sophisticated, Redis-backed rate limiter that dynamically adapts to Riot's header responses.
-- **Stateless Search**: The `/search` endpoint architecture has been refined to support instant-feedback lookups without requiring prior user registration.
-- **LLM Service Stub**: A dedicated `league-llm` service structure exists, though currently minimal, indicating the architectural separation of concerns for future AI features.
-- **Metric Instrumentation**: Added internal metric tracking (`worker_metrics.py`) for job reliability monitoring.
+- **Backend**: pytest with `asyncio_mode = "auto"` in `services/api/tests/`
+- **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests)
+- **No frontend test suite** currently
 
-## 6. Future Roadmap Indicators
+## 5. Design Decisions & Trade-offs
 
-- **Embeddings**: The presence of `pgvector` and the `Match.to_embedding_text()` method signals imminent implementation of vector search.
-- **LLM Agents**: The `league-llm` service is positioned to host the AI agents described in the project rules.
+- **Client-side tab filtering**: Queue type filtering happens in the frontend, not the API. Some pages may show fewer items after filtering. Acceptable trade-off to avoid API complexity.
+- **JSONB over normalized columns**: `game_info`, `features`, `action_detail` stored as JSONB for flexibility; structured columns added only for fields that need indexing.
+- **No sub-minute interpolation**: State vectors use 1-minute resolution with nearest-frame snapping. The thesis confirms momentum effects are negligible (Markov assumption holds).
+- **Legendary items only**: Action extraction focuses on 90+ legendary items for clearest strategic signal; component items and boots excluded.
+- **Idempotent extraction**: `extract_match_timeline_job` checks for existing state vectors before processing; safe to re-enqueue.
 
----
+## 6. Known Issues
 
-_Generated by Cursor Agent on 2026-02-13_
+- **Race condition**: `_get_or_create_match` and `upsert_user_from_riot` use non-atomic check-then-insert, causing `IntegrityError` under concurrency. Fix requires `INSERT ... ON CONFLICT`.
+
+## 7. Roadmap
+
+- **LLM Pipeline Steps 3–7**: Win probability model → ΔW scoring → aggregation → LLM prompt → recommendation storage
+- **Wire timeline extraction**: Enqueue `extract_match_timeline_job` after `fetch_match_details_job` completes
+- **Server-side queue filtering**: Move tab filtering to the API for more accurate pagination counts
+- **Vector embeddings**: `pgvector` is enabled; wire up for semantic search capabilities
