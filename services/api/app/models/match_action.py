@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, SmallInteger, String
+from sqlalchemy import BigInteger, Boolean, Column, Float, ForeignKey, SmallInteger, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
@@ -62,6 +62,6 @@ class MatchActionRecord(SQLModel, table=True):
     was_undone: bool = Field(default=False, sa_column=Column(Boolean, nullable=False))
 
     # Scoring columns — populated by the win probability model
-    delta_w: float | None = Field(default=None)
-    pre_win_prob: float | None = Field(default=None)
-    post_win_prob: float | None = Field(default=None)
+    delta_w: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    pre_win_prob: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    post_win_prob: float | None = Field(default=None, sa_column=Column(Float, nullable=True))

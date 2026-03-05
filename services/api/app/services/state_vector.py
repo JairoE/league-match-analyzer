@@ -11,7 +11,7 @@ Feature groups:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from app.core.logging import get_logger
 
@@ -207,35 +207,10 @@ def _build_objective_tracker(
                 elif building == "INHIBITOR_BUILDING":
                     ts.inhibitors_destroyed += 1
 
-        # Snapshot: deep-copy current state for this minute
-        result[minute] = {
-            tid: TeamState(
-                team_id=tid,
-                voidgrubs_killed=ts.voidgrubs_killed,
-                dragons_killed=ts.dragons_killed,
-                barons_killed=ts.barons_killed,
-                turrets_destroyed=ts.turrets_destroyed,
-                inhibitors_destroyed=ts.inhibitors_destroyed,
-            )
-            for tid, ts in team_totals.items()
-        }
+        # Snapshot: shallow copy current state for this minute (all fields are ints)
+        result[minute] = {tid: replace(ts) for tid, ts in team_totals.items()}
 
     return result
-
-
-def _collect_all_events(frames: list[dict]) -> list[dict]:
-    """Flatten all events from timeline frames into a single list.
-
-    Args:
-        frames: Timeline frames from Riot API.
-
-    Returns:
-        Flat list of event dicts.
-    """
-    all_events: list[dict] = []
-    for frame in frames:
-        all_events.extend(frame.get("events", []))
-    return all_events
 
 
 def extract_state_vectors(
@@ -260,7 +235,7 @@ def extract_state_vectors(
         logger.warning("extract_state_vectors_no_frames")
         return []
 
-    all_events = _collect_all_events(frames)
+    all_events = [e for frame in frames for e in frame.get("events", [])]
     total_minutes = len(frames)
     kda_tracker = _build_kda_tracker(all_events, total_minutes)
     objective_tracker = _build_objective_tracker(all_events, total_minutes)

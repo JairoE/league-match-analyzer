@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-04
-**Branch:** `frontend-components-refactor`
-**Status:** STABLE — Champion pre-fetch filter restored
+**Last Updated:** 2026-03-05
+**Branch:** `llm-phase-0`
+**Status:** BUILDING — LLM pipeline ingest + extract layers implemented (Steps 1–2)
 
 ## What's Built
 
@@ -227,6 +227,23 @@ Optional:
 
 - **Issue**: Champion effect was requesting every `championIdsToLoad` on each run; only the `setChampionById` updater skipped already-loaded IDs, so network/cache work still ran for all IDs.
 - **Fix**: Compute `missingIds = championIdsToLoad.filter((id) => championById[id] == null)` at effect start; early-return if `missingIds.length === 0`; call `apiGet` only for `missingIds`. Dependency array now includes `championById` so the filter sees current state.
+
+---
+
+## Recent Changes (2026-03-05)
+
+### LLM Pipeline Phase 0 — Ingest + Extract (`llm-phase-0`)
+
+- **Design doc overhaul**: [LLM_DATA_PIPELINE.md](docs/LLM_DATA_PIPELINE.md) rewritten from outline to concrete 8-step pipeline spec. Covers game state vector definition (Table 5 features), V1 action types (item purchases + objective kills), win probability model progression (logistic → DNN), aggregation strategy (K≥50, population fallback), and LLM prompt design.
+- **3 new DB models** + Alembic migration (`20260305_0002`):
+  - `MatchStateVector` — per-minute game state (JSONB features), unique on `(match_id, minute)`
+  - `MatchActionRecord` — discrete actions with pre/post state refs and nullable ΔW scoring columns
+  - `LLMAnalysis` — future-facing LLM output persistence with schema versioning and token counts
+- **State vector extraction** (`services/api/app/services/state_vector.py`): Per-player features (position, level, gold, damage dealt/taken, KDA from events) + per-team objectives (dragons, barons, voidgrubs, turrets, inhibitors) + global (timestamp, rank). Cumulative trackers, nearest-frame snapping. No sub-minute interpolation per thesis.
+- **Action extraction** (`services/api/app/services/action_extraction.py`): V1 actions — legendary item purchases (90+ item IDs) and elite monster kills (dragon/baron/herald). Tracks ITEMUNDO/SOLD/DESTROYED for post-state. Clamps post-state to vector range.
+- **ARQ job** (`services/api/app/jobs/timeline_extraction.py`): `extract_match_timeline_job` — fetches timeline (Redis-cached, 1h TTL), extracts vectors + actions, persists to DB. Idempotent (skips if vectors exist). Proper `RiotApiClient` lifecycle management.
+- **22 tests**: `test_state_vector.py` (10 tests) + `test_action_extraction.py` (12 tests) — comprehensive coverage of extraction logic, edge cases, clamping, team assignment, cumulative tracking.
+- **Uncommitted cleanup** (staged): explicit `Float` columns on scoring fields, `dataclasses.replace()` for TeamState snapshots, inlined helper, fixed `RiotApiClient` leak in `_fetch_timeline_cached`.
 
 ---
 

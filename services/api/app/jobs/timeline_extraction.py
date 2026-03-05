@@ -144,14 +144,6 @@ async def extract_match_timeline_job(
             },
         )
         await increment_metric_safe("jobs.timeline_extraction.success")
-        await increment_metric_safe(
-            "jobs.timeline_extraction.vectors_stored",
-            amount=len(state_vectors),
-        )
-        await increment_metric_safe(
-            "jobs.timeline_extraction.actions_stored",
-            amount=len(actions),
-        )
 
         return {
             "match_id": match_id,
@@ -186,7 +178,10 @@ async def _fetch_timeline_cached(
         logger.info("timeline_cache_hit", extra={"match_id": match_id})
         return json.loads(raw)
 
-    client = ctx.get("riot_client") or RiotApiClient()
+    client = ctx.get("riot_client")
+    owns_client = client is None
+    if owns_client:
+        client = RiotApiClient()
     try:
         timeline = await client.fetch_match_timeline(riot_match_id)
     except RiotRequestError as exc:
@@ -199,6 +194,9 @@ async def _fetch_timeline_cached(
             tags={"reason": "riot_api_error", "status": str(exc.status or 0)},
         )
         return None
+    finally:
+        if owns_client:
+            await client.close()
 
     # Cache with TTL (transient, per pipeline spec)
     await redis.set(cache_key, json.dumps(timeline), ex=TIMELINE_CACHE_TTL_SECONDS)
