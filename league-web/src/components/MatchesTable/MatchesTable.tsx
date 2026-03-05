@@ -45,7 +45,7 @@ export default function MatchesTable({
   paginationMeta = null,
   onPageChange,
 }: MatchesTableProps) {
-  const {expandedMatchIds, toggleMatch, closeMatch, clearAll} = useMatchSelection();
+  const {selectedMatchId, toggleMatch, closeMatch, clearAll} = useMatchSelection();
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
 
   /** Resolve queueId from detail or match-level fallback */
@@ -82,7 +82,7 @@ export default function MatchesTable({
   }, [getParticipantForMatch, matches]);
 
   const {championById, rankByPuuid, laneStatsByMatchId} = useMatchDetailData({
-    expandedMatchIds,
+    selectedMatchId,
     matches,
     matchDetails,
     getParticipantForMatch,
@@ -196,7 +196,9 @@ export default function MatchesTable({
 
   // Build KDA history per champion, keyed by matchId.
   // Only includes matches whose details have loaded; only entries with 2+ games on the champion are stored.
+  // Only computed when a row is expanded — avoids iterating all matches on every detail fetch.
   const championHistoryByMatchId = useMemo<Record<string, ChampionKdaPoint[]>>(() => {
+    if (!selectedMatchId) return {};
     const groupByChamp: Record<number, ChampionKdaPoint[]> = {};
 
     for (const match of matches) {
@@ -234,7 +236,7 @@ export default function MatchesTable({
       if (history && history.length > 1) result[matchId] = history;
     }
     return result;
-  }, [matches, matchDetails, getParticipantForMatch]);
+  }, [selectedMatchId, matches, matchDetails, getParticipantForMatch]);
 
   return (
     <div className={styles.wrapper}>
@@ -342,7 +344,7 @@ export default function MatchesTable({
               filteredMatches.map((match, index) => {
                 const matchId = getMatchId(match);
                 const detail = matchId ? (matchDetails[matchId] ?? null) : null;
-                const isExpanded = matchId ? expandedMatchIds.has(matchId) : false;
+                const isExpanded = matchId ? selectedMatchId === matchId : false;
                 const participant = getParticipantForMatch(match);
                 const championId = participant?.championId ?? null;
                 const champion =
