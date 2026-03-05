@@ -120,7 +120,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 120px;
+  max-width: 100px;
+}
+
+.rankBadge {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Bans row ────────────────────────────────────────────────── */

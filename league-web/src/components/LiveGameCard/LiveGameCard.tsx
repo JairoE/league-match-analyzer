@@ -5,6 +5,7 @@ import {useEffect, useState} from "react";
 import styles from "./LiveGameCard.module.css";
 import type {LiveGameData, LiveGameParticipant} from "../../lib/types/live-game";
 import type {Champion} from "../../lib/types/champion";
+import type {RankBatchResponse, RankInfo} from "../../lib/types/rank";
 import {apiGet} from "../../lib/api";
 import {getSpellImageUrl} from "../../lib/constants/ddragon";
 import {
@@ -21,13 +22,29 @@ function hideOnError(e: React.SyntheticEvent<HTMLImageElement>) {
   (e.target as HTMLImageElement).style.display = "none";
 }
 
+function formatRank(rank: RankInfo | null | undefined): string {
+  if (!rank?.tier) return "Unranked";
+  const tier =
+    rank.tier.charAt(0).toUpperCase() + rank.tier.slice(1).toLowerCase();
+  // Master+ has no division
+  const highTiers = ["Master", "Grandmaster", "Challenger"];
+  if (highTiers.includes(tier)) return `${tier} ${rank.leaguePoints ?? 0} LP`;
+  return `${tier} ${rank.rank ?? ""} ${rank.leaguePoints ?? 0} LP`.trim();
+}
+
 type ParticipantRowProps = {
   p: LiveGameParticipant;
   targetPuuid: string;
   championById: Record<number, Champion>;
+  rankByPuuid: RankBatchResponse;
 };
 
-function ParticipantRow({p, targetPuuid, championById}: ParticipantRowProps) {
+function ParticipantRow({
+  p,
+  targetPuuid,
+  championById,
+  rankByPuuid,
+}: ParticipantRowProps) {
   const isSelf = p.puuid === targetPuuid;
   const champ = championById[p.championId];
   const champName = champ?.name ?? `Champion ${p.championId}`;
@@ -35,11 +52,10 @@ function ParticipantRow({p, targetPuuid, championById}: ParticipantRowProps) {
   const summonerDisplay = p.riotId
     ? p.riotId.split("#")[0]
     : (p.summonerName ?? "Summoner");
+  const rankLabel = formatRank(rankByPuuid[p.puuid]);
 
   return (
-    <div
-      className={`${styles.participant} ${isSelf ? styles.self : ""}`}
-    >
+    <div className={`${styles.participant} ${isSelf ? styles.self : ""}`}>
       {champ?.image_url ? (
         <img
           src={champ.image_url}
@@ -72,6 +88,7 @@ function ParticipantRow({p, targetPuuid, championById}: ParticipantRowProps) {
         onError={hideOnError}
       />
       <span className={styles.summonerName}>{summonerDisplay}</span>
+      <span className={styles.rankBadge}>{rankLabel}</span>
     </div>
   );
 }
@@ -81,6 +98,7 @@ export default function LiveGameCard({
   targetPuuid,
 }: LiveGameCardProps) {
   const [championById, setChampionById] = useState<Record<number, Champion>>({});
+  const [rankByPuuid, setRankByPuuid] = useState<RankBatchResponse>({});
   const [elapsed, setElapsed] = useState(game.gameLength);
 
   // Fetch champion list once for ID → name mapping
@@ -102,6 +120,29 @@ export default function LiveGameCard({
       active = false;
     };
   }, []);
+
+  // Fetch ranked data for all participants (excluding bots)
+  useEffect(() => {
+    const puuids = game.participants
+      .filter((p) => !p.bot && p.puuid)
+      .map((p) => p.puuid);
+    if (puuids.length === 0) return;
+
+    let active = true;
+    apiGet<RankBatchResponse>(
+      `/rank/batch?puuids=${puuids.join(",")}`,
+    )
+      .then((data) => {
+        if (!active) return;
+        setRankByPuuid(data);
+      })
+      .catch((err) => {
+        console.debug("[LiveGameCard] rank fetch failed", err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [game.participants]);
 
   // Tick elapsed time every second
   useEffect(() => {
@@ -143,6 +184,7 @@ export default function LiveGameCard({
               p={p}
               targetPuuid={targetPuuid}
               championById={championById}
+              rankByPuuid={rankByPuuid}
             />
           ))}
         </div>
@@ -154,6 +196,7 @@ export default function LiveGameCard({
               p={p}
               targetPuuid={targetPuuid}
               championById={championById}
+              rankByPuuid={rankByPuuid}
             />
           ))}
         </div>
