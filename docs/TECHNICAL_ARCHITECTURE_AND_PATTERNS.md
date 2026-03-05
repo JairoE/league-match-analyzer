@@ -1,13 +1,13 @@
 # Technical Architecture & Design Patterns
 
-**Last Updated:** February 13, 2026
+**Last Updated:** March 5, 2026
 **Scope:** Full codebase read of `league-match-analyzer` (FastAPI + Next.js + Infrastructure)
 
 ## Executive Summary
 
 The `league-match-analyzer` is a high-performance, asynchronous full-stack application designed to ingest, analyze, and serve League of Legends match data. It leverages a modern Python backend (FastAPI, SQLModel, ARQ) and a Next.js frontend, orchestrated via Docker Compose.
 
-Key architectural highlights include a robust **3-tier rate limiting system** for the Riot API, an **upsert-heavy synchronization strategy** that blends real-time user requests with background ingestion, and a **hybrid data model** using Relational + JSONB storage.
+Key architectural highlights include a robust **3-tier rate limiting system** for the Riot API, an **upsert-heavy synchronization strategy** that blends real-time user requests with targeted background warmup, and a **hybrid data model** using Relational + JSONB storage.
 
 ## 1. System Architecture
 
@@ -30,9 +30,10 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 3.  **Idempotent Upsert**:
     - `find_or_create_riot_account`: Upserts identity data.
     - `upsert_matches_for_riot_account`: efficiently inserts new match IDs and links them to the account.
-4.  **Hybrid Backfill**:
-    - **Inline**: For the specific matches requested, missing details are fetched immediately (`backfill_match_details_inline`) to unblock the UI.
-    - **Background**: A task is enqueued (`enqueue_details_background`) to fetch full details for all other matches asynchronously.
+4.  **Hybrid Backfill + Warmup**:
+    - **Inline (Pre-query)**: Missing details are backfilled by game IDs (`backfill_match_details_by_game_ids`) before the page-1 DB list query so ordering is correct on first response.
+    - **Inline (Fallback)**: `backfill_match_details_inline` remains as a safety net after the query if missing `game_info` rows are still detected.
+    - **Background (Timeline warmup)**: Page-1 routes enqueue missing timeline cache work (`enqueue_missing_timeline_jobs`) directly from router background tasks.
 
 ## 2. Backend Design Patterns (Python/FastAPI)
 
@@ -52,9 +53,21 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 - **Job Types**:
   - `fetch_riot_account_matches_job`: Pagination-aware match ID fetching.
   - `fetch_match_details_job`: Batch fetching of match payloads.
+  - `fetch_timeline_cache_job`: Timeline prefetch/caching for match detail expansion UX.
   - **Cron**: `sync_all_riot_accounts_matches` runs every 6 hours.
 
-### 2.3 Database Modeling (`app/models`)
+### 2.3 Request-Path Simplification Pattern
+
+- **Flattened enqueue path**:
+  - Previous shape: `router wrapper -> enqueue service -> ARQ job`
+  - Current shape: `router -> enqueue service -> ARQ job`
+- **Current behavior**:
+  - `matches` and `search` routers call `background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)` directly.
+  - Enqueue service performs Redis `MGET` pre-filtering and skips already cached timelines.
+  - ARQ jobs use deterministic `_job_id` signatures to reduce duplicate scheduling.
+- **Why this matters**: keeps cross-layer boundaries clear while removing low-value indirection in a hot request path.
+
+### 2.4 Database Modeling (`app/models`)
 
 - **Library**: `SQLModel` (SQLAlchemy + Pydantic).
 - **Hybrid Storage**:
@@ -64,7 +77,7 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 - **Many-to-Many**: `RiotAccountMatch` join table allows efficient querying of matches per user without data duplication.
 - **UUIDs**: Universally used for primary keys (`default_factory=uuid4`).
 
-### 2.4 Observability
+### 2.5 Observability
 
 - **Structured Logging**: `app.core.logging` enables JSON logging with `extra` context dictionary support (`logger.info("event", extra={...})`).
 - **Metrics**: `increment_metric_safe` helper for tracking job success/failure rates and API status codes.
@@ -142,7 +155,9 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 ## 5. Key Updates from Previous Read
 
 - **Riot API Client Evolution**: The client now includes a highly sophisticated, Redis-backed rate limiter that dynamically adapts to Riot's header responses.
-- **Stateless Search**: The `/search` endpoint architecture has been refined to support instant-feedback lookups without requiring prior user registration.
+- **Stateless Search**: The `/search` endpoint architecture supports instant-feedback lookups without requiring prior user registration.
+- **Page-1 Correctness Hardening**: Match details are backfilled before initial page-1 list ordering to avoid stale first-load ordering when new matches were just upserted.
+- **Timeline Warmup Refactor**: Timeline enqueue was flattened to direct router->service dispatch, replacing the extra wrapper layer.
 - **LLM Service Stub**: A dedicated `league-llm` service structure exists, though currently minimal, indicating the architectural separation of concerns for future AI features.
 - **Metric Instrumentation**: Added internal metric tracking (`worker_metrics.py`) for job reliability monitoring.
 

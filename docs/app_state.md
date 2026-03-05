@@ -333,6 +333,55 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-05, session 6)
+
+### Backend cleanup — flattened timeline enqueue path
+
+- **Question addressed**: whether the timeline enqueue flow still had avoidable over-structuring (`router wrapper -> enqueue service -> ARQ job`).
+- **Result**: yes, it still existed; the router wrapper layer was removed.
+- **What changed**:
+  - `services/api/app/api/routers/match_timeline_enqueue.py` deleted.
+  - `services/api/app/api/routers/matches.py` now schedules background work directly with:
+    - `background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)`
+  - `services/api/app/api/routers/search.py` now schedules background work directly with:
+    - `background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)`
+  - Both routers now log explicit route-level enqueue start events (`*_enqueuing_timelines`) before dispatch.
+- **Why**: removes one indirection layer while preserving behavior (same enqueue service + same ARQ timeline job), making the page-1 sync path simpler to follow and maintain.
+- **Current phase/status**: REFACTORING (incremental simplification, no behavior change intended).
+- **Blockers / open questions**:
+  - None introduced by this cleanup.
+  - Existing backend lint baseline still contains pre-existing line-length noise in router files; unchanged in scope.
+- **Verification**:
+  - `make test` — pass (19/19).
+  - `npm --prefix league-web run lint` — pass with 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`).
+  - `make lint` — still reports pre-existing backend lint noise; no new functional regressions found.
+
+---
+
+## Recent Changes (2026-03-05, session 7)
+
+### Documentation sync — technical flow docs updated to flattened timeline enqueue path
+
+- **What changed**:
+  - Updated `docs/TECHNICAL_REQUEST_FLOW.md` to reflect:
+    - direct route-level timeline enqueue (`router -> enqueue service -> ARQ`)
+    - pre-query detail backfill + post-query safety-net backfill
+    - timeline cache warmup semantics (`timeline:{match_id}`)
+  - Updated `docs/TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` to reflect:
+    - current page-1 correctness strategy (`backfill_match_details_by_game_ids(..., max_fetch=limit)`)
+    - timeline warmup job (`fetch_timeline_cache_job`)
+    - explicit flattened enqueue pattern and rationale
+    - refreshed "Last Updated" date
+- **Why**: existing docs still described an older background detail-enqueue path and wrapper indirection that no longer matched implementation.
+- **Current phase/status**: REFACTORING (documentation alignment; no runtime behavior changes).
+- **Blockers / open questions**:
+  - None introduced by this docs-only update.
+- **Next recommended steps**:
+  1. Keep request-flow docs synchronized whenever queue/job wiring changes.
+  2. Add a short "Flow changed?" checklist item to future backend PR descriptions for `matches.py` / `search.py` edits.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)

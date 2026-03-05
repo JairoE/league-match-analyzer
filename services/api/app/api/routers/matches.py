@@ -4,9 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.api.routers.match_timeline_enqueue import enqueue_timelines_background
 from app.db.session import get_session
 from app.schemas.match import LaneStats, MatchListItem, PaginatedMatchList, PaginationMeta
+from app.services.enqueue_match_timelines import enqueue_missing_timeline_jobs
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_accounts import resolve_riot_account_identifier
 from app.services.riot_sync import (
@@ -16,7 +16,6 @@ from app.services.riot_sync import (
     fetch_match_list_for_riot_account,
     fetch_timeline_stats,
 )
-
 
 router = APIRouter(tags=["matches"])
 logger = get_logger("league_api.matches")
@@ -74,14 +73,11 @@ async def list_riot_account_matches(
         )
 
         # Pre-fetch timelines in background for instant UX on row expand.
-        background_tasks.add_task(
-            enqueue_timelines_background,
-            logger=logger,
-            match_ids=match_ids,
-            context={"riot_account_id": riot_account_id},
-            success_event="list_riot_account_matches_enqueued_timelines",
-            failure_event="list_riot_account_matches_timeline_enqueue_failed",
+        logger.info(
+            "list_riot_account_matches_enqueuing_timelines",
+            extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
         )
+        background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)
 
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
