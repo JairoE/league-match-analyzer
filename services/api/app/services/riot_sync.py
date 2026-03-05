@@ -217,17 +217,13 @@ async def _backfill_single_match(
         return False
 
 
-async def _commit_and_refresh_backfilled(
+async def _commit_backfilled(
     session: AsyncSession,
-    matches: list[Match],
     fetched: int,
 ) -> None:
-    """Commit and refresh matches that were backfilled."""
+    """Commit matches that were backfilled."""
     if fetched:
         await session.commit()
-        for match in matches:
-            if match.game_info:
-                await session.refresh(match)
 
 
 async def backfill_match_details_inline(
@@ -264,7 +260,7 @@ async def backfill_match_details_inline(
             if await _backfill_single_match(client, match):
                 fetched += 1
 
-    await _commit_and_refresh_backfilled(session, to_process, fetched)
+    await _commit_backfilled(session, fetched)
 
     logger.info(
         "backfill_match_details_inline_done",
@@ -329,7 +325,7 @@ async def backfill_match_details_by_game_ids(
             if await _backfill_single_match(client, match):
                 fetched += 1
 
-    await _commit_and_refresh_backfilled(session, to_process, fetched)
+    await _commit_backfilled(session, fetched)
 
     logger.info(
         "backfill_by_game_ids_done",
@@ -405,8 +401,14 @@ async def fetch_timeline_stats(
     if not frames:
         return None
 
-    # frameInterval is in ms; default 60 000 ms = 1 frame/min
-    frame_interval_ms: int = timeline_info.get("frameInterval") or 60_000
+    # frameInterval is in ms; default 60 000 ms = 1 frame/min.
+    # Guard against malformed/zero values so we never divide by zero.
+    raw_frame_interval = timeline_info.get("frameInterval")
+    try:
+        frame_interval_ms = int(raw_frame_interval or 60_000)
+    except (TypeError, ValueError):
+        frame_interval_ms = 60_000
+    frame_interval_ms = max(1, frame_interval_ms)
     idx_10 = round(10 * 60_000 / frame_interval_ms)
     idx_15 = round(15 * 60_000 / frame_interval_ms)
 

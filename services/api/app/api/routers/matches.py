@@ -51,7 +51,12 @@ async def list_riot_account_matches(
 
     # Only sync with Riot API on page 1; page 2+ just queries DB
     if page == 1:
-        match_ids = await fetch_match_list_for_riot_account(session, riot_account_id, 0, 20)
+        match_ids = await fetch_match_list_for_riot_account(
+            session,
+            riot_account_id,
+            0,
+            limit,
+        )
         if match_ids is None:
             logger.info("list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id})
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")

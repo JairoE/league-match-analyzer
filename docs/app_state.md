@@ -8,12 +8,12 @@
 
 ### Backend (FastAPI + ARQ)
 
-- **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue full details in background. Supports `?page=N&limit=N` pagination.
+- **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue timeline prefetch in background. Supports `?page=N&limit=N` pagination.
 - **Auth match flow**: `GET /riot-accounts/{id}/matches` — paginated match list with Riot API sync on page 1 only.
 - **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page).
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
-- **Background jobs**: `fetch_match_details_job` (batch), `sync_all_riot_accounts_matches` (cron every 6h).
+- **Background jobs**: `fetch_match_details_job` (batch), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
 - **Data model**: `RiotAccount`, `Match` (with `game_info` JSONB), `RiotAccountMatch` join table. `pgvector` extension enabled.
 - **Observability**: Structured JSON logging, `increment_metric_safe` metric helper.
 
@@ -104,8 +104,8 @@ User → Page 2+ → GET /search/{riot_id}/matches?page=N
   → Return paginated match list + meta
 
 Background (async):
-  → Enqueue full details → Redis → ARQ worker
-  → Fetch full details (Riot API) → Upsert (DB)
+  → Enqueue timeline warmup → Redis/ARQ
+  → Fetch timeline (Riot API) → Cache `timeline:{match_id}`
 
 Optional:
   → Sign In/Up → POST /users/sign_in → Validate (DB) → Save session
@@ -281,6 +281,29 @@ Optional:
 - **`enqueue_match_timelines.py`** — added Redis `MGET` pre-filter so only uncached timelines are enqueued (previously enqueued all 20 blindly, relying on job-level Redis check).
 - **`riot_sync.py`** — extracted `_backfill_single_match()` and `_commit_and_refresh_backfilled()` helpers; both `backfill_match_details_inline` and `backfill_match_details_by_game_ids` now share the same fetch-and-persist logic instead of duplicating it.
 - **`matches.py` / `search.py`** — post-query backfill log level upgraded from `info` to `warning` (event names: `*_backfill_fallback`). If this safety net ever fires, it now stands out in logs.
+
+## Recent Changes (2026-03-05, session 4)
+
+### Backend hardening follow-up — high-impact fixes from review
+
+- **Page-1 sync now respects requested page size**:
+  - `GET /riot-accounts/{id}/matches?page=1&limit=N` now fetches `N` Riot match IDs before DB read (was hard-coded to 20).
+  - `GET /search/{riot_id}/matches?page=1&limit=N` now fetches `N` Riot match IDs before DB read (was hard-coded to 20).
+  - **Why**: avoids partial stale page-1 responses when `limit > 20`.
+- **Timeline enqueue `_job_id` collision risk removed**:
+  - `enqueue_match_timelines.py` now derives `_job_id` from a SHA-1 hash of the full sorted batch contents, not only first/last IDs + count.
+  - **Why**: prevents accidental de-duplication collisions across distinct batches.
+- **Timeline frame interval parsing hardened**:
+  - `riot_sync.py` now coerces `frameInterval` safely and clamps to at least 1ms before index math.
+  - **Why**: prevents divide-by-zero / malformed-payload 500s in `fetch_timeline_stats`.
+- **Backfill DB round-trips reduced**:
+  - Removed per-row `session.refresh()` calls after successful backfill commit.
+  - **Why**: lowers DB chatter without changing endpoint behavior.
+
+**Verification**:
+
+- `make test` — pass (19/19).
+- Targeted `ruff check` on edited files still reports pre-existing style noise in those files (import order/line length), with no functional regressions from this change set.
 
 ---
 

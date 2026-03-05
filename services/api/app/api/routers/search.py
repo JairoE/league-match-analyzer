@@ -62,7 +62,11 @@ async def search_riot_account_matches(
             async with RiotApiClient() as client:
                 account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
                 summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
-                match_ids = await client.fetch_match_ids_by_puuid(account_info["puuid"], start=0, count=20)
+                match_ids = await client.fetch_match_ids_by_puuid(
+                    account_info["puuid"],
+                    start=0,
+                    count=limit,
+                )
         except RiotRequestError:
             logger.exception("search_matches_riot_request_error", extra={"riot_id": riot_id})
             raise
