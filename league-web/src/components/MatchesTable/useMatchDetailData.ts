@@ -8,7 +8,7 @@ import type {LaneStats, MatchDetail, MatchSummary, Participant} from "../../lib/
 import type {RankBatchResponse, RankInfo} from "../../lib/types/rank";
 
 type UseMatchDetailDataParams = {
-  expandedMatchIds: Set<string>;
+  selectedMatchId: string | null;
   matches: MatchSummary[];
   matchDetails: Record<string, MatchDetail>;
   getParticipantForMatch: (match: MatchSummary) => Participant | null;
@@ -16,7 +16,7 @@ type UseMatchDetailDataParams = {
 };
 
 export function useMatchDetailData({
-  expandedMatchIds,
+  selectedMatchId,
   matches,
   matchDetails,
   getParticipantForMatch,
@@ -49,91 +49,78 @@ export function useMatchDetailData({
         .map((r) => (r as PromiseFulfilledResult<{id: number; champion: Champion}>).value);
       if (loaded.length === 0) return;
       setChampionById((prev) => {
+        const toAdd = loaded.filter(({id}) => prev[id] == null);
+        if (toAdd.length === 0) return prev;
         const next = {...prev};
-        for (const {id, champion} of loaded) {
-          if (prev[id] == null) next[id] = champion;
-        }
-        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+        for (const {id, champion} of toAdd) next[id] = champion;
+        return next;
       });
     });
 
     return () => {
       isActive = false;
     };
-  }, [championIdsToLoad, championById]);
+  }, [championIdsToLoad]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Rank fetch — fires for each newly expanded matchId
+  // Rank fetch — fires when a new matchId is selected
   useEffect(() => {
-    if (expandedMatchIds.size === 0) return;
+    if (!selectedMatchId) return;
+    if (fetchedRankMatchIds.current.has(selectedMatchId)) return;
 
-    const controllers: AbortController[] = [];
+    const detail = matchDetails[selectedMatchId];
+    if (!detail?.info?.participants) return;
 
-    for (const matchId of expandedMatchIds) {
-      if (fetchedRankMatchIds.current.has(matchId)) continue;
-      const detail = matchDetails[matchId];
-      if (!detail?.info?.participants) continue;
+    const missing = detail.info.participants
+      .map((p) => p.puuid)
+      .filter((puuid): puuid is string => !!puuid && rankByPuuid[puuid] === undefined);
 
-      const missing = detail.info.participants
-        .map((p) => p.puuid)
-        .filter((puuid): puuid is string => !!puuid && rankByPuuid[puuid] === undefined);
+    fetchedRankMatchIds.current.add(selectedMatchId);
+    if (missing.length === 0) return;
 
-      if (missing.length === 0) {
-        fetchedRankMatchIds.current.add(matchId);
-        continue;
-      }
+    let isActive = true;
 
-      fetchedRankMatchIds.current.add(matchId);
-      let isActive = true;
-      controllers.push({abort: () => { isActive = false; }} as AbortController);
-
-      void apiGet<RankBatchResponse>(`/rank/batch?puuids=${missing.join(",")}`, {
-        cacheTtlMs: 3_600_000,
-      }).then((data) => {
-        if (!isActive) return;
-        setRankByPuuid((prev) => ({...prev, ...data}));
-      }).catch(() => {/* silently ignore rank errors */});
-    }
+    void apiGet<RankBatchResponse>(`/rank/batch?puuids=${missing.join(",")}`, {
+      cacheTtlMs: 3_600_000,
+    }).then((data) => {
+      if (!isActive) return;
+      setRankByPuuid((prev) => ({...prev, ...data}));
+    }).catch(() => {/* silently ignore rank errors */});
 
     return () => {
-      for (const c of controllers) c.abort();
+      isActive = false;
     };
-  }, [expandedMatchIds, matchDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedMatchId, matchDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Timeline fetch — fires for each newly expanded matchId
+  // Timeline fetch — fires when a new matchId is selected
   useEffect(() => {
-    if (expandedMatchIds.size === 0) return;
+    if (!selectedMatchId) return;
+    if (fetchedTimelineMatchIds.current.has(selectedMatchId)) return;
 
-    const cleanups: (() => void)[] = [];
+    const detail = matchDetails[selectedMatchId];
+    if (!detail?.info?.participants) return;
 
-    for (const matchId of expandedMatchIds) {
-      if (fetchedTimelineMatchIds.current.has(matchId)) continue;
-      const detail = matchDetails[matchId];
-      if (!detail?.info?.participants) continue;
+    const m = matches.find((x) => getMatchId(x) === selectedMatchId);
+    const participant = m ? getParticipantForMatch(m) : null;
+    const participantId = participant?.participantId;
+    if (!participantId) return;
 
-      const m = matches.find((x) => getMatchId(x) === matchId);
-      const participant = m ? getParticipantForMatch(m) : null;
-      const participantId = participant?.participantId;
-      if (!participantId) continue;
+    fetchedTimelineMatchIds.current.add(selectedMatchId);
+    let isActive = true;
 
-      fetchedTimelineMatchIds.current.add(matchId);
-      let isActive = true;
-      cleanups.push(() => { isActive = false; });
-
-      void apiGet<LaneStats>(
-        `/matches/${matchId}/timeline-stats?participant_id=${participantId}`
-      ).then((data) => {
-        if (!isActive) return;
-        setLaneStatsByMatchId((prev) => ({...prev, [matchId]: data}));
-      }).catch(() => {
-        if (!isActive) return;
-        setLaneStatsByMatchId((prev) => ({...prev, [matchId]: null}));
-      });
-    }
+    void apiGet<LaneStats>(
+      `/matches/${selectedMatchId}/timeline-stats?participant_id=${participantId}`
+    ).then((data) => {
+      if (!isActive) return;
+      setLaneStatsByMatchId((prev) => ({...prev, [selectedMatchId]: data}));
+    }).catch(() => {
+      if (!isActive) return;
+      setLaneStatsByMatchId((prev) => ({...prev, [selectedMatchId]: null}));
+    });
 
     return () => {
-      for (const cleanup of cleanups) cleanup();
+      isActive = false;
     };
-  }, [expandedMatchIds, matchDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedMatchId, matchDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {championById, rankByPuuid, laneStatsByMatchId};
 }

@@ -1,10 +1,9 @@
 "use client";
 
-import React, {useMemo, useState, useCallback} from "react";
+import {useMemo, useState, useCallback} from "react";
 import Image from "next/image";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "../MatchRow/MatchRow";
-import MatchDetailPanel from "../MatchDetailPanel/MatchDetailPanel";
 import Pagination from "../Pagination/Pagination";
 import SkeletonRows from "./SkeletonRows";
 import {COLUMNS} from "./constants";
@@ -46,7 +45,7 @@ export default function MatchesTable({
   paginationMeta = null,
   onPageChange,
 }: MatchesTableProps) {
-  const {expandedMatchIds, toggleMatch, closeMatch, clearAll} = useMatchSelection();
+  const {selectedMatchId, toggleMatch, closeMatch, clearAll} = useMatchSelection();
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
 
   /** Resolve queueId from detail or match-level fallback */
@@ -83,7 +82,7 @@ export default function MatchesTable({
   }, [getParticipantForMatch, matches]);
 
   const {championById, rankByPuuid, laneStatsByMatchId} = useMatchDetailData({
-    expandedMatchIds,
+    selectedMatchId,
     matches,
     matchDetails,
     getParticipantForMatch,
@@ -197,7 +196,9 @@ export default function MatchesTable({
 
   // Build KDA history per champion, keyed by matchId.
   // Only includes matches whose details have loaded; only entries with 2+ games on the champion are stored.
+  // Only computed when a row is expanded — avoids iterating all matches on every detail fetch.
   const championHistoryByMatchId = useMemo<Record<string, ChampionKdaPoint[]>>(() => {
+    if (!selectedMatchId) return {};
     const groupByChamp: Record<number, ChampionKdaPoint[]> = {};
 
     for (const match of matches) {
@@ -235,7 +236,7 @@ export default function MatchesTable({
       if (history && history.length > 1) result[matchId] = history;
     }
     return result;
-  }, [matches, matchDetails, getParticipantForMatch]);
+  }, [selectedMatchId, matches, matchDetails, getParticipantForMatch]);
 
   return (
     <div className={styles.wrapper}>
@@ -343,7 +344,7 @@ export default function MatchesTable({
               filteredMatches.map((match, index) => {
                 const matchId = getMatchId(match);
                 const detail = matchId ? (matchDetails[matchId] ?? null) : null;
-                const isExpanded = matchId ? expandedMatchIds.has(matchId) : false;
+                const isExpanded = matchId ? selectedMatchId === matchId : false;
                 const participant = getParticipantForMatch(match);
                 const championId = participant?.championId ?? null;
                 const champion =
@@ -354,37 +355,23 @@ export default function MatchesTable({
                   : [];
 
                 return (
-                  <React.Fragment key={matchId ?? `match-${index}`}>
-                    <MatchRow
-                      match={match}
-                      detail={detail}
-                      user={user}
-                      isSearchView={isSearchView}
-                      targetPuuid={targetPuuid}
-                      isSelected={isExpanded}
-                      index={index}
-                      championById={championById}
-                      onClick={() => matchId && toggleMatch(matchId)}
-                    />
-                    {isExpanded && matchId && (
-                      <tr>
-                        <td colSpan={COLUMNS.length} className={styles.panelCell}>
-                          <MatchDetailPanel
-                            match={match}
-                            detail={detail}
-                            champion={champion}
-                            user={user}
-                            isSearchView={isSearchView}
-                            targetPuuid={targetPuuid}
-                            rankByPuuid={rankByPuuid}
-                            laneStats={laneStats}
-                            championHistory={championHistory}
-                            onClose={() => closeMatch(matchId)}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                  <MatchRow
+                    key={matchId ?? `match-${index}`}
+                    match={match}
+                    detail={detail}
+                    user={user}
+                    isSearchView={isSearchView}
+                    targetPuuid={targetPuuid}
+                    isSelected={isExpanded}
+                    index={index}
+                    colCount={COLUMNS.length}
+                    champion={champion}
+                    rankByPuuid={rankByPuuid}
+                    laneStats={laneStats}
+                    championHistory={championHistory}
+                    onClick={() => matchId && toggleMatch(matchId)}
+                    onClose={() => matchId && closeMatch(matchId)}
+                  />
                 );
               })
             )}

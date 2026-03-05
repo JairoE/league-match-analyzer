@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-04
-**Branch:** `frontend-components-refactor`
-**Status:** STABLE — Champion pre-fetch filter restored
+**Last Updated:** 2026-03-05
+**Branch:** `frontend-refactor-match-row-relationships`
+**Status:** REFACTORING — MatchRow table row + match summary stats
 
 ## What's Built
 
@@ -227,6 +227,34 @@ Optional:
 
 - **Issue**: Champion effect was requesting every `championIdsToLoad` on each run; only the `setChampionById` updater skipped already-loaded IDs, so network/cache work still ran for all IDs.
 - **Fix**: Compute `missingIds = championIdsToLoad.filter((id) => championById[id] == null)` at effect start; early-return if `missingIds.length === 0`; call `apiGet` only for `missingIds`. Dependency array now includes `championById` so the filter sees current state.
+
+---
+
+## Recent Changes (2026-03-05)
+
+### Phase 3 Frontend Refactor — MatchRow table row + summary stats (`frontend-refactor-match-row-relationships`)
+
+**Branch:** `frontend-refactor-match-row-relationships`
+**Status:** REFACTORING
+
+#### What changed
+
+- **`MatchRow.tsx`** — converted from a card-style component to a proper `<tr>/<td>` table row. Renders inline `MatchDetailPanel` in a full-width expansion `<tr>` when `isSelected`. Keyboard accessible (Enter/Space). Champion icon uses `next/image` with `?` fallback.
+- **`MatchRow.module.css`** — new styles: `.rowEven`, `.rowOdd`, `.rowSelected` (blue tint + 2px primary outline), `.cell`, `.champion`, `.championIcon`, `.championIconFallback`, `.panelCell`.
+- **`match-utils.ts`** — added `getKdaRatio(participant)` and `getCsPerMinute(participant)` pure helpers.
+- **`MatchesTable.tsx`** — added `matchSummaryStats` memo (W/L record + best consecutive-win streak per champion); summary bar rendered above table. Added `championHistoryByMatchId` memo for KDA sparkline data passed to `MatchDetailPanel`.
+
+#### Bug fixes / simplifications (code review session)
+
+- **`useMatchSelection`** — simplified from `Set<string>` multi-selection to `string | null` single-selection. Eliminates `expandedMatchIds` Set, replaces with `selectedMatchId`. `toggleMatch`, `closeMatch`, `clearAll` still exported but now trivially simple.
+- **`useMatchDetailData`** — rank/timeline effects now each handle a single `selectedMatchId` string (no `for` loops over a Set). Rank effect replaced fake `AbortController` array with the same `isActive`/cleanup pattern used by timeline.
+- **`useMatchDetailData` champion effect** — removed `championById` from dep array (was causing a re-run after every champion load). `setChampionById` updater now bails early before spreading when nothing new to add (`toAdd.length === 0 → return prev`).
+- **`championHistoryByMatchId`** — gated behind `selectedMatchId != null`; returns `{}` early when no row is expanded, avoiding full-list iteration on every rank/champion fetch.
+
+#### Open questions
+
+- `queueId` is resolved in both `resolveQueueId` (MatchesTable) and inline in `MatchRow` (line 76). Low-priority duplication; could pass resolved `queueId` as a prop in a follow-up.
+- `MatchDetailPanel` is a thin wrapper around `MatchCard` + skeleton + close button. Could be inlined into `MatchRow` in a future cleanup pass.
 
 ---
 
