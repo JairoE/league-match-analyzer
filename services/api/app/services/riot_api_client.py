@@ -39,6 +39,7 @@ class RiotApiClient:
     MATCH_IDS_BY_PUUID_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/"
     MATCH_DETAIL_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/"
     MATCH_TIMELINE_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/"
+    SPECTATOR_BY_PUUID_URL = "https://na1.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/"
 
     # Retry configuration
     MAX_RETRIES = 3
@@ -207,6 +208,30 @@ class RiotApiClient:
         url = self.MATCH_TIMELINE_URL + quote(match_id) + "/timeline"
         payload = await self._get_json("match_timeline", url)
         return payload
+
+    async def fetch_active_game_by_puuid(self, puuid: str) -> dict[str, Any] | None:
+        """Retrieve active game data for a summoner by PUUID.
+
+        Retrieves: Spectator payload if the summoner is currently in-game.
+        Transforms: Returns None when Riot returns 404 (not in game).
+        Why: Powers the live game indicator on the frontend.
+
+        Args:
+            puuid: Riot PUUID.
+
+        Returns:
+            Active game payload, or None if not in game.
+        """
+        logger.info("riot_spectator_fetch_start", extra={"puuid": puuid})
+        url = self.SPECTATOR_BY_PUUID_URL + quote(puuid)
+        try:
+            payload = await self._get_json("spectator", url)
+            return payload if isinstance(payload, dict) else None
+        except RiotRequestError as exc:
+            if exc.status == 404:
+                logger.info("riot_spectator_not_in_game", extra={"puuid": puuid})
+                return None
+            raise
 
     async def _get_json(self, bucket: str, url: str) -> dict[str, Any] | list[Any]:
         """Make rate-limited GET request with retry logic.

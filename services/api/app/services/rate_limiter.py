@@ -54,6 +54,7 @@ class RiotRateLimiter:
         "rank": RateLimitConfig(max_requests=20, window_seconds=1),
         "match_ids": RateLimitConfig(max_requests=2000, window_seconds=10),
         "match_detail": RateLimitConfig(max_requests=2000, window_seconds=10),
+        "spectator": RateLimitConfig(max_requests=20, window_seconds=1),
     }
 
     # Backoff configuration

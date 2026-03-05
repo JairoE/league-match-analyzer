@@ -1,6 +1,7 @@
 "use client";
 
 import React, {useMemo, useState, useCallback} from "react";
+import Image from "next/image";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "../MatchRow/MatchRow";
 import MatchDetailPanel from "../MatchDetailPanel/MatchDetailPanel";
@@ -109,6 +110,91 @@ export default function MatchesTable({
     });
   }, [matches, resolveQueueId, activeTab]);
 
+  // Summary stats: win rate & best consecutive-win champion
+  const matchSummaryStats = useMemo(() => {
+    let wins = 0;
+    let total = 0;
+
+    // Track consecutive wins per champion (by championId)
+    const streakByChamp: Record<number, {
+      current: number;
+      best: number;
+      name: string | null;
+    }> = {};
+
+    // Process in chronological order (oldest first)
+    const sorted = [...filteredMatches].sort((a, b) => {
+      const tsA =
+        a.game_start_timestamp ?? a.gameCreation ?? 0;
+      const tsB =
+        b.game_start_timestamp ?? b.gameCreation ?? 0;
+      return tsA - tsB;
+    });
+
+    for (const match of sorted) {
+      const matchId = getMatchId(match);
+      const detail = matchId
+        ? (matchDetails[matchId] ?? null)
+        : null;
+      const participant = getParticipantForMatch(match);
+      if (!participant) continue;
+
+      const outcome = getMatchOutcome(
+        participant,
+        detail?.info?.gameDuration
+      );
+      if (outcome === "remake") continue;
+
+      total++;
+      const isWin = outcome === "victory";
+      if (isWin) wins++;
+
+      const champId = participant.championId;
+      if (typeof champId !== "number") continue;
+
+      if (!streakByChamp[champId]) {
+        streakByChamp[champId] = {
+          current: 0,
+          best: 0,
+          name: participant.championName ?? null,
+        };
+      }
+      const entry = streakByChamp[champId];
+      if (isWin) {
+        entry.current++;
+        if (entry.current > entry.best) {
+          entry.best = entry.current;
+        }
+      } else {
+        entry.current = 0;
+      }
+    }
+
+    // Find champion with highest best streak
+    let bestStreakChampId: number | null = null;
+    let bestStreakCount = 0;
+    let bestStreakName: string | null = null;
+    for (const [id, entry] of Object.entries(streakByChamp)) {
+      if (entry.best > bestStreakCount) {
+        bestStreakCount = entry.best;
+        bestStreakChampId = Number(id);
+        bestStreakName = entry.name;
+      }
+    }
+
+    return {
+      wins,
+      total,
+      bestStreakChampId,
+      bestStreakCount,
+      bestStreakName,
+    };
+  }, [
+    filteredMatches,
+    matchDetails,
+    getParticipantForMatch,
+  ]);
+
   // Build KDA history per champion, keyed by matchId.
   // Only includes matches whose details have loaded; only entries with 2+ games on the champion are stored.
   const championHistoryByMatchId = useMemo<Record<string, ChampionKdaPoint[]>>(() => {
@@ -178,6 +264,57 @@ export default function MatchesTable({
           </button>
         ))}
       </div>
+      {!isLoading && matchSummaryStats.total > 0 && (
+        <div className={styles.summaryBar}>
+          <div>
+            <span className={styles.summaryLabel}>
+              Record{" "}
+            </span>
+            <span
+              className={`${styles.summaryValue} ${styles.summaryWin}`}
+            >
+              {matchSummaryStats.wins}W
+            </span>
+            {" "}
+            <span
+              className={`${styles.summaryValue} ${styles.summaryLoss}`}
+            >
+              {matchSummaryStats.total - matchSummaryStats.wins}L
+            </span>
+          </div>
+          {matchSummaryStats.bestStreakCount >= 2 && (
+            <div className={styles.summaryStreak}>
+              <span className={styles.summaryLabel}>
+                Best Win Streak{" "}
+              </span>
+              {matchSummaryStats.bestStreakChampId != null &&
+                championById[
+                  matchSummaryStats.bestStreakChampId
+                ]?.image_url && (
+                  <Image
+                    className={styles.summaryChampIcon}
+                    src={
+                      championById[
+                        matchSummaryStats.bestStreakChampId
+                      ]!.image_url!
+                    }
+                    alt={
+                      matchSummaryStats.bestStreakName ?? ""
+                    }
+                    width={20}
+                    height={20}
+                    unoptimized
+                  />
+                )}
+              <span className={styles.summaryValue}>
+                {matchSummaryStats.bestStreakName ??
+                  "Unknown"}{" "}
+                x{matchSummaryStats.bestStreakCount}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
       <div className={styles.tableContainer}>
         <table className={styles.table}>
           <thead className={styles.thead}>

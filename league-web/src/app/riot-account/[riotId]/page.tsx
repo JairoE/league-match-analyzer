@@ -13,6 +13,8 @@ import {useAppError} from "../../../lib/errors/error-store";
 import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
 import {getMatchId} from "../../../lib/match-utils";
+import {useLiveGame} from "../../../lib/hooks/useLiveGame";
+import {LiveGameCard} from "../../../components/LiveGameCard";
 import type {MatchDetail, MatchSummary, PaginatedMatchList, PaginationMeta} from "../../../lib/types/match";
 import type {RiotAccountData} from "../../../lib/types/user";
 
@@ -44,6 +46,7 @@ export default function RiotAccountPage() {
   const {errorMessage, reportError, clearError} = useAppError("riotAccount.load");
 
   const accountPuuid = account?.puuid ?? null;
+  const {liveGame} = useLiveGame(accountPuuid);
   const displayLabel = account?.riot_id ?? riotId;
 
   // Check session (optional for search)
@@ -264,6 +267,13 @@ export default function RiotAccountPage() {
       />
 
       <SearchBar />
+
+      {liveGame && accountPuuid ? (
+        <LiveGameCard
+          game={liveGame}
+          targetPuuid={accountPuuid}
+        />
+      ) : null}
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
