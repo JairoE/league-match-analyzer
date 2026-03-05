@@ -67,7 +67,11 @@ async def list_riot_account_matches(
 
         # Pre-query backfill: populate game_info + game_start_timestamp for newly
         # upserted matches so they sort correctly on the first request.
-        await backfill_match_details_by_game_ids(session, match_ids)
+        await backfill_match_details_by_game_ids(
+            session,
+            match_ids,
+            max_fetch=limit,
+        )
 
         # Pre-fetch timelines in background for instant UX on row expand.
         background_tasks.add_task(

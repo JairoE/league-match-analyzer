@@ -307,6 +307,32 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-05, session 5)
+
+### Backend bug fix — page-1 stale ordering when `limit > 20`
+
+- **Root cause**: both page-1 routes fetched `limit` Riot match IDs, but pre-query backfill called `backfill_match_details_by_game_ids(...)` without `max_fetch`, so it defaulted to `20`. With `limit=50`, only ~20 newly upserted rows got `game_start_timestamp` before ordering; remaining new rows could still sort stale on first load.
+- **Fix**:
+  - `services/api/app/api/routers/matches.py` now calls:
+    - `backfill_match_details_by_game_ids(session, match_ids, max_fetch=limit)`
+  - `services/api/app/api/routers/search.py` now calls:
+    - `backfill_match_details_by_game_ids(session, match_ids, max_fetch=limit)`
+- **Why**: ensures pre-query backfill capacity matches requested page size so all page-1 candidates can be timestamped before DB ordering.
+- **Status**: REFACTORING (no blockers introduced by this fix).
+
+**Verification**:
+
+- `make test` — pass (19/19).
+- `npm --prefix league-web run lint` — pass with 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`).
+- `make lint` — still fails on pre-existing repo-wide backend lint noise; no new lint errors introduced by this change.
+
+**Next recommended steps**:
+
+1. Add targeted unit tests around `backfill_match_details_by_game_ids(..., max_fetch=limit)` behavior for `limit > 20`.
+2. Triage and baseline existing backend `ruff` violations so `make lint` can become a blocking signal again.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)
