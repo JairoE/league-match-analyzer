@@ -7,18 +7,22 @@ export type MatchOutcome = "victory" | "defeat" | "remake";
 
 /**
  * Determines match outcome for a participant.
- * Remake = game ended in early surrender AND duration < 300 seconds.
+ * Remake = early surrender flag OR duration ≤ 210 seconds (League remake window).
  *
- * Used by: MatchCard outcome styling, LLM normalize step.
+ * The duration fallback handles cases where gameEndedInEarlySurrender is absent
+ * from the stored payload (e.g. older cached game_info entries).
+ *
+ * Used by: MatchCard outcome styling, MatchRow result column, LLM normalize step.
  */
 export function getMatchOutcome(
   participant: Participant | null,
   gameDuration: number | undefined
 ): MatchOutcome {
   if (!participant) return "defeat";
+  const duration = gameDuration ?? 0;
   const isRemake =
-    participant.gameEndedInEarlySurrender === true &&
-    (gameDuration ?? 0) < 300;
+    participant.gameEndedInEarlySurrender === true ||
+    (duration > 0 && duration <= 210);
   if (isRemake) return "remake";
   return participant.win ? "victory" : "defeat";
 }

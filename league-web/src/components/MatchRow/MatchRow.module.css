@@ -67,3 +67,13 @@
 .unknown {
   color: var(--color-text-muted);
 }
+
+.remake {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.panelCell {
+  padding: 0;
+  border-bottom: 2px solid var(--color-border);
+}

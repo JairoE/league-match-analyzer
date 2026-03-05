@@ -1,10 +1,9 @@
 "use client";
 
-import React, {useMemo, useState, useCallback} from "react";
+import {useMemo, useState, useCallback} from "react";
 import Image from "next/image";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "../MatchRow/MatchRow";
-import MatchDetailPanel from "../MatchDetailPanel/MatchDetailPanel";
 import Pagination from "../Pagination/Pagination";
 import SkeletonRows from "./SkeletonRows";
 import {COLUMNS} from "./constants";
@@ -354,37 +353,23 @@ export default function MatchesTable({
                   : [];
 
                 return (
-                  <React.Fragment key={matchId ?? `match-${index}`}>
-                    <MatchRow
-                      match={match}
-                      detail={detail}
-                      user={user}
-                      isSearchView={isSearchView}
-                      targetPuuid={targetPuuid}
-                      isSelected={isExpanded}
-                      index={index}
-                      championById={championById}
-                      onClick={() => matchId && toggleMatch(matchId)}
-                    />
-                    {isExpanded && matchId && (
-                      <tr>
-                        <td colSpan={COLUMNS.length} className={styles.panelCell}>
-                          <MatchDetailPanel
-                            match={match}
-                            detail={detail}
-                            champion={champion}
-                            user={user}
-                            isSearchView={isSearchView}
-                            targetPuuid={targetPuuid}
-                            rankByPuuid={rankByPuuid}
-                            laneStats={laneStats}
-                            championHistory={championHistory}
-                            onClose={() => closeMatch(matchId)}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                  <MatchRow
+                    key={matchId ?? `match-${index}`}
+                    match={match}
+                    detail={detail}
+                    user={user}
+                    isSearchView={isSearchView}
+                    targetPuuid={targetPuuid}
+                    isSelected={isExpanded}
+                    index={index}
+                    colCount={COLUMNS.length}
+                    champion={champion}
+                    rankByPuuid={rankByPuuid}
+                    laneStats={laneStats}
+                    championHistory={championHistory}
+                    onClick={() => matchId && toggleMatch(matchId)}
+                    onClose={() => matchId && closeMatch(matchId)}
+                  />
                 );
               })
             )}
