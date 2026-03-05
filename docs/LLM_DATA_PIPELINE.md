@@ -45,7 +45,7 @@ No sub-minute interpolation is needed for the win probability model; the thesis 
 Compute $\Delta W$ for two action types in V1. Additional action types (champion kills, skill level-ups) can be added when data volume supports statistically significant results.
 
 ### Item Purchases
-- Action ($a$): `ITEMPURCHASED` — focus on legendary items only (107 items, clearest strategic signal)
+- Action ($a$): `ITEMPURCHASED` — focus on legendary items only (82 items in `LEGENDARY_ITEM_IDS`, clearest strategic signal)
 - Initial state ($x$): game state at the minute frame nearest to purchase time
 - Final state ($z$): game state when item is sold, destroyed, upgraded, or terminal match state
 - `ITEMUNDO` events are key signals of players correcting suboptimal decisions
@@ -106,6 +106,45 @@ The LLM is asked to:
 - Remove summoner name, account ID, PUUID from LLM payload
 - Never include API keys, tokens, or raw Riot payloads
 - Keep the LLM payload minimal and versioned; store schema version with every response
+
+## Implementation Status
+
+| Step | Status | Implementation |
+|------|--------|----------------|
+| 1. Ingest | **Done** | `extract_match_timeline_job` in `app/jobs/timeline_extraction.py`. Fetches timeline via `RiotApiClient.fetch_match_timeline()`, caches in Redis (`timeline:{matchId}`, 1h TTL). |
+| 2. Extract | **Done** | `extract_state_vectors()` in `app/services/state_vector.py` — per-minute `GameStateVector` with cumulative KDA/objective trackers. `extract_actions()` in `app/services/action_extraction.py` — legendary item purchases + objective kills with pre/post state linking. |
+| 3. Score | Not started | Requires training a logistic regression on `match_state_vector.features` + match outcomes. |
+| 4. Compute ΔW | Not started | `match_action` table has `delta_w`, `pre_win_prob`, `post_win_prob` columns ready (nullable). |
+| 5. Aggregate | Not started | No aggregation service yet. |
+| 6. Compare | Not started | No comparison service yet. |
+| 7. Prompt LLM | Not started | `llm_analysis` table exists with `input_payload`, `output_payload`, `recommendations` columns. |
+| 8. Store + Log | Not started | `LLMAnalysis` model ready with `schema_version`, `model_name`, token counts. |
+
+### DB tables (migration `20260305_0002`)
+
+- `match_state_vector` — per-minute game state features (JSONB), unique on `(match_id, minute)`
+- `match_action` — discrete actions with pre/post state refs and ΔW scoring columns
+- `llm_analysis` — LLM output persistence with schema versioning and token counts
+
+### Key files
+
+- `services/api/app/services/state_vector.py` — `GameStateVector`, `PlayerState`, `TeamState` dataclasses; `extract_state_vectors()`, `get_nearest_state_vector()`
+- `services/api/app/services/action_extraction.py` — `MatchAction` dataclass, `ActionType` enum, `LEGENDARY_ITEM_IDS` set (82 items); `extract_actions()`
+- `services/api/app/jobs/timeline_extraction.py` — `extract_match_timeline_job` ARQ job (idempotent, Redis-cached timeline fetch)
+- `services/api/app/models/match_state_vector.py` — `MatchStateVector` SQLModel
+- `services/api/app/models/match_action.py` — `MatchActionRecord` SQLModel
+- `services/api/app/models/llm_analysis.py` — `LLMAnalysis` SQLModel
+- `services/api/tests/test_state_vector.py` — 10 tests
+- `services/api/tests/test_action_extraction.py` — 12 tests
+
+### Next steps to continue
+
+1. Wire `extract_match_timeline_job` into the existing match ingestion flow (enqueue after `fetch_match_details_job` completes)
+2. Build a training data export: query `match_state_vector` features + match outcomes from `match.game_info`
+3. Train V1 logistic regression and expose as a scoring service
+4. Populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows
+5. Build aggregation queries and comparison logic
+6. Implement LLM prompt construction and `llm_analysis` persistence
 
 ## Future Extensions
 
