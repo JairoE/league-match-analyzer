@@ -119,6 +119,10 @@ async def test_fetch_match_by_id_returns_payload(monkeypatch: pytest.MonkeyPatch
 
     assert result == MATCH_PAYLOAD
     assert scripted.calls == 1
+    print(
+        f"[test_match_payload] match_id={MATCH_ID} -> "
+        f"payload keys: {list(result.keys())} | HTTP calls: {scripted.calls}"
+    )
 
 
 @pytest.mark.asyncio
@@ -131,6 +135,7 @@ async def test_fetch_match_by_id_calls_correct_url(monkeypatch: pytest.MonkeyPat
 
     assert scripted.last_url == MATCH_DETAIL_URL
     assert "/timeline" not in (scripted.last_url or "")
+    print(f"[test_match_url] Called: {scripted.last_url} (no /timeline suffix)")
 
 
 @pytest.mark.asyncio
@@ -143,6 +148,10 @@ async def test_fetch_match_timeline_returns_payload(monkeypatch: pytest.MonkeyPa
 
     assert result == TIMELINE_PAYLOAD
     assert scripted.calls == 1
+    print(
+        f"[test_timeline_payload] match_id={MATCH_ID} -> "
+        f"payload keys: {list(result.keys())} | HTTP calls: {scripted.calls}"
+    )
 
 
 @pytest.mark.asyncio
@@ -155,6 +164,7 @@ async def test_fetch_match_timeline_calls_correct_url(monkeypatch: pytest.Monkey
 
     assert scripted.last_url == MATCH_TIMELINE_URL
     assert scripted.last_url is not None and scripted.last_url.endswith("/timeline")
+    print(f"[test_timeline_url] Called: {scripted.last_url} (ends with /timeline)")
 
 
 @pytest.mark.asyncio
@@ -187,3 +197,8 @@ async def test_match_detail_and_timeline_share_same_match_id_in_url(
     assert timeline_scripted.last_url is not None
     # The timeline URL must be the detail URL + /timeline — same matchId, no UUID drift.
     assert timeline_scripted.last_url == detail_scripted.last_url + "/timeline"
+    print(
+        f"[test_url_consistency] Detail:   {detail_scripted.last_url}\n"
+        f"                       Timeline: {timeline_scripted.last_url}\n"
+        f"                       timeline == detail + '/timeline': True"
+    )

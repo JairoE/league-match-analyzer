@@ -83,6 +83,12 @@ async def test_riot_client_retries_5xx_then_succeeds(
         if isinstance(kwargs.get("tags"), dict)
     )
     assert any(record.message == "riot_request_start" for record in caplog.records)
+    print(
+        f"[test_retry_5xx] Sequence: 500 -> 200 | "
+        f"HTTP calls: {scripted.calls}, sleeps: {sleeps}, "
+        f"payload matchId={payload['matchId']} | "
+        f"Metric tags: {[kwargs.get('tags') for _, kwargs in metric_calls if kwargs.get('tags')]}"
+    )
 
 
 @pytest.mark.asyncio
@@ -133,4 +139,10 @@ async def test_riot_client_retries_network_then_raises(
     )
     assert any(
         record.message == "riot_request_network_retry" for record in caplog.records
+    )
+    print(
+        f"[test_retry_network] Sequence: 2x socket timeout -> RiotRequestError(502) | "
+        f"HTTP calls: {scripted.calls}, sleeps: {sleeps}, "
+        f"error status={exc_info.value.status} | "
+        f"Metric tags: {[kwargs.get('tags') for _, kwargs in metric_calls if kwargs.get('tags')]}"
     )

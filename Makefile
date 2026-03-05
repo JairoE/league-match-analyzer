@@ -53,3 +53,6 @@ lint:
 
 test:
 	./.venv/bin/pytest services/api services/llm
+
+test-logs:
+	./.venv/bin/pytest services/api services/llm -v -s

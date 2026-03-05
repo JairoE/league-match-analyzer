@@ -50,12 +50,14 @@ class TestRealTimelineStateVectors:
         frame_count = len(timeline["info"]["frames"])
         assert len(state_vectors) == frame_count
         assert frame_count > 0
+        print(f"[test_vectors_per_frame] {frame_count} frames -> {len(state_vectors)} vectors")
 
     def test_every_frame_has_10_players(self, state_vectors: list) -> None:
         for sv in state_vectors:
             assert len(sv.players) == 10, (
                 f"Minute {sv.minute}: expected 10 players, got {len(sv.players)}"
             )
+        print(f"[test_10_players] All {len(state_vectors)} frames have exactly 10 players")
 
     def test_player_ids_are_1_through_10(self, state_vectors: list) -> None:
         for sv in state_vectors:
@@ -63,6 +65,7 @@ class TestRealTimelineStateVectors:
             assert pids == list(range(1, 11)), (
                 f"Minute {sv.minute}: unexpected participant IDs {pids}"
             )
+        print(f"[test_player_ids] All {len(state_vectors)} frames have pids [1..10]")
 
     def test_team_assignment_consistent(self, state_vectors: list) -> None:
         for sv in state_vectors:
@@ -84,6 +87,10 @@ class TestRealTimelineStateVectors:
         assert late_gold > early_gold, (
             f"Expected late gold ({late_gold}) > early gold ({early_gold})"
         )
+        print(
+            f"[test_gold_increases] min2 total_gold={early_gold:,} -> "
+            f"min{state_vectors[-2].minute} total_gold={late_gold:,}"
+        )
 
     def test_levels_increase_over_time(self, state_vectors: list) -> None:
         """Average level should increase from start to end."""
@@ -92,6 +99,10 @@ class TestRealTimelineStateVectors:
         early_avg = sum(p.level for p in state_vectors[1].players) / 10
         late_avg = sum(p.level for p in state_vectors[-2].players) / 10
         assert late_avg > early_avg
+        print(
+            f"[test_levels_increase] min1 avg_level={early_avg:.1f} -> "
+            f"min{state_vectors[-2].minute} avg_level={late_avg:.1f}"
+        )
 
     def test_kda_totals_are_consistent(self, state_vectors: list) -> None:
         """Total kills across all players should equal total deaths."""
@@ -104,6 +115,10 @@ class TestRealTimelineStateVectors:
         assert total_deaths >= total_kills
         # But they should be close — most deaths are from champion kills
         assert total_kills > 0, "Expected at least some kills in a real game"
+        print(
+            f"[test_kda_totals] Final: kills={total_kills} "
+            f"deaths={total_deaths} (deaths >= kills due to executions)"
+        )
 
     def test_kda_is_cumulative(self, state_vectors: list) -> None:
         """KDA should never decrease between minutes."""
@@ -120,6 +135,10 @@ class TestRealTimelineStateVectors:
                     f"Deaths decreased for p{p_curr.participant_id} "
                     f"at minute {state_vectors[i].minute}"
                 )
+        print(
+            f"[test_kda_cumulative] Verified kills/deaths never decrease "
+            f"across {len(state_vectors)} frames x 10 players"
+        )
 
     def test_objectives_are_cumulative(self, state_vectors: list) -> None:
         """Objective counts should never decrease between minutes."""
@@ -130,6 +149,14 @@ class TestRealTimelineStateVectors:
                 assert curr.dragons_killed >= prev.dragons_killed
                 assert curr.barons_killed >= prev.barons_killed
                 assert curr.turrets_destroyed >= prev.turrets_destroyed
+        final_t100 = state_vectors[-1].teams[100]
+        final_t200 = state_vectors[-1].teams[200]
+        print(
+            f"[test_objectives_cumulative] Verified across {len(state_vectors)} frames | "
+            f"Final: t100({final_t100.dragons_killed}D {final_t100.barons_killed}B "
+            f"{final_t100.turrets_destroyed}T) t200({final_t200.dragons_killed}D "
+            f"{final_t200.barons_killed}B {final_t200.turrets_destroyed}T)"
+        )
 
     def test_feature_dict_has_expected_keys(self, state_vectors: list) -> None:
         """Feature dict should have all expected key prefixes."""
@@ -169,11 +196,16 @@ class TestRealTimelineActions:
         item_actions = [a for a in actions if a.action_type == ActionType.ITEM_PURCHASE]
         # A real 40-min game should have many legendary purchases
         assert len(item_actions) > 0, "Expected at least one legendary item purchase"
+        print(
+            f"[test_item_purchases] Found {len(item_actions)} "
+            f"legendary item purchases in real game"
+        )
 
     def test_extracts_some_objectives(self, actions: list) -> None:
         obj_actions = [a for a in actions if a.action_type == ActionType.OBJECTIVE_KILL]
         # A real 40-min game should have dragons/barons
         assert len(obj_actions) > 0, "Expected at least one objective kill"
+        print(f"[test_objectives] Found {len(obj_actions)} objective kills in real game")
 
     def test_all_actions_have_valid_participant_ids(self, actions: list) -> None:
         for a in actions:
@@ -209,6 +241,10 @@ class TestRealTimelineActions:
     def test_actions_sorted_by_timestamp(self, actions: list) -> None:
         timestamps = [a.timestamp_ms for a in actions]
         assert timestamps == sorted(timestamps)
+        print(
+            f"[test_actions_sorted] {len(actions)} actions sorted by "
+            f"timestamp ({timestamps[0]}ms .. {timestamps[-1]}ms)"
+        )
 
     def test_item_purchases_have_item_id(self, actions: list) -> None:
         for a in actions:
@@ -229,6 +265,9 @@ class TestRealTimelineActions:
         teams_with_actions = {a.team_id for a in actions}
         assert 100 in teams_with_actions, "Team 100 had no actions"
         assert 200 in teams_with_actions, "Team 200 had no actions"
+        t100_count = sum(1 for a in actions if a.team_id == 100)
+        t200_count = sum(1 for a in actions if a.team_id == 200)
+        print(f"[test_both_teams] Team 100: {t100_count} actions, Team 200: {t200_count} actions")
 
     def test_print_extraction_summary(
         self, actions: list, state_vectors: list

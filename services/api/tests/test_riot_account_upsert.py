@@ -80,3 +80,9 @@ async def test_upsert_riot_account_recovers_from_insert_race() -> None:
     assert account.summoner_level == 20
     # First flush fails during insert race, second flush persists updates.
     assert session.flush_calls == 2
+    print(
+        f"[test_upsert_race] IntegrityError on flush #1 -> retry SELECT -> "
+        f"updated existing account: name={account.summoner_name} "
+        f"icon={account.profile_icon_id} level={account.summoner_level} | "
+        f"flush_calls={session.flush_calls} execute_calls={session.execute_calls}"
+    )

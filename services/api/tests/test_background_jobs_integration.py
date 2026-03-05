@@ -35,6 +35,11 @@ def test_worker_settings_registers_cron_job() -> None:
     assert cron_job.run_at_startup is settings.arq_cron_run_at_startup
     assert 0 in cron_job.minute
     assert 21 not in cron_job.minute
+    print(
+        f"[test_cron_registration] coroutine={cron_job.coroutine.__name__} "
+        f"minute={cron_job.minute} hour={cron_job.hour} "
+        f"run_at_startup={cron_job.run_at_startup}"
+    )
 
 
 @pytest.mark.asyncio
@@ -68,6 +73,11 @@ async def test_sync_all_riot_accounts_matches_enqueues_all_active_accounts(
     assert len(redis.calls) == 2
     assert all(name == "fetch_riot_account_matches_job" for name, _, _ in redis.calls)
     assert all("_job_id" in kwargs for _, _, kwargs in redis.calls)
+    job_names = [name for name, _, _ in redis.calls]
+    print(
+        f"[test_sync_accounts] {result['total_accounts']} accounts -> "
+        f"{len(redis.calls)} jobs enqueued: {job_names}"
+    )
 
 
 @pytest.mark.asyncio
@@ -100,9 +110,14 @@ async def test_enqueue_detail_jobs_batches_of_five(monkeypatch: pytest.MonkeyPat
     await match_ingestion._enqueue_detail_jobs({"redis": redis}, match_ids)
 
     assert len(redis.calls) == 3
-    assert [len(args[0]) for _, args, _ in redis.calls] == [5, 5, 2]
+    batch_sizes = [len(args[0]) for _, args, _ in redis.calls]
+    assert batch_sizes == [5, 5, 2]
     assert all(name == "fetch_match_details_job" for name, _, _ in redis.calls)
     assert all("_job_id" in kwargs for _, _, kwargs in redis.calls)
+    print(
+        f"[test_batching] 12 match IDs -> {len(redis.calls)} batches, "
+        f"sizes={batch_sizes}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +160,14 @@ async def test_enqueue_missing_detail_jobs_batches_of_five(
 
     assert result == 12
     assert len(redis.calls) == 3
-    assert [len(args[0]) for _, args, _ in redis.calls] == [5, 5, 2]
+    batch_sizes = [len(args[0]) for _, args, _ in redis.calls]
+    assert batch_sizes == [5, 5, 2]
     assert all(name == "fetch_match_details_job" for name, _, _ in redis.calls)
     assert all("_job_id" in kwargs for _, _, kwargs in redis.calls)
+    print(
+        f"[test_enqueue_missing] 12 missing IDs -> enqueued={result}, "
+        f"batches={batch_sizes}"
+    )
 
 
 @pytest.mark.asyncio
@@ -184,6 +204,10 @@ async def test_enqueue_missing_detail_jobs_none_missing(
 
     assert result == 0
     assert len(redis.calls) == 0
+    print(
+        f"[test_none_missing] DB returned 0 missing -> "
+        f"enqueued={result}, redis calls={len(redis.calls)}"
+    )
 
 
 @pytest.mark.asyncio
@@ -221,9 +245,14 @@ async def test_enqueue_missing_detail_jobs_accepts_explicit_pool(
     assert len(redis.calls) == 1
     assert redis.calls[0][0] == "fetch_match_details_job"
     assert "_job_id" in redis.calls[0][2]
+    print(
+        f"[test_explicit_pool] 2 IDs with pool= param -> "
+        f"enqueued={result}, job={redis.calls[0][0]}"
+    )
 
 
 @pytest.mark.asyncio
 async def test_enqueue_missing_detail_jobs_empty_input() -> None:
     result = await enqueue_match_details.enqueue_missing_detail_jobs([])
     assert result == 0
+    print(f"[test_empty_input] Empty match_ids list -> enqueued={result} (early return)")
