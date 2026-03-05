@@ -286,7 +286,7 @@ export default function MatchesTable({
           {matchSummaryStats.bestStreakCount >= 2 && (
             <div className={styles.summaryStreak}>
               <span className={styles.summaryLabel}>
-                Best Win Streak{" "}
+                Best Champion Win Streak{" "}
               </span>
               {matchSummaryStats.bestStreakChampId != null &&
                 championById[

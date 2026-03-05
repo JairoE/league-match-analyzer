@@ -159,6 +159,72 @@ async def _enqueue_detail_jobs(ctx: dict, match_ids: list[str]) -> None:
         )
 
 
+async def fetch_timeline_cache_job(ctx: dict, match_ids: list[str]) -> dict:
+    """Pre-fetch and cache match timelines in Redis.
+
+    For each match ID, checks Redis for ``timeline:{match_id}``.
+    Skips if already cached.  Fetches from Riot API and stores
+    indefinitely (historical matches never change).
+
+    Args:
+        ctx: ARQ worker context.
+        match_ids: Riot match ID strings.
+
+    Returns:
+        Dict with cached count and any errors.
+    """
+    import json
+
+    from app.services.cache import get_redis
+
+    logger.info(
+        "fetch_timeline_cache_job_start",
+        extra={"match_count": len(match_ids)},
+    )
+
+    redis = get_redis()
+    client: RiotApiClient = ctx.get("riot_client") or RiotApiClient()
+    cached = 0
+    errors: list[dict] = []
+
+    for match_id in match_ids:
+        riot_match_id, _ = normalize_match_id(match_id)
+        cache_key = f"timeline:{riot_match_id}"
+
+        existing = await redis.get(cache_key)
+        if existing is not None:
+            logger.debug(
+                "fetch_timeline_cache_job_already_cached",
+                extra={"match_id": riot_match_id},
+            )
+            continue
+
+        try:
+            timeline = await client.fetch_match_timeline(riot_match_id)
+            await redis.set(cache_key, json.dumps(timeline))
+            cached += 1
+            logger.info(
+                "fetch_timeline_cache_job_cached",
+                extra={"match_id": riot_match_id},
+            )
+        except RiotRequestError as exc:
+            logger.error(
+                "fetch_timeline_cache_job_error",
+                extra={
+                    "match_id": riot_match_id,
+                    "status": exc.status,
+                    "message": exc.message,
+                },
+            )
+            errors.append({"match_id": riot_match_id, "error": exc.message})
+
+    logger.info(
+        "fetch_timeline_cache_job_done",
+        extra={"cached": cached, "errors": len(errors)},
+    )
+    return {"status": "ok" if not errors else "partial", "cached": cached, "errors": errors}
+
+
 async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
     """Batch fetch match details for a list of match IDs.
 

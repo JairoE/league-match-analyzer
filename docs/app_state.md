@@ -258,6 +258,26 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-05, session 2)
+
+### Bug fix — Refresh shows stale matches (requires two presses)
+
+- **Root cause**: On page 1, `fetch_match_list_for_riot_account()` upserts new Match records with `game_info=NULL` / `game_start_timestamp=NULL`. The subsequent `list_matches_for_riot_account()` orders by `game_start_timestamp DESC NULLS LAST`, pushing new matches to the bottom. The inline backfill only operates on the already-returned (old) matches. New matches never get backfilled until the second request.
+- **Fix (8 files)**:
+  - `riot_sync.py` — new `backfill_match_details_by_game_ids(session, game_ids)` queries Match records by game ID where `game_info IS NULL`, fetches details from Riot API, persists `game_info` + `game_start_timestamp`.
+  - `matches.py` — calls `backfill_match_details_by_game_ids()` **before** the ordering query on page 1. Background task switched from detail enqueue to timeline pre-fetch.
+  - `search.py` — same pre-query backfill + timeline enqueue swap.
+  - `enqueue_match_timelines.py` *(new)* — `enqueue_missing_timeline_jobs()` enqueues `fetch_timeline_cache_job` per batch with deterministic `_job_id`.
+  - `match_timeline_enqueue.py` *(new)* — fire-and-forget wrapper `enqueue_timelines_background()`.
+  - `match_ingestion.py` — new `fetch_timeline_cache_job`: checks Redis (`timeline:{match_id}`), fetches from Riot if absent, caches indefinitely.
+  - `background_jobs.py` — registered `fetch_timeline_cache_job` in `WorkerSettings.functions`.
+  - `jobs/__init__.py` — exported `fetch_timeline_cache_job`.
+- **Why timeline enqueue instead of detail enqueue**: Details are now backfilled inline (pre-query). Background work shifts to pre-caching timelines so row-expand loads instantly.
+- **Safety net**: post-query `backfill_match_details_inline()` remains as a fallback for edge cases.
+- **Tests**: 19/19 pass. No new lint issues.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)

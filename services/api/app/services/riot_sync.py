@@ -245,6 +245,88 @@ async def backfill_match_details_inline(
     return fetched
 
 
+async def backfill_match_details_by_game_ids(
+    session: AsyncSession,
+    game_ids: list[str],
+    max_fetch: int = 20,
+) -> int:
+    """Fetch missing game_info for matches identified by Riot game IDs.
+
+    Unlike ``backfill_match_details_inline`` (which operates on already-loaded
+    Match objects), this queries the DB for Match records whose ``game_id`` is in
+    ``game_ids`` and whose ``game_info`` is NULL, then fetches details from Riot.
+    Call this *before* the ordering query so new matches get timestamps and sort
+    correctly on the first request.
+
+    Args:
+        session: Async database session.
+        game_ids: Riot match ID strings (e.g. ``["NA1_12345", ...]``).
+        max_fetch: Maximum number of Riot API calls to make.
+
+    Returns:
+        Number of matches backfilled.
+    """
+    if not game_ids:
+        return 0
+
+    from sqlalchemy import String, cast, or_
+
+    result = await session.execute(
+        select(Match).where(
+            Match.game_id.in_(game_ids),
+            or_(
+                Match.game_info.is_(None),
+                cast(Match.game_info, String) == "null",
+            ),
+        )
+    )
+    missing = list(result.scalars().all())
+
+    if not missing:
+        logger.info(
+            "backfill_by_game_ids_none_needed",
+            extra={"checked": len(game_ids)},
+        )
+        return 0
+
+    logger.info(
+        "backfill_by_game_ids_start",
+        extra={"missing": len(missing), "max_fetch": max_fetch},
+    )
+
+    fetched = 0
+    async with RiotApiClient() as client:
+        for match in missing[:max_fetch]:
+            try:
+                riot_match_id, _ = normalize_match_id(match.game_id)
+                payload = await client.fetch_match_by_id(riot_match_id)
+                match.game_info = payload
+                if (
+                    payload
+                    and "info" in payload
+                    and "gameStartTimestamp" in payload["info"]
+                ):
+                    match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+                fetched += 1
+            except Exception:
+                logger.exception(
+                    "backfill_by_game_ids_error",
+                    extra={"game_id": match.game_id},
+                )
+
+    if fetched:
+        await session.commit()
+        for match in missing[:max_fetch]:
+            if match.game_info:
+                await session.refresh(match)
+
+    logger.info(
+        "backfill_by_game_ids_done",
+        extra={"fetched": fetched, "total_missing": len(missing)},
+    )
+    return fetched
+
+
 def _get_cs(frame: dict) -> int:
     """Extract total CS (minions + neutrals) from a timeline participant frame."""
     return frame.get("minionsKilled", 0) + frame.get("jungleMinionsKilled", 0)
