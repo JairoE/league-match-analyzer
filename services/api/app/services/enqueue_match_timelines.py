@@ -35,12 +35,19 @@ async def enqueue_missing_timeline_jobs(
     if not match_ids:
         return 0
 
-    redis = get_redis()
-    normalized = [(mid, normalize_match_id(mid)[0]) for mid in match_ids]
-    cache_keys = [f"timeline:{riot_id}" for _, riot_id in normalized]
+    try:
+        redis = get_redis()
+        normalized = [(mid, normalize_match_id(mid)[0]) for mid in match_ids]
+        cache_keys = [f"timeline:{riot_id}" for _, riot_id in normalized]
 
-    cached_values = await redis.mget(cache_keys)
-    uncached = [mid for (mid, _), val in zip(normalized, cached_values) if val is None]
+        cached_values = await redis.mget(cache_keys)
+        uncached = [mid for (mid, _), val in zip(normalized, cached_values) if val is None]
+    except Exception:
+        logger.warning(
+            "enqueue_missing_timelines_redis_unavailable",
+            extra={"match_count": len(match_ids)},
+        )
+        uncached = list(match_ids)
 
     if not uncached:
         logger.info(

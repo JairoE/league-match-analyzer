@@ -292,7 +292,6 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
 
                     payload = await client.fetch_match_by_id(riot_match_id)
 
-                    # Update match record
                     result = await session.execute(
                         select(Match).where(Match.game_id == match_id)
                     )
@@ -338,10 +337,31 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
                             "status": str(exc.status or 0),
                         },
                     )
+                except Exception:
+                    logger.exception(
+                        "fetch_match_details_job_unexpected_error",
+                        extra={"match_id": match_id},
+                    )
+                    errors.append({"match_id": match_id, "error": "unexpected_error"})
+
+                    # Commit progress so far before potentially exiting
+                    if pending_commit:
+                        await session.commit()
+                        pending_commit = False
+                        logger.info(
+                            "fetch_match_details_job_mid_batch_commit",
+                            extra={"fetched_so_far": fetched},
+                        )
 
             if pending_commit:
                 await session.commit()
+                pending_commit = False
         finally:
+            if pending_commit:
+                try:
+                    await session.commit()
+                except Exception:
+                    logger.exception("fetch_match_details_job_final_commit_failed")
             if not shared_client:
                 await client.close()
 

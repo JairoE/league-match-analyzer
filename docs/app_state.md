@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-06
 **Branch:** `backend-tests-refactor`
-**Status:** STABLE — 41/41 tests pass, lint clean
+**Status:** STABLE — 41/41 tests pass, lint clean, race-condition blocker resolved
 
 ## What's Built
 
@@ -47,11 +47,11 @@
 
 ## Open Tickets / Blockers
 
-| Ticket                                                                                                                                        | File                                                             | Status   |
-| --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------- |
-| Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_user_upsert.py` | **OPEN** |
+| Ticket                                                                                                                                        | File                                                             | Status       |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------ |
+| Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
-**Fix required**: Replace select-then-insert with `INSERT ... ON CONFLICT DO NOTHING/DO UPDATE` for `Match` (by `game_id`), `User` (by `puuid`), and `RiotAccountMatch` (by `(user_id, match_id)`).
+**Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
 
 ---
 
@@ -677,6 +677,50 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-06, session 15)
+
+### Tier 1 — Production reliability fixes
+
+**Branch:** `backend-tests-refactor`
+**Status:** STABLE — 41/41 tests pass, lint clean.
+
+#### #1 — Race condition eliminated (`match_sync.py`)
+- **Before**: `upsert_matches_for_riot_account` used select-then-insert for both `Match` and `RiotAccountMatch`. Concurrent requests for the same summoner could hit `IntegrityError`.
+- **After**: Uses `INSERT ... ON CONFLICT DO NOTHING` (PostgreSQL dialect) for both tables. Match rows inserted atomically by `game_id` unique constraint; link rows by `uq_riot_account_match` constraint. No more select-then-insert loop.
+
+#### #2 — Race condition eliminated (`riot_account_upsert.py`)
+- **Before**: `ensure_user_riot_account_link` used select-then-insert. `upsert_user_and_riot_account` created `User` via `get_user_by_email` + `session.add` — race-prone.
+- **After**: `ensure_user_riot_account_link` uses `INSERT ... ON CONFLICT DO NOTHING` on `uq_user_riot_account` constraint, then selects to return the record. New `_upsert_user_by_email` uses `INSERT ... ON CONFLICT DO NOTHING` on `email` unique index. `upsert_riot_account` retains its existing savepoint+retry pattern (already safe).
+
+#### #3 — Redis resilience in timeline enqueue (`enqueue_match_timelines.py`)
+- **Before**: `get_redis()` and `redis.mget()` were outside the try/except. If Redis was down, the background task crashed silently with no log.
+- **After**: Both calls wrapped in try/except. On Redis failure, logs `enqueue_missing_timelines_redis_unavailable` and falls back to enqueueing all match IDs (safe — the per-job Redis check is the second dedup layer).
+
+#### #4 — Mid-batch commit safety in `fetch_match_details_job` (`match_ingestion.py`)
+- **Before**: Single `session.commit()` after the loop. If match 6/10 raised an unexpected error, matches 1–5 were never committed.
+- **After**: Unexpected exceptions trigger an immediate commit of progress so far, then continue. `finally` block catches any remaining dirty state. `RiotRequestError` still skips commit (expected transient failure). Loop-end commit resets the `pending_commit` flag to prevent double-commit in `finally`.
+
+**Verification**:
+- `make test` — pass (41/41).
+- `ruff check` — pass on all changed files.
+
+---
+
+## Recent Changes (2026-03-06, session 16)
+
+### Frontend refactor — `useMatchList` custom hook extraction
+
+- **New file**: `league-web/src/lib/hooks/useMatchList.ts` (~100 lines)
+  - Encapsulates: match fetching, `matchDetails` seeding from `game_info`, polling for missing details, pagination state, refresh logic.
+  - Parameterized via `matchesUrl(page)` callback, `errorScope`, `enabled` flag, optional `cacheOptions`, `onFetchError` interceptor, and `resetKey`.
+  - Config values (`cacheOptions`, `logTag`, `onFetchError`) stored in refs to avoid triggering re-fetches.
+- **Refactored**: `league-web/src/app/home/page.tsx` — 247 → ~135 lines. Removed ~100 lines of duplicated state/effects. Rank fetch separated into its own effect (was previously `Promise.all`'d with matches).
+- **Refactored**: `league-web/src/app/riot-account/[riotId]/page.tsx` — 313 → ~195 lines. Removed ~130 lines of duplicated state/effects. Account fetch, decode error handling, `pageError` merge, and session check remain page-specific. Riot 404 error interception handled via `onFetchError` callback.
+- **No behavior changes** — identical fetch URLs, cache policies, polling logic, and error handling as before.
+- **Verification**: `npm run lint` — pass (1 pre-existing AuthForm warning unchanged). `npm run build` — clean.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)
@@ -691,7 +735,7 @@ Optional:
   - `docs/MATCHCARD_REDESIGN.md`
   - `docs/app_state.md`
 
-1. **Fix race condition** (see Open Tickets) — highest priority, blocks production reliability.
+1. ~~**Fix race condition**~~ — **DONE** (session 15).
 2. **Step 2** — Live Game integration (lowest priority, requires polling architecture + `LiveGameCard` component).
 3. **Consider server-side queue filtering** — current tab filtering is client-side.
 4. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
