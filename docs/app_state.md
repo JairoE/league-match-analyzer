@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-05
-**Branch:** `frontend-refactor-match-row-relationships`
-**Status:** REFACTORING — MatchRow table row + match summary stats
+**Last Updated:** 2026-03-06
+**Branch:** `frontend-refresh-btn-stale-data-fix`
+**Status:** REFACTORING — backend hardening follow-ups (single strict lint gate)
 
 ## What's Built
 
@@ -379,6 +379,123 @@ Optional:
 - **Next recommended steps**:
   1. Keep request-flow docs synchronized whenever queue/job wiring changes.
   2. Add a short "Flow changed?" checklist item to future backend PR descriptions for `matches.py` / `search.py` edits.
+
+---
+
+## Recent Changes (2026-03-06, session 8)
+
+### Branch review + follow-up execution
+
+- **Review outcome**:
+  - Confirmed the highest-priority race-condition blocker remains open in:
+    - `services/api/app/services/match_sync.py` (`upsert_matches_for_riot_account` uses select-then-insert flow)
+    - `services/api/app/services/riot_account_upsert.py` (`ensure_user_riot_account_link` uses select-then-insert flow)
+  - Existing `upsert_riot_account` already includes nested transaction + retry-on-`IntegrityError`, but link and match upserts still need atomic conflict-safe writes.
+
+### 1) Targeted tests for `backfill_match_details_by_game_ids(..., max_fetch=limit)` with `limit > 20`
+
+- **New file**: `services/api/tests/test_riot_sync_backfill.py`
+- **Added tests**:
+  - `test_backfill_by_game_ids_honors_max_fetch_above_default_20` — validates `max_fetch=25` backfills 25/30 matches and commits once.
+  - `test_backfill_by_game_ids_can_fetch_all_when_max_fetch_exceeds_missing` — validates `max_fetch=50` backfills all 30 matches.
+- **Why**: guards page-1 correctness for larger `limit` values and prevents regression to implicit 20-fetch behavior.
+
+### 2) Repo-wide backend lint-noise baseline
+
+- **New tooling**:
+  - `scripts/update_ruff_baseline.py` — captures and normalizes current ruff violations into `scripts/ruff_baseline.json`.
+  - `scripts/check_ruff_new_violations.py` — runs ruff and fails only on violations not present in the baseline.
+- **Make targets added**:
+  - `make lint-baseline`
+  - `make lint-new`
+- **Baseline snapshot**:
+  - `scripts/ruff_baseline.json` currently tracks **63** known violations.
+- **Why**: allows lint to become a reliable blocking signal for *new* issues while existing noise is burned down incrementally.
+
+### Verification
+
+- `./.venv/bin/pytest services/api/tests/test_riot_sync_backfill.py` — pass (2/2).
+- `make test` — pass (21/21).
+- `make lint` — still fails on pre-existing repo-wide ruff noise (expected).
+- `make lint-new` — pass (no new violations vs baseline).
+- `npm --prefix league-web run lint` — pass with 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`).
+
+### Blockers / open questions
+
+- **Still open**: race-condition hardening in `match_sync.py` and `riot_account_upsert.py` remains the top reliability blocker.
+- **Operational note**: if large lint cleanup shifts line numbers substantially, refresh baseline via `make lint-baseline`.
+
+---
+
+## Recent Changes (2026-03-06, session 9)
+
+### Lint policy simplification — single strict gate
+
+- **What changed**:
+  - `Makefile` now exposes one lint command path: `make lint`.
+  - `make lint` now runs:
+    - backend Ruff: `./.venv/bin/ruff check services/api services/llm`
+    - frontend lint: `npm --prefix league-web run lint`
+  - Removed baseline-only targets:
+    - `make lint-baseline`
+    - `make lint-new`
+  - Removed baseline scripts/artifacts:
+    - `scripts/update_ruff_baseline.py`
+    - `scripts/check_ruff_new_violations.py`
+    - `scripts/ruff_baseline.json`
+- **Why**: project policy switched to one future-facing lint command with no legacy baseline support.
+- **Current phase/status**: REFACTORING (tooling simplification complete; strict lint is now canonical).
+- **Blockers / open questions**:
+  - None for tooling shape.
+  - Any existing backend Ruff violations must now be fixed directly because baseline bypass was removed.
+
+---
+
+## Recent Changes (2026-03-06, session 10)
+
+### Centralized Riot test payload fixtures + router coverage
+
+- **What changed**:
+  - Added live-capture utility:
+    - `scripts/capture_riot_test_fixtures.py`
+    - Captures and writes canonical Riot fixtures for `damanjr#NA1`:
+      - account payload
+      - summoner payload
+      - match IDs payload
+      - match detail payload
+      - match timeline payload
+      - `manifest.json` to map canonical fixture names to files
+  - Added centralized fixture loader:
+    - `services/api/tests/fixtures/riot_payloads.py`
+    - Shared helpers: `fixture_meta()`, `load_account_info()`, `load_summoner_info()`,
+      `load_match_ids()`, `load_match_detail()`, `load_match_timeline()`
+  - Added fixture capture Make target:
+    - `make capture-riot-fixtures`
+  - Refactored Riot-related tests to use centralized real payload fixtures instead of
+    handcrafted inline payload dicts:
+    - `services/api/tests/test_riot_api_client_match_fetch.py`
+    - `services/api/tests/test_riot_api_client_retry.py`
+    - `services/api/tests/test_riot_sync_backfill.py`
+    - `services/api/tests/test_riot_account_upsert.py`
+  - Added router-level coverage for captured payload chain:
+    - `services/api/tests/test_search_router_riot_fixtures.py`
+    - Verifies page-1 `/search/{riot_id}/matches` call path invokes
+      account -> summoner -> match IDs with `count=limit`, then upsert/backfill/enqueue.
+  - Added fixture contract test:
+    - `services/api/tests/test_riot_payload_fixtures_contract.py`
+    - Validates required keys and cross-fixture consistency (`puuid`, `primary_match_id`).
+- **Why**: removes drift between tests and Riot payload reality, and centralizes fixture
+  maintenance so all backend tests share one source of truth.
+- **Current phase/status**: REFACTORING — backend hardening follow-ups (fixture realism + test
+  maintainability).
+- **Blockers / open questions**:
+  - `make lint` still reports existing repo-wide Ruff violations unrelated to this change.
+  - Frontend lint retains 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx`.
+- **Verification**:
+  - Targeted pytest for updated files: pass (12/12).
+  - `make test`: pass (23/23).
+  - Ruff on edited files: pass.
+  - `npm --prefix league-web run lint`: pass with 1 pre-existing warning.
 
 ---
 

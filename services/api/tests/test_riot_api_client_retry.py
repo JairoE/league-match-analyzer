@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
+from tests.fixtures.riot_payloads import fixture_meta, load_match_detail
 
 
 class _FakeRateLimiter:
@@ -44,11 +45,13 @@ async def test_riot_client_retries_5xx_then_succeeds(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO)
-    url = "https://americas.api.riotgames.com/lol/match/v5/matches/NA1_1"
+    match_id = str(fixture_meta()["primary_match_id"])
+    url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{match_id}"
+    match_payload = load_match_detail()
     scripted = _ScriptedClient(
         [
-            _response(500, {"status": "error"}, url),
-            _response(200, {"matchId": "NA1_1"}, url),
+            _response(500, match_payload, url),
+            _response(200, match_payload, url),
         ]
     )
 
@@ -72,9 +75,9 @@ async def test_riot_client_retries_5xx_then_succeeds(
     monkeypatch.setattr("app.services.riot_api_client.asyncio.sleep", _fake_sleep)
     monkeypatch.setattr("app.services.riot_api_client.increment_metric_safe", _fake_metric)
 
-    payload = await client.fetch_match_by_id("NA1_1")
+    payload = await client.fetch_match_by_id(match_id)
 
-    assert payload["matchId"] == "NA1_1"
+    assert payload["metadata"]["matchId"] == match_id
     assert scripted.calls == 2
     assert len(sleeps) == 1
     assert any(
@@ -90,7 +93,8 @@ async def test_riot_client_retries_network_then_raises(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO)
-    url = "https://americas.api.riotgames.com/lol/match/v5/matches/NA1_2"
+    match_id = str(fixture_meta()["primary_match_id"])
+    url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{match_id}"
     request = httpx.Request("GET", url)
     scripted = _ScriptedClient(
         [
@@ -121,7 +125,7 @@ async def test_riot_client_retries_network_then_raises(
     monkeypatch.setattr("app.services.riot_api_client.increment_metric_safe", _fake_metric)
 
     with pytest.raises(RiotRequestError) as exc_info:
-        await client.fetch_match_by_id("NA1_2")
+        await client.fetch_match_by_id(match_id)
 
     assert exc_info.value.status == 502
     assert scripted.calls == 2

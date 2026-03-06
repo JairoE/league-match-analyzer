@@ -13,8 +13,12 @@ from typing import Any
 import httpx
 import pytest
 
-from app.services.riot_api_client import RiotApiClient, RiotRequestError
-
+from app.services.riot_api_client import RiotApiClient
+from tests.fixtures.riot_payloads import (
+    fixture_meta,
+    load_match_detail,
+    load_match_timeline,
+)
 
 # ---------------------------------------------------------------------------
 # Test helpers (mirrors the pattern in test_riot_api_client_retry.py)
@@ -75,38 +79,11 @@ async def _noop_metric(*args: object, **kwargs: object) -> None:
 # fetch_match_by_id
 # ---------------------------------------------------------------------------
 
-MATCH_ID = "NA1_5089485769"
+MATCH_ID = str(fixture_meta()["primary_match_id"])
 MATCH_DETAIL_URL = f"https://americas.api.riotgames.com/lol/match/v5/matches/{MATCH_ID}"
 MATCH_TIMELINE_URL = f"https://americas.api.riotgames.com/lol/match/v5/matches/{MATCH_ID}/timeline"
-
-MATCH_PAYLOAD: dict[str, Any] = {
-    "metadata": {"matchId": MATCH_ID, "participants": ["puuid-1", "puuid-2"]},
-    "info": {
-        "gameDuration": 1800,
-        "gameMode": "CLASSIC",
-        "participants": [
-            {
-                "participantId": 1,
-                "championName": "Ahri",
-                "teamId": 100,
-                "individualPosition": "MIDDLE",
-                "riotIdGameName": "Player1",
-            }
-        ],
-    },
-}
-
-TIMELINE_PAYLOAD: dict[str, Any] = {
-    "metadata": {"matchId": MATCH_ID},
-    "info": {
-        "frameInterval": 60000,
-        "frames": [],
-        # Timeline participants only carry participantId + puuid (no position/team)
-        "participants": [
-            {"participantId": 1, "puuid": "puuid-1"},
-        ],
-    },
-}
+MATCH_PAYLOAD: dict[str, Any] = load_match_detail()
+TIMELINE_PAYLOAD: dict[str, Any] = load_match_timeline()
 
 
 @pytest.mark.asyncio
