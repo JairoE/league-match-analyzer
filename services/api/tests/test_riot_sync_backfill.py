@@ -21,6 +21,8 @@ class _ScalarResult:
 
 
 class _FakeSession:
+    """Fake session that filters matches with NULL game_info, mirroring the real query."""
+
     def __init__(self, matches: list[Match]) -> None:
         self._matches = matches
         self.execute_calls = 0
@@ -28,7 +30,8 @@ class _FakeSession:
 
     async def execute(self, statement: object) -> _ScalarResult:
         self.execute_calls += 1
-        return _ScalarResult(self._matches)
+        missing = [m for m in self._matches if not m.game_info]
+        return _ScalarResult(missing)
 
     async def commit(self) -> None:
         self.commit_calls += 1
@@ -116,3 +119,28 @@ async def test_backfill_by_game_ids_can_fetch_all_when_max_fetch_exceeds_missing
     for match in matches:
         assert match.game_info is not None
         assert match.game_start_timestamp is not None
+
+
+@pytest.mark.asyncio
+async def test_backfill_by_game_ids_skips_already_backfilled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Matches that already have game_info should not be re-fetched."""
+    real_match_ids = load_match_ids()
+    matches = [Match(game_id=game_id) for game_id in real_match_ids[:5]]
+    # Pre-fill first 2 matches so the fake session filters them out
+    for m in matches[:2]:
+        m.game_info = {"info": {"gameStartTimestamp": 1}}
+        m.game_start_timestamp = 1
+    game_ids = [match.game_id for match in matches]
+    session = _FakeSession(matches)
+    fake_client = _FakeRiotApiClient(load_match_detail())
+
+    monkeypatch.setattr(riot_sync, "RiotApiClient", lambda: fake_client)
+
+    fetched = await riot_sync.backfill_match_details_by_game_ids(
+        session, game_ids=game_ids, max_fetch=10
+    )
+
+    assert fetched == 3  # only the 3 matches without game_info
+    assert len(fake_client.calls) == 3
