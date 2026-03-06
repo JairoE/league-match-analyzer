@@ -159,8 +159,11 @@ async def fetch_match_list_for_riot_account(
     riot_account_id: str,
     start: int,
     count: int,
-) -> list[str] | None:
+) -> tuple[list[str], RiotAccount] | None:
     """Fetch match ids for a riot account and upsert match records.
+
+    Returns the resolved RiotAccount alongside the match IDs so callers can
+    reuse the already-resolved account and avoid a second DB round-trip.
 
     Args:
         session: Async database session for queries.
@@ -169,7 +172,7 @@ async def fetch_match_list_for_riot_account(
         count: Number of matches to retrieve.
 
     Returns:
-        Match ID list fetched from Riot, or None if account missing.
+        Tuple of (match_id_list, RiotAccount) or None if account missing.
     """
     logger.info(
         "riot_sync_fetch_match_list_start",
@@ -192,7 +195,7 @@ async def fetch_match_list_for_riot_account(
         "riot_sync_fetch_match_list_done",
         extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
     )
-    return match_ids
+    return match_ids, riot_account
 
 
 async def _backfill_single_match(

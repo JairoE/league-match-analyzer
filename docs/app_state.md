@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-06
 **Branch:** `backend-tests-refactor`
-**Status:** STABLE — 41/41 tests pass, lint clean, race-condition blocker resolved
+**Status:** STABLE — 42/42 tests pass, lint clean, race-condition blocker resolved
 
 ## What's Built
 
@@ -718,6 +718,45 @@ Optional:
 - **Refactored**: `league-web/src/app/riot-account/[riotId]/page.tsx` — 313 → ~195 lines. Removed ~130 lines of duplicated state/effects. Account fetch, decode error handling, `pageError` merge, and session check remain page-specific. Riot 404 error interception handled via `onFetchError` callback.
 - **No behavior changes** — identical fetch URLs, cache policies, polling logic, and error handling as before.
 - **Verification**: `npm run lint` — pass (1 pre-existing AuthForm warning unchanged). `npm run build` — clean.
+
+---
+
+## Recent Changes (2026-03-06, session 17)
+
+### Tier 2 + Tier 3 correctness and perf fixes
+
+**Branch:** `backend-tests-refactor`
+**Status:** STABLE — 42/42 tests pass, lint clean.
+
+#### Double account resolution eliminated (`riot_sync.py`, `matches.py`)
+- `fetch_match_list_for_riot_account` now returns `tuple[list[str], RiotAccount] | None`.
+- `list_riot_account_matches` router unpacks the tuple on page 1 — reuses the already-resolved account instead of calling `resolve_riot_account_identifier` a second time.
+- Page 2+ still calls `resolve_riot_account_identifier` once (single DB round-trip, unchanged).
+
+#### `React.memo` restored on `MatchRow` (`MatchesTable.tsx`)
+- `rankByPuuid` (full map) previously passed to all 20 rows; got a new object reference on every rank fetch, defeating memo on unselected rows.
+- Fix: pass `rankByPuuid={isExpanded ? rankByPuuid : undefined}` — only the one expanded row receives the map.
+- `championHistory` similarly changed to use a module-level `EMPTY_HISTORY` constant for non-expanded rows, preventing new-array references on every render.
+
+#### `matchSummaryStats` no longer recomputes on every 3-second polling tick (`MatchesTable.tsx`)
+- Old deps: `[filteredMatches, matchDetails, getParticipantForMatch]` — `matchDetails` gets a new reference every polling tick, triggering the 80-line computation.
+- Fix: added `loadedDetailCount` (derived stable number — count of matches with non-null details) as the gate dep. `matchDetails` is accessed via `matchDetailsRef.current` so the memo only re-runs when the count grows (genuine new detail arrived), not on reference-only changes.
+- Inline participant lookup (`getParticipantByPuuid` / `getParticipantForUser`) replaces the `getParticipantForMatch` callback dep, removing one layer of instability.
+
+#### `_FakeSession` now enforces `game_id IN (...)` filter (`test_riot_sync_backfill.py`)
+- `_FakeSession.__init__` accepts `game_ids: list[str] | None`; `execute` filters by game_id set in addition to `game_info IS NULL`.
+- All three existing tests updated to pass `game_ids=game_ids`.
+- New test `test_backfill_by_game_ids_ignores_matches_outside_requested_set`: creates 8 matches in session, requests only 5, verifies the 3 extras are never backfilled.
+
+#### `fixture_meta()` returns deepcopy (`riot_payloads.py`)
+- Previously returned the raw cached dict from `_read_json_cached`; one mutation would corrupt all downstream test calls.
+- One-line fix: return `deepcopy(_read_json_cached(MANIFEST_PATH))`.
+- Removed now-unused `lru_cache` import (caching no longer needed since caller always gets a fresh copy).
+
+**Verification**:
+- `make test` — pass (42/42; was 41/41, +1 new test).
+- `make lint` — pass.
+- `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
 
 ---
 

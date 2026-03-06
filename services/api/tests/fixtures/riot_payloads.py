@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from functools import cache, lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -16,14 +16,13 @@ def _read_json_cached(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-@lru_cache(maxsize=1)
 def fixture_meta() -> dict[str, Any]:
     if not MANIFEST_PATH.exists():
         raise FileNotFoundError(
             f"Missing Riot fixture manifest: {MANIFEST_PATH}. "
             "Run scripts/capture_riot_test_fixtures.py first."
         )
-    return _read_json_cached(MANIFEST_PATH)
+    return deepcopy(_read_json_cached(MANIFEST_PATH))
 
 
 def _fixture_path(manifest_key: str) -> Path:
