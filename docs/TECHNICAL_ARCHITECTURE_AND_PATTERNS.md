@@ -96,9 +96,9 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 - **App Router**: Uses Next.js 13+ App Router pattern with `app/` directory
 - **Pages**:
   - `/` - Search interface with optional authentication
-  - `/home` - Match results dashboard
-  - Future: `/matches/[id]` - Detailed match view
-- **Navigation**: Client-side routing with `next/router` hooks
+  - `/home` - Match results dashboard (authenticated users)
+  - `/riot-account/[riotId]` - Search results view with refresh support
+- **Navigation**: Client-side routing with `next/navigation` hooks
 
 ### 3.3 State Management & Data Flow
 
@@ -124,6 +124,7 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 ### 3.5 Component Architecture
 
 - **Composition Pattern**:
+  - `MatchPageShell` - Shared page layout (Header + SubHeader + SearchBar + error + children) used by `/home` and `/riot-account/[riotId]`
   - `AuthForm` - Shared form logic for sign in/up
   - `SignInForm` / `SignUpForm` - Specific implementations
   - `MatchCard` - Reusable match display component
