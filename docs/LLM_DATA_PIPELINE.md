@@ -138,6 +138,7 @@ The LLM is asked to:
 - `services/api/app/models/match_action.py` — `MatchActionRecord` SQLModel
 - `services/api/app/models/llm_analysis.py` — `LLMAnalysis` SQLModel
 - `scripts/export_training_data.py` — standalone training data export (CSV, 5-min interval sampling per thesis)
+- `scripts/backfill_extraction.py` — one-off script to enqueue extraction jobs for existing matches missing state vectors
 - `services/api/tests/test_state_vector.py` — 10 tests
 - `services/api/tests/test_action_extraction.py` — 12 tests
 
@@ -145,7 +146,7 @@ The LLM is asked to:
 
 1. ~~Wire `extract_match_timeline_job` into the existing match ingestion flow~~ **Done**
 2. ~~Build a training data export~~ **Done** (`scripts/export_training_data.py`)
-3. Accumulate training data by running the app with real matches (need state vectors in the DB)
+3. Accumulate training data by running the app with real matches + `make backfill-extraction` for existing matches
 4. Train V1 logistic regression on exported CSV and expose as a scoring service
 5. Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows
 6. Build aggregation queries and comparison logic

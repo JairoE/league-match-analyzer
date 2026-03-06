@@ -1,8 +1,8 @@
 # App State
 
 **Last Updated:** 2026-03-06
-**Branch:** `backend-tests-refactor` (merged with `llm-phase-0`)
-**Status:** STABLE — 88/88 tests pass, lint clean; LLM pipeline Steps 1–2 wired into ingestion flow, Step 3 prep complete
+**Branch:** `llm-phase-0`
+**Status:** STABLE — 88/88 tests pass, lint clean; LLM pipeline Steps 1–2 wired into ingestion flow, Step 3 prep complete; background job rate-limit retry hardened
 
 ## What's Built
 
@@ -56,6 +56,14 @@
 ---
 
 ## Recent Changes (2026-03-06)
+
+### Background job rate-limit retry hardening (`llm-phase-0`, session 2)
+
+- **Bug fixed**: `extract_match_timeline_job` permanently failed when the rate limiter exhausted its internal 5-retry budget — `RuntimeError` from `wait_if_needed` was uncaught, causing ARQ to mark the job as permanently failed.
+- **`rate_limiter.py`**: Added `match_timeline` to `METHOD_LIMITS` (`2000 req / 10s`) alongside `match_detail`, enabling per-method tracking for timeline requests.
+- **`timeline_extraction.py`**: Catches `RuntimeError` containing `"Rate limit"` and raises `arq.Retry(defer=120)` — re-enqueues the job with a 2-minute delay instead of failing permanently.
+- **`background_jobs.py`**: Wrapped `extract_match_timeline_job` with `func(..., max_tries=5)` to cap ARQ-level retries at 5 attempts (~10 min total).
+- All existing matches now have state vectors populated via `scripts/backfill_extraction.py` (script kept for future re-extraction needs).
 
 ### LLM Pipeline Wiring (Steps 1–2 → auto-trigger, Step 3 prep)
 
@@ -809,6 +817,28 @@ Optional:
 - `make test` — pass (42/42).
 - `ruff check` — pass on changed files.
 - `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
+
+---
+
+## Recent Changes (2026-03-06, session 19)
+
+### Backfill extraction script for existing matches
+
+- **New file**: `scripts/backfill_extraction.py` — standalone script that queries all matches with `game_info IS NOT NULL` but no `match_state_vector` rows, then enqueues `extract_match_timeline_job` for each via ARQ.
+- **Why**: `extract_match_timeline_job` was only triggered by `fetch_match_details_job` (new match ingestion). Existing matches that already had `game_info` never got state vectors extracted. This one-off script backfills the gap.
+- **Usage**: `make backfill-extraction` (or `python scripts/backfill_extraction.py --dry-run` to preview). Requires the ARQ worker to be running.
+- **Make target**: `make backfill-extraction` added to Makefile.
+- **No router changes** — the inline backfill paths (`backfill_match_details_by_game_ids`, `backfill_match_details_inline`) remain unchanged; they serve a different purpose (populating `game_info`, not extraction).
+
+---
+
+## Recent Changes (2026-03-06, session 20)
+
+### Worker structured logging + verbose make targets
+
+- **Fix**: `setup_logging()` was not called in the ARQ worker process (`on_startup`), so worker logs used Python's default handler instead of the app's `DevFormatter` (colored, truncated). Now the worker calls `setup_logging()` on startup, making extraction job logs visible with the same formatting as the API.
+- **New make targets**: `make worker-dev-verbose` (runs worker with `LOG_LEVEL=DEBUG`), `make backfill-extraction-dry` (dry-run preview of backfill).
+- **Files changed**: `services/api/app/services/background_jobs.py`, `Makefile`.
 
 ---
 

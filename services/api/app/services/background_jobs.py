@@ -1,8 +1,9 @@
 from arq.connections import RedisSettings
 from arq.cron import cron
+from arq.worker import func
 
 from app.core.config import get_settings
-from app.core.logging import get_logger
+from app.core.logging import get_logger, setup_logging
 from app.jobs.match_ingestion import (
     fetch_match_details_job,
     fetch_riot_account_matches_job,
@@ -19,11 +20,13 @@ async def on_startup(ctx: dict) -> None:
     """Initialize shared resources for ARQ workers.
 
     Creates a shared RiotApiClient so all jobs reuse the same
-    HTTP connection pool and rate limiter instance.
+    HTTP connection pool and rate limiter instance. Also sets up
+    structured logging so worker logs use the same formatter as the API.
 
     Args:
         ctx: Worker context dictionary.
     """
+    setup_logging()
     ctx["riot_client"] = RiotApiClient()
     logger.info("arq_startup")
 
@@ -55,7 +58,7 @@ class WorkerSettings:
         fetch_riot_account_matches_job,
         fetch_match_details_job,
         fetch_timeline_cache_job,
-        extract_match_timeline_job,
+        func(extract_match_timeline_job, max_tries=5),
     ]
 
     # Scheduled cron jobs

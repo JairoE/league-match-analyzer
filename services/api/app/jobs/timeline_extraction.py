@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+from arq import Retry
 from sqlmodel import select
 
 from app.core.logging import get_logger
@@ -88,7 +89,16 @@ async def extract_match_timeline_job(
             return {"match_id": match_id, "status": "skipped"}
 
         # Fetch timeline (Redis cache with TTL)
-        timeline = await _fetch_timeline_cached(ctx, match_id)
+        try:
+            timeline = await _fetch_timeline_cached(ctx, match_id)
+        except RuntimeError as exc:
+            if "Rate limit" in str(exc):
+                logger.warning(
+                    "extract_match_timeline_job_rate_limited",
+                    extra={"match_id": match_id},
+                )
+                raise Retry(defer=120) from exc
+            raise
         if timeline is None:
             return {"match_id": match_id, "status": "error", "error": "timeline_fetch_failed"}
 

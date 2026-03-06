@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs capture-riot-fixtures
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry capture-riot-fixtures
 
 help:
 	@echo "Available targets:"
@@ -25,6 +25,9 @@ api-dev:
 
 worker-dev:
 	cd services/api && ../../.venv/bin/arq app.services.background_jobs.WorkerSettings
+
+worker-dev-verbose:
+	cd services/api && LOG_LEVEL=DEBUG ../../.venv/bin/arq app.services.background_jobs.WorkerSettings
 
 llm-dev:
 	cd services/llm && python main.py
@@ -57,6 +60,12 @@ test:
 
 test-logs:
 	./.venv/bin/pytest services/api services/llm -v -s
+
+backfill-extraction:
+	./.venv/bin/python scripts/backfill_extraction.py
+
+backfill-extraction-dry:
+	./.venv/bin/python scripts/backfill_extraction.py --dry-run
 
 capture-riot-fixtures:
 	./.venv/bin/python scripts/capture_riot_test_fixtures.py --game-name damanjr --tag-line NA1 --count 40
