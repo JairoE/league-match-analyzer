@@ -31,6 +31,7 @@ async def test_get_arq_pool_creates_lazily(monkeypatch: pytest.MonkeyPatch) -> N
     # Second call returns the same instance (singleton).
     pool2 = await arq_pool.get_arq_pool()
     assert pool2 is fake
+    print(f"[test_lazy_create] pool is singleton: {pool is pool2} (same instance both calls)")
 
     # Cleanup
     arq_pool._arq_pool_task = None
@@ -51,6 +52,10 @@ async def test_close_arq_pool_cleans_up(monkeypatch: pytest.MonkeyPatch) -> None
     await arq_pool.close_arq_pool()
     assert fake.closed
     assert arq_pool._arq_pool_task is None
+    print(
+        f"[test_close_cleanup] pool.closed={fake.closed}, "
+        f"_arq_pool_task={arq_pool._arq_pool_task}"
+    )
 
 
 @pytest.mark.asyncio
@@ -58,6 +63,7 @@ async def test_close_arq_pool_noop_when_not_created() -> None:
     arq_pool._arq_pool_task = None
     await arq_pool.close_arq_pool()
     assert arq_pool._arq_pool_task is None
+    print("[test_close_noop] close_arq_pool() with no pool -> no-op, no error")
 
 
 @pytest.mark.asyncio
@@ -83,6 +89,10 @@ async def test_get_arq_pool_concurrent_creates_once(monkeypatch: pytest.MonkeyPa
     assert create_calls == 1
     assert results[0] is fake
     assert results[1] is fake
+    print(
+        f"[test_concurrent] 2 concurrent calls -> create_pool called "
+        f"{create_calls} time, same instance: {results[0] is results[1]}"
+    )
 
     # Cleanup
     arq_pool._arq_pool_task = None

@@ -375,8 +375,49 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
         await increment_metric_safe("jobs.fetch_match_details.success")
     await increment_metric_safe("jobs.fetch_match_details.records_fetched", amount=fetched)
 
+    if fetched > 0:
+        await _enqueue_extraction_jobs(ctx, match_ids, errors)
+
     return {
         "status": "ok" if not errors else "partial",
         "fetched": fetched,
         "errors": errors,
     }
+
+
+async def _enqueue_extraction_jobs(
+    ctx: dict,
+    match_ids: list[str],
+    errors: list[dict],
+) -> None:
+    """Enqueue timeline extraction for successfully-fetched matches.
+
+    Args:
+        ctx: ARQ worker context with redis pool.
+        match_ids: All match IDs from the batch.
+        errors: Error dicts from failed fetches (each has a "match_id" key).
+    """
+    from app.services.enqueue_timeline_extraction import enqueue_missing_extraction_jobs
+
+    error_ids = {e["match_id"] for e in errors}
+    successful = [mid for mid in match_ids if mid not in error_ids]
+    if not successful:
+        return
+
+    redis = ctx.get("redis")
+    try:
+        enqueued = await enqueue_missing_extraction_jobs(successful, pool=redis)
+        if enqueued:
+            logger.info(
+                "fetch_match_details_job_extraction_enqueued",
+                extra={"enqueued": enqueued},
+            )
+            await increment_metric_safe(
+                "jobs.timeline_extraction.enqueued",
+                amount=enqueued,
+            )
+    except Exception:
+        logger.warning(
+            "fetch_match_details_job_extraction_enqueue_failed",
+            extra={"match_count": len(successful)},
+        )

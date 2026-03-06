@@ -85,6 +85,7 @@ async def test_fetch_match_by_id_calls_correct_url(
 
     assert scripted.last_url == fx["detail_url"]
     assert "/timeline" not in (scripted.last_url or "")
+    print(f"[test_match_url] Called: {scripted.last_url} (no /timeline suffix)")
 
 
 @pytest.mark.asyncio
@@ -115,6 +116,7 @@ async def test_fetch_match_timeline_calls_correct_url(
 
     assert scripted.last_url == fx["timeline_url"]
     assert scripted.last_url is not None and scripted.last_url.endswith("/timeline")
+    print(f"[test_timeline_url] Called: {scripted.last_url} (ends with /timeline)")
 
 
 @pytest.mark.asyncio
@@ -148,3 +150,8 @@ async def test_match_detail_and_timeline_share_same_match_id_in_url(
     assert detail_scripted.last_url is not None
     assert timeline_scripted.last_url is not None
     assert timeline_scripted.last_url == detail_scripted.last_url + "/timeline"
+    print(
+        f"[test_url_consistency] Detail:   {detail_scripted.last_url}\n"
+        f"                       Timeline: {timeline_scripted.last_url}\n"
+        f"                       timeline == detail + '/timeline': True"
+    )

@@ -1,8 +1,8 @@
 # App State
 
 **Last Updated:** 2026-03-06
-**Branch:** `backend-tests-refactor`
-**Status:** STABLE — 42/42 tests pass, lint clean, race-condition blocker resolved
+**Branch:** `llm-phase-0`
+**Status:** STABLE — 88/88 tests pass, lint clean; LLM pipeline Steps 1–2 wired into ingestion flow, Step 3 prep complete; background job rate-limit retry hardened
 
 ## What's Built
 
@@ -13,7 +13,7 @@
 - **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page).
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
-- **Background jobs**: `fetch_match_details_job` (batch), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
+- **Background jobs**: `fetch_match_details_job` (batch → auto-enqueues `extract_match_timeline_job`), `extract_match_timeline_job` (state vector + action extraction), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
 - **Data model**: `RiotAccount`, `Match` (with `game_info` JSONB), `RiotAccountMatch` join table. `pgvector` extension enabled.
 - **Observability**: Structured JSON logging, `increment_metric_safe` metric helper.
 
@@ -52,6 +52,27 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-06)
+
+### Background job rate-limit retry hardening (`llm-phase-0`, session 2)
+
+- **Bug fixed**: `extract_match_timeline_job` permanently failed when the rate limiter exhausted its internal 5-retry budget — `RuntimeError` from `wait_if_needed` was uncaught, causing ARQ to mark the job as permanently failed.
+- **`rate_limiter.py`**: Added `match_timeline` to `METHOD_LIMITS` (`2000 req / 10s`) alongside `match_detail`, enabling per-method tracking for timeline requests.
+- **`timeline_extraction.py`**: Catches `RuntimeError` containing `"Rate limit"` and raises `arq.Retry(defer=120)` — re-enqueues the job with a 2-minute delay instead of failing permanently.
+- **`background_jobs.py`**: Wrapped `extract_match_timeline_job` with `func(..., max_tries=5)` to cap ARQ-level retries at 5 attempts (~10 min total).
+- All existing matches now have state vectors populated via `scripts/backfill_extraction.py` (script kept for future re-extraction needs).
+
+### LLM Pipeline Wiring (Steps 1–2 → auto-trigger, Step 3 prep)
+
+- **Registered `extract_match_timeline_job`** in `WorkerSettings.functions` (`background_jobs.py`) — ARQ worker can now process extraction jobs.
+- **Created `enqueue_timeline_extraction.py`** — enqueue service that checks `match_state_vector` for idempotency, filters to matches with `game_info`, enqueues one job per match with deterministic `_job_id`.
+- **Wired `fetch_match_details_job` → `extract_match_timeline_job`** — after successfully persisting `game_info`, the details job now auto-enqueues extraction for successfully-fetched matches.
+- **Added ML dependencies** — `scikit-learn>=1.5.0` and `numpy>=1.26.0` to `pyproject.toml` for the V1 logistic regression model.
+- **Created `scripts/export_training_data.py`** — standalone script to export `match_state_vector` features + match outcomes as CSV for model training. Implements per-match 5-minute interval sampling per thesis anti-overfitting strategy.
+- **Fixed merge conflict** in `test_riot_api_client_retry.py` — resolved conflict markers, removed broken debug prints referencing undefined variables in `test_riot_api_client_match_fetch.py` and `test_riot_api_client_retry.py`. Test count now 88/88 (was 42/42 pre-merge).
 
 ---
 
@@ -232,6 +253,18 @@ Optional:
 
 ## Recent Changes (2026-03-05)
 
+### LLM Pipeline Phase 0 — Ingest + Extract (`llm-phase-0`)
+
+- **Design doc overhaul**: [LLM_DATA_PIPELINE.md](docs/LLM_DATA_PIPELINE.md) rewritten from outline to concrete 8-step pipeline spec. Covers game state vector definition (Table 5 features), V1 action types (item purchases + objective kills), win probability model progression (logistic → DNN), aggregation strategy (K≥50, population fallback), and LLM prompt design.
+- **3 new DB models** + Alembic migration (`20260305_0002`):
+  - `MatchStateVector` — per-minute game state (JSONB features), unique on `(match_id, minute)`
+  - `MatchActionRecord` — discrete actions with pre/post state refs and nullable ΔW scoring columns
+  - `LLMAnalysis` — future-facing LLM output persistence with schema versioning and token counts
+- **State vector extraction** (`services/api/app/services/state_vector.py`): Per-player features (position, level, gold, damage dealt/taken, KDA from events) + per-team objectives (dragons, barons, voidgrubs, turrets, inhibitors) + global (timestamp, rank). Cumulative trackers, nearest-frame snapping. No sub-minute interpolation per thesis.
+- **Action extraction** (`services/api/app/services/action_extraction.py`): V1 actions — legendary item purchases (90+ item IDs) and elite monster kills (dragon/baron/herald). Tracks ITEMUNDO/SOLD/DESTROYED for post-state. Clamps post-state to vector range.
+- **ARQ job** (`services/api/app/jobs/timeline_extraction.py`): `extract_match_timeline_job` — fetches timeline (Redis-cached, 1h TTL), extracts vectors + actions, persists to DB. Idempotent (skips if vectors exist). Proper `RiotApiClient` lifecycle management.
+- **22 tests**: `test_state_vector.py` (10 tests) + `test_action_extraction.py` (12 tests) — comprehensive coverage of extraction logic, edge cases, clamping, team assignment, cumulative tracking.
+- **Uncommitted cleanup** (staged): explicit `Float` columns on scoring fields, `dataclasses.replace()` for TeamState snapshots, inlined helper, fixed `RiotApiClient` leak in `_fetch_timeline_cached`.
 ### Phase 3 Frontend Refactor — MatchRow table row + summary stats (`frontend-refactor-match-row-relationships`)
 
 **Branch:** `frontend-refactor-match-row-relationships`
@@ -787,6 +820,28 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-06, session 19)
+
+### Backfill extraction script for existing matches
+
+- **New file**: `scripts/backfill_extraction.py` — standalone script that queries all matches with `game_info IS NOT NULL` but no `match_state_vector` rows, then enqueues `extract_match_timeline_job` for each via ARQ.
+- **Why**: `extract_match_timeline_job` was only triggered by `fetch_match_details_job` (new match ingestion). Existing matches that already had `game_info` never got state vectors extracted. This one-off script backfills the gap.
+- **Usage**: `make backfill-extraction` (or `python scripts/backfill_extraction.py --dry-run` to preview). Requires the ARQ worker to be running.
+- **Make target**: `make backfill-extraction` added to Makefile.
+- **No router changes** — the inline backfill paths (`backfill_match_details_by_game_ids`, `backfill_match_details_inline`) remain unchanged; they serve a different purpose (populating `game_info`, not extraction).
+
+---
+
+## Recent Changes (2026-03-06, session 20)
+
+### Worker structured logging + verbose make targets
+
+- **Fix**: `setup_logging()` was not called in the ARQ worker process (`on_startup`), so worker logs used Python's default handler instead of the app's `DevFormatter` (colored, truncated). Now the worker calls `setup_logging()` on startup, making extraction job logs visible with the same formatting as the API.
+- **New make targets**: `make worker-dev-verbose` (runs worker with `LOG_LEVEL=DEBUG`), `make backfill-extraction-dry` (dry-run preview of backfill).
+- **Files changed**: `services/api/app/services/background_jobs.py`, `Makefile`.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)
@@ -801,7 +856,11 @@ Optional:
   - `docs/MATCHCARD_REDESIGN.md`
   - `docs/app_state.md`
 
-1. ~~**Fix race condition**~~ — **DONE** (session 15).
-2. **Step 2** — Live Game integration (lowest priority, requires polling architecture + `LiveGameCard` component).
-3. **Consider server-side queue filtering** — current tab filtering is client-side.
-4. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
+1. **LLM Pipeline Step 3 — Win Probability Model**: Train logistic regression on extracted state vectors. Start with stored `match_state_vector` features + match outcomes.
+2. **LLM Pipeline Step 4–6 — ΔW Scoring + Aggregation**: Score actions via the trained model, compute per-action ΔW, aggregate by (champion, action, rank) with K≥50 threshold.
+3. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
+4. **Wire `extract_match_timeline_job` into existing match ingestion flow** — enqueue after `fetch_match_details_job` completes.
+5. ~~**Fix race condition**~~ — **DONE** (session 15).
+6. **Live Game integration** — requires polling architecture + `LiveGameCard` component.
+7. **Consider server-side queue filtering** — current tab filtering is client-side.
+8. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.

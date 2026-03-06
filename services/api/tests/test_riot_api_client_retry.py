@@ -112,6 +112,7 @@ async def test_riot_client_retries_network_then_raises(
     )
 
 
+
 @pytest.mark.asyncio
 async def test_riot_client_retries_429_then_succeeds(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
