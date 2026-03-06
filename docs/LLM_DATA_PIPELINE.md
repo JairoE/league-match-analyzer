@@ -113,7 +113,7 @@ The LLM is asked to:
 |------|--------|----------------|
 | 1. Ingest | **Done** | `extract_match_timeline_job` in `app/jobs/timeline_extraction.py`. Fetches timeline via `RiotApiClient.fetch_match_timeline()`, caches in Redis (`timeline:{matchId}`, 1h TTL). |
 | 2. Extract | **Done** | `extract_state_vectors()` in `app/services/state_vector.py` — per-minute `GameStateVector` with cumulative KDA/objective trackers. `extract_actions()` in `app/services/action_extraction.py` — legendary item purchases + objective kills with pre/post state linking. |
-| 1→2 Wiring | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered in `WorkerSettings.functions`. |
+| 1→2 Wiring | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered via `func(extract_match_timeline_job, max_tries=5)` in `WorkerSettings.functions`. Rate-limited jobs raise `arq.Retry(defer=120)` instead of failing permanently (up to 5 ARQ retries, ~10 min total). All existing matches backfilled via `scripts/backfill_extraction.py`. |
 | 3. Score | **Prep done** | `scikit-learn` and `numpy` added to `pyproject.toml`. `scripts/export_training_data.py` exports `match_state_vector` features + match outcomes as CSV with 5-min interval sampling. Model training not yet implemented. |
 | 4. Compute ΔW | Not started | `match_action` table has `delta_w`, `pre_win_prob`, `post_win_prob` columns ready (nullable). |
 | 5. Aggregate | Not started | No aggregation service yet. |
@@ -146,7 +146,7 @@ The LLM is asked to:
 
 1. ~~Wire `extract_match_timeline_job` into the existing match ingestion flow~~ **Done**
 2. ~~Build a training data export~~ **Done** (`scripts/export_training_data.py`)
-3. Accumulate training data by running the app with real matches + `make backfill-extraction` for existing matches
+3. ~~Accumulate training data by running the app with real matches + `make backfill-extraction` for existing matches~~ **Done** — all existing matches have state vectors
 4. Train V1 logistic regression on exported CSV and expose as a scoring service
 5. Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows
 6. Build aggregation queries and comparison logic
