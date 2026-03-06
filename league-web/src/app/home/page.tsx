@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
 import MatchPageShell from "../../components/MatchPageShell/MatchPageShell";
@@ -46,6 +46,7 @@ export default function HomePage() {
     () => matches.filter((m) => !m.game_info?.info).length,
     [matches]
   );
+  const pollCountRef = useRef(0);
 
   useEffect(() => {
     if (!user) {
@@ -120,6 +121,11 @@ export default function HomePage() {
     }
   }, [matches]);
 
+  // Reset poll counter on refresh or page change.
+  useEffect(() => {
+    pollCountRef.current = 0;
+  }, [refreshIndex, page]);
+
   // Poll the match list until all game_info fields are populated.
   useEffect(() => {
     if (!riotAccountId || !hasMatches) return;
@@ -129,7 +135,6 @@ export default function HomePage() {
     }
 
     let isActive = true;
-    let pollCount = 0;
     const MAX_POLLS = 20;
     const POLL_INTERVAL_MS = 3_000;
 
@@ -139,9 +144,9 @@ export default function HomePage() {
 
     const poll = setInterval(async () => {
       if (!isActive) return;
-      pollCount++;
+      pollCountRef.current++;
 
-      if (pollCount >= MAX_POLLS) {
+      if (pollCountRef.current >= MAX_POLLS) {
         console.debug("[home] polling max reached, stopping");
         clearInterval(poll);
         return;
@@ -165,12 +170,12 @@ export default function HomePage() {
           clearInterval(poll);
         } else {
           console.debug("[home] poll incomplete", {
-            poll: pollCount,
+            poll: pollCountRef.current,
             stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
           });
         }
       } catch (err) {
-        console.debug("[home] poll error", {err, poll: pollCount});
+        console.debug("[home] poll error", {err, poll: pollCountRef.current});
       }
     }, POLL_INTERVAL_MS);
 

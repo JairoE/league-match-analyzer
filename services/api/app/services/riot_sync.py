@@ -211,9 +211,11 @@ async def _backfill_single_match(
     try:
         riot_match_id, _ = normalize_match_id(match.game_id)
         payload = await client.fetch_match_by_id(riot_match_id)
-        match.game_info = payload
+        timestamp = None
         if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:
-            match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+            timestamp = payload["info"]["gameStartTimestamp"]
+        match.game_info = payload
+        match.game_start_timestamp = timestamp
         return True
     except Exception:
         logger.exception(

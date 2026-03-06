@@ -539,6 +539,47 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-06, session 12)
+
+### Code review fixes — backfill atomicity, job cleanup, polling, tab state
+
+- **Atomic backfill writes** (`riot_sync.py`):
+  - `_backfill_single_match` now extracts `timestamp` into a local variable before assigning either
+    `game_info` or `game_start_timestamp`. Prevents partial state where `game_info` is set but
+    `game_start_timestamp` remains NULL on exception — the exact ordering bug this branch fixes.
+  - Same pattern applied to `fetch_match_details_job` in `match_ingestion.py`.
+
+- **Fallback RiotApiClient cleanup** (`match_ingestion.py`):
+  - Three job functions (`fetch_riot_account_matches_job`, `fetch_timeline_cache_job`,
+    `fetch_match_details_job`) used `ctx.get("riot_client") or RiotApiClient()` but never closed the
+    fallback client. Added `try/finally` blocks that call `await client.close()` only when the
+    fallback was used (not the shared context client). Prevents HTTP connection leaks.
+
+- **Resilient timeline enqueue** (`enqueue_match_timelines.py`):
+  - `enqueue_missing_timeline_jobs` runs in FastAPI `BackgroundTasks` where exceptions are silently
+    swallowed. Added try/except around `get_arq_pool()` (returns 0 if pool unavailable) and per-batch
+    `enqueue_job` calls (logs warning, continues to next batch instead of aborting).
+
+- **Durable poll counter** (`home/page.tsx`, `riot-account/[riotId]/page.tsx`):
+  - Polling `MAX_POLLS` safeguard was ineffective — `pollCount` was a local variable inside the
+    polling `useEffect`, resetting to 0 every time the effect re-ran (triggered by
+    `missingDetailCount` changes). Replaced with `useRef(0)` that persists across effect re-runs.
+    Separate effect resets the ref on `refreshIndex`/`page` change.
+  - Also added missing `refreshIndex` to riot-account polling effect deps for consistency with home.
+
+- **Stale tab fallback** (`MatchesTable.tsx`):
+  - After page navigation or refresh, `activeTab` could reference a queue group with no matches in
+    the new data, showing an empty view. React 19 strict lint rules prevent `useEffect`/ref-based
+    reset during render. Solution: `filteredMatches` now falls back to showing all matches when the
+    active tab yields zero results.
+
+**Verification**:
+- `make test` — pass (23/23).
+- `make lint` — pass.
+- `npm --prefix league-web run lint` — pass with 1 pre-existing warning.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)

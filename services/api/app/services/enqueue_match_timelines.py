@@ -51,7 +51,12 @@ async def enqueue_missing_timeline_jobs(
         )
         return 0
 
-    pool = await get_arq_pool()
+    try:
+        pool = await get_arq_pool()
+    except Exception:
+        logger.warning("enqueue_missing_timelines_pool_unavailable")
+        return 0
+
     enqueued = 0
     sorted_ids = sorted(uncached)
 
@@ -60,8 +65,14 @@ async def enqueue_missing_timeline_jobs(
         batch_signature = "|".join(batch)
         batch_hash = hashlib.sha1(batch_signature.encode("utf-8")).hexdigest()[:12]
         job_id = f"timeline:{batch_hash}:{len(batch)}"
-        await pool.enqueue_job("fetch_timeline_cache_job", batch, _job_id=job_id)
-        enqueued += len(batch)
+        try:
+            await pool.enqueue_job("fetch_timeline_cache_job", batch, _job_id=job_id)
+            enqueued += len(batch)
+        except Exception:
+            logger.warning(
+                "enqueue_missing_timelines_batch_failed",
+                extra={"job_id": job_id, "batch_size": len(batch)},
+            )
 
     already_cached = len(match_ids) - len(uncached)
     logger.info(

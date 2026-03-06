@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {useParams, useRouter} from "next/navigation";
 import styles from "./page.module.css";
 import MatchPageShell from "../../../components/MatchPageShell/MatchPageShell";
@@ -173,6 +173,12 @@ export default function RiotAccountPage() {
     () => matches.filter((m) => !m.game_info?.info).length,
     [matches]
   );
+  const pollCountRef = useRef(0);
+
+  // Reset poll counter on refresh or page change.
+  useEffect(() => {
+    pollCountRef.current = 0;
+  }, [refreshIndex, page]);
 
   // Poll until all game_info fields are populated.
   useEffect(() => {
@@ -185,7 +191,6 @@ export default function RiotAccountPage() {
     }
 
     let isActive = true;
-    let pollCount = 0;
     const MAX_POLLS = 20;
     const POLL_INTERVAL_MS = 3_000;
     const encodedQuery = encodeURIComponent(riotId);
@@ -196,9 +201,9 @@ export default function RiotAccountPage() {
 
     const poll = setInterval(async () => {
       if (!isActive) return;
-      pollCount++;
+      pollCountRef.current++;
 
-      if (pollCount >= MAX_POLLS) {
+      if (pollCountRef.current >= MAX_POLLS) {
         console.debug("[riot-account] polling max reached, stopping");
         clearInterval(poll);
         return;
@@ -222,12 +227,15 @@ export default function RiotAccountPage() {
           clearInterval(poll);
         } else {
           console.debug("[riot-account] poll incomplete", {
-            poll: pollCount,
+            poll: pollCountRef.current,
             stillMissing: freshArray.filter((m) => !m.game_info?.info).length,
           });
         }
       } catch (err) {
-        console.debug("[riot-account] poll error", {err, poll: pollCount});
+        console.debug("[riot-account] poll error", {
+          err,
+          poll: pollCountRef.current,
+        });
       }
     }, POLL_INTERVAL_MS);
 
@@ -235,7 +243,7 @@ export default function RiotAccountPage() {
       isActive = false;
       clearInterval(poll);
     };
-  }, [riotId, page, hasMatches, missingDetailCount, isLoading]);
+  }, [riotId, refreshIndex, page, hasMatches, missingDetailCount, isLoading]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
