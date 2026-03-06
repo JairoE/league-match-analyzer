@@ -148,7 +148,9 @@ async def get_match(
 )
 async def get_match_timeline_stats(
     match_id: str,
-    participant_id: int = Query(description="1-based participantId of the tracked player"),
+    participant_id: int = Query(
+        ge=1, le=10, description="1-based participantId of the tracked player"
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> LaneStats:
     """Return pre-computed laning stats for one participant from the match timeline.

@@ -234,15 +234,6 @@ async def _backfill_single_match(
         return False
 
 
-async def _commit_backfilled(
-    session: AsyncSession,
-    fetched: int,
-) -> None:
-    """Commit matches that were backfilled."""
-    if fetched:
-        await session.commit()
-
-
 async def backfill_match_details_inline(
     session: AsyncSession,
     matches: list[Match],
@@ -277,7 +268,8 @@ async def backfill_match_details_inline(
             if await _backfill_single_match(client, match):
                 fetched += 1
 
-    await _commit_backfilled(session, fetched)
+    if fetched:
+        await session.commit()
 
     logger.info(
         "backfill_match_details_inline_done",
@@ -342,7 +334,8 @@ async def backfill_match_details_by_game_ids(
             if await _backfill_single_match(client, match):
                 fetched += 1
 
-    await _commit_backfilled(session, fetched)
+    if fetched:
+        await session.commit()
 
     logger.info(
         "backfill_by_game_ids_done",

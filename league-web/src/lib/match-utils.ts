@@ -132,11 +132,14 @@ export function getTotalCs(participant: Participant | null): number {
 
 // ── Display helpers ───────────────────────────────────────────────────
 
-/** Converts 1 → "1st", 2 → "2nd", 3 → "3rd", N → "Nth". */
+/** Converts 1 → "1st", 2 → "2nd", 3 → "3rd", 11 → "11th", 21 → "21st", etc. */
 export function ordinalSuffix(n: number): string {
-  if (n === 1) return "1st";
-  if (n === 2) return "2nd";
-  if (n === 3) return "3rd";
+  const lastTwo = n % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;
+  const lastOne = n % 10;
+  if (lastOne === 1) return `${n}st`;
+  if (lastOne === 2) return `${n}nd`;
+  if (lastOne === 3) return `${n}rd`;
   return `${n}th`;
 }
 

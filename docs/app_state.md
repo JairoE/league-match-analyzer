@@ -760,6 +760,33 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-06, session 18)
+
+### Three small correctness / hygiene fixes
+
+**Branch:** `backend-tests-refactor`
+**Status:** STABLE — 42/42 tests pass, lint clean.
+
+#### Inlined `_commit_backfilled` (`riot_sync.py`)
+- Removed the 3-line helper. Both call sites (`backfill_match_details_inline`, `backfill_match_details_by_game_ids`) now do `if fetched: await session.commit()` directly.
+- **Why**: only 2 call sites; indirection wasn't worth a named function.
+
+#### `participant_id` bounds validation (`matches.py`)
+- Added `ge=1, le=10` to the `Query()` on the `/matches/{match_id}/timeline-stats` endpoint.
+- **Why**: out-of-range IDs (0, 11, etc.) previously fell through to `fetch_timeline_stats`, which returned `None` → misleading 404. Now returns a proper 422 validation error.
+
+#### Fixed `ordinalSuffix` for n > 13 (`match-utils.ts`)
+- Before: `ordinalSuffix(21)` → `"21th"`.
+- After: uses `n % 100` to handle teens (11th, 12th, 13th) and `n % 10` for the rest (21st, 22nd, 23rd, etc.).
+- **Why**: latent bug — only called with 1–10 today but would surface with any future use beyond 13.
+
+**Verification**:
+- `make test` — pass (42/42).
+- `ruff check` — pass on changed files.
+- `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)
