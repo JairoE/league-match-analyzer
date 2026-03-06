@@ -27,6 +27,20 @@ def _get(path: str, headers: dict[str, str]) -> Any:
     return response.json()
 
 
+def _trim_timeline(timeline: dict[str, Any], max_frames: int) -> dict[str, Any]:
+    """Keep only the first *max_frames* frames and strip events (tests only use participantFrames)."""
+    info = timeline.get("info")
+    if not isinstance(info, dict):
+        return timeline
+    frames = info.get("frames")
+    if isinstance(frames, list):
+        info["frames"] = [
+            {"participantFrames": f.get("participantFrames", {}), "timestamp": f.get("timestamp", 0)}
+            for f in frames[:max_frames]
+        ]
+    return timeline
+
+
 def _sanitize_identifier(raw: str) -> str:
     return raw.lower().replace("#", "_").replace("/", "_").replace(":", "_")
 
@@ -45,6 +59,12 @@ def parse_args() -> argparse.Namespace:
         "--match-id",
         default=None,
         help="Specific Riot match ID for match detail/timeline fixture. Defaults to first returned ID.",
+    )
+    parser.add_argument(
+        "--timeline-frames",
+        type=int,
+        default=16,
+        help="Max frames to keep in the timeline fixture (0 = all). 16 covers laning phase (0-15 min).",
     )
     parser.add_argument(
         "--out-dir",
@@ -94,6 +114,9 @@ def main() -> int:
     match_ids_filename = f"match_ids.{puuid_slug}.json"
     match_detail_filename = f"match_detail.{match_id_slug}.json"
     match_timeline_filename = f"match_timeline.{match_id_slug}.json"
+
+    if args.timeline_frames and args.timeline_frames > 0:
+        match_timeline = _trim_timeline(match_timeline, args.timeline_frames)
 
     _write_json(out_dir / account_filename, account_info)
     _write_json(out_dir / summoner_filename, summoner_info)

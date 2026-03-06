@@ -521,6 +521,24 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-06, session 11)
+
+### Fixture review follow-ups — trim, dedup, defer
+
+- **Timeline fixture trimmed**: `match_timeline.na1_5506397559.json` cut from 64K lines to 9K lines.
+  Kept 16 frames (covers 0–15 min laning phase). Stripped `events` arrays (tests only use
+  `participantFrames`). Capture script now accepts `--timeline-frames N` (default 16).
+- **Shared test helpers extracted**: new `tests/fixtures/fake_riot_helpers.py` with `FakeRateLimiter`,
+  `ScriptedClient`, `ok_response`, `error_response`, `noop_metric`. Eliminates duplication across
+  `test_riot_api_client_match_fetch.py` and `test_riot_api_client_retry.py`.
+- **Import-time I/O deferred**: `test_riot_api_client_match_fetch.py` no longer loads fixture JSON
+  at module scope. Data is now loaded inside a `@pytest.fixture` so it's only read when tests in
+  that file actually run.
+
+**Verification**: 23/23 tests pass. Ruff clean on changed files.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)
