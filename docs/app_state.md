@@ -706,6 +706,21 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-06, session 16)
+
+### Frontend refactor — `useMatchList` custom hook extraction
+
+- **New file**: `league-web/src/lib/hooks/useMatchList.ts` (~100 lines)
+  - Encapsulates: match fetching, `matchDetails` seeding from `game_info`, polling for missing details, pagination state, refresh logic.
+  - Parameterized via `matchesUrl(page)` callback, `errorScope`, `enabled` flag, optional `cacheOptions`, `onFetchError` interceptor, and `resetKey`.
+  - Config values (`cacheOptions`, `logTag`, `onFetchError`) stored in refs to avoid triggering re-fetches.
+- **Refactored**: `league-web/src/app/home/page.tsx` — 247 → ~135 lines. Removed ~100 lines of duplicated state/effects. Rank fetch separated into its own effect (was previously `Promise.all`'d with matches).
+- **Refactored**: `league-web/src/app/riot-account/[riotId]/page.tsx` — 313 → ~195 lines. Removed ~130 lines of duplicated state/effects. Account fetch, decode error handling, `pageError` merge, and session check remain page-specific. Riot 404 error interception handled via `onFetchError` callback.
+- **No behavior changes** — identical fetch URLs, cache policies, polling logic, and error handling as before.
+- **Verification**: `npm run lint` — pass (1 pre-existing AuthForm warning unchanged). `npm run build` — clean.
+
+---
+
 ## Next Recommended Steps
 
 ### Documentation Guardrail (Drift Prevention)
