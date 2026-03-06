@@ -1,8 +1,8 @@
 # App State
 
 **Last Updated:** 2026-03-06
-**Branch:** `frontend-refresh-btn-stale-data-fix`
-**Status:** REFACTORING — backend hardening follow-ups (single strict lint gate)
+**Branch:** `backend-tests-refactor`
+**Status:** STABLE — 41/41 tests pass, lint clean
 
 ## What's Built
 
@@ -577,6 +577,103 @@ Optional:
 - `make test` — pass (23/23).
 - `make lint` — pass.
 - `npm --prefix league-web run lint` — pass with 1 pre-existing warning.
+
+---
+
+## Recent Changes (2026-03-06, session 13)
+
+### Backend hardening follow-ups — items 6–13 from code review
+
+**Branch:** `backend-tests-refactor`
+**Status:** STABLE — all 8 follow-up items resolved; 28/28 tests pass, lint clean.
+
+#### #6 — Simplified timeline ARQ job IDs (`enqueue_match_timelines.py`)
+- Removed `hashlib` import and SHA-1-based `_job_id` construction.
+- Replaced with the same `batch[0]..batch[-1]:len` range pattern used in `enqueue_match_details.py`.
+- Less complexity, same ARQ dedup guarantees.
+
+#### #7 — Double Redis cache check (no change)
+- Reviewed both layers: MGET pre-filter at enqueue time (avoids creating unnecessary jobs) and GET per-job at execution time (race-condition dedup). Both serve distinct purposes; intentionally kept as-is.
+
+#### #8 — 429 rate-limit retry tests (`test_riot_api_client_retry.py`, `fake_riot_helpers.py`)
+- Added optional `headers` param to `error_response()` helper.
+- `test_riot_client_retries_429_then_succeeds`: verifies Retry-After sleep duration, metric tagged `"429"`, and `riot_request_429` log event.
+- `test_riot_client_429_max_retries_raises`: verifies repeated 429s exhaust `MAX_RETRIES` and raise `RiotRequestError(status=429)`.
+
+#### #9 — Fixture contract tests for participants and frames (`test_riot_payload_fixtures_contract.py`)
+- `test_riot_fixture_contract_match_detail_participants`: asserts exactly 10 participants with required keys (`participantId`, `puuid`, `championName`, `teamId`, `individualPosition`, `kills`, `deaths`, `assists`, `win`).
+- `test_riot_fixture_contract_timeline_frames`: asserts `frames` non-empty, `frameInterval` present, every frame has `participantFrames` with 10 entries.
+
+#### #10 — Backfill fake session respects WHERE clause (`test_riot_sync_backfill.py`)
+- `_FakeSession.execute()` now filters `[m for m in self._matches if not m.game_info]`, mirroring the real `game_info IS NULL` query.
+- Added `test_backfill_by_game_ids_skips_already_backfilled` with 2 pre-filled + 3 missing matches.
+
+#### #11 — Fixture loaders return deepcopy (`riot_payloads.py`)
+- Replaced per-call disk reads with `@functools.cache`-backed `_read_json_cached(path)`.
+- All mutable loaders (`load_account_info`, `load_summoner_info`, `load_match_detail`, `load_match_timeline`) now return `deepcopy(...)` to prevent cross-test mutation.
+
+#### #12 — Downgrade noisy `logger.exception` for expected Riot errors (`riot_sync.py`)
+- Added `RiotRequestError` to imports.
+- Split bare `except Exception` in `_backfill_single_match` and `fetch_timeline_stats` into:
+  - `except RiotRequestError` → `logger.warning(...)` with `status` and `message` (no traceback for expected 404s etc.)
+  - `except Exception` → `logger.exception(...)` (traceback preserved for unexpected failures)
+
+#### #13 — Prevent orphan Match records (`riot_sync.py`)
+- `fetch_match_detail` previously created `Match(game_id=...)` when no DB record existed, leaving an unlinked row with no `RiotAccountMatch`.
+- Fix: when no existing Match is found, return the fetched payload directly without touching the DB. Log event `riot_sync_fetch_match_detail_no_db_record` emitted instead.
+
+**Verification**:
+- `make test` — pass (28/28; was 23/23 before, +5 new tests).
+- `make lint` — pass (ruff clean).
+- `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
+
+---
+
+## Recent Changes (2026-03-06, session 14)
+
+### Top-3 high-impact fixes from code review
+
+**Branch:** `backend-tests-refactor`
+**Status:** STABLE — 41/41 tests pass, lint clean.
+
+#### #1 — `getParticipantForUser` no longer returns wrong participant (`match-utils.ts`)
+- **Before**: when neither puuid nor summoner name matched, fallback returned `participants[0]` — silently showing the wrong player's stats in the auth-based view.
+- **After**: returns `null`, letting the UI handle missing state explicitly.
+- **File**: `league-web/src/lib/match-utils.ts`
+
+#### #2 — Search routes convert `RiotRequestError` to proper HTTP status (`search.py`)
+- **Before**: `except RiotRequestError: raise` re-raised the raw error and relied on the global exception handler; also used `logger.exception` (full traceback) for expected Riot errors.
+- **After**: catches `RiotRequestError`, logs at `warning` level with structured fields, and raises `HTTPException` using `map_riot_status()` (404→404, 429→429, 5xx→502, etc.).
+- Renamed `_map_riot_status` → `map_riot_status` in `exceptions.py` (now a public API).
+- **Files**: `services/api/app/api/routers/search.py`, `services/api/app/core/exceptions.py`
+
+#### #3a — `fetch_timeline_stats` test coverage (`test_timeline_stats.py`)
+- **New file**: `services/api/tests/test_timeline_stats.py` — 6 tests:
+  - Happy-path CS/gold diffs using real fixture (MissFortune pid=9 vs Twitch pid=4 at BOTTOM).
+  - Cache hit path (Redis pre-populated, Riot API never called).
+  - Empty frames (no match in DB) → returns None.
+  - No lane opponent (unique positions) → returns None.
+  - `RiotRequestError` during fetch → returns None.
+  - Short game (11 frames) → produces `cs_diff_at_10` but not `cs_diff_at_15`.
+
+#### #3b — Search page-2+ and RiotRequestError mapping tests (`test_search_router_page2.py`)
+- **New file**: `services/api/tests/test_search_router_page2.py` — 7 tests:
+  - Page 2 skips Riot API, resolves account from DB, no background tasks.
+  - Page 3 returns correct pagination meta (page/limit/total/last_page).
+  - Page 2 with missing DB account → 404.
+  - `RiotRequestError(status=404)` → HTTP 404.
+  - `RiotRequestError(status=429)` → HTTP 429.
+  - `RiotRequestError(status=500)` → HTTP 502.
+  - `RiotRequestError(status=401)` on `/account` → HTTP 401.
+
+#### Bonus — Fixed `"message"` LogRecord collision bug
+- `logger.warning(..., extra={"message": exc.message})` collided with Python's reserved `LogRecord.message` attribute, raising `KeyError` at runtime.
+- Renamed to `"error_message"` in `search.py` and `riot_sync.py`.
+
+**Verification**:
+- `pytest services/api/` — pass (41/41; was 28/28, +13 new tests).
+- `ruff check` — pass on all changed files.
+- `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
 
 ---
 

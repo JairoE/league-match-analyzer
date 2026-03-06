@@ -220,7 +220,7 @@ async def _backfill_single_match(
     except RiotRequestError as exc:
         logger.warning(
             "backfill_single_match_riot_error",
-            extra={"game_id": match.game_id, "status": exc.status, "message": exc.message},
+            extra={"game_id": match.game_id, "status": exc.status, "error_message": exc.message},
         )
         return False
     except Exception:
@@ -408,7 +408,7 @@ async def fetch_timeline_stats(
                     extra={
                         "match_id": riot_match_id,
                         "status": exc.status,
-                        "message": exc.message,
+                        "error_message": exc.message,
                     },
                 )
                 return None

@@ -181,7 +181,7 @@ export function getParticipantForUser(
     if (match) return match;
   }
 
-  return participants[0] ?? null;
+  return null;
 }
 
 /**

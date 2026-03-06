@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import map_riot_status
 from app.core.logging import get_logger
 from app.db.session import get_session
 from app.schemas.match import MatchListItem, PaginatedMatchList, PaginationMeta
@@ -69,9 +70,15 @@ async def search_riot_account_matches(
                     start=0,
                     count=limit,
                 )
-        except RiotRequestError:
-            logger.exception("search_matches_riot_request_error", extra={"riot_id": riot_id})
-            raise
+        except RiotRequestError as exc:
+            logger.warning(
+                "search_matches_riot_request_error",
+                extra={"riot_id": riot_id, "status": exc.status, "error_message": exc.message},
+            )
+            raise HTTPException(
+                status_code=map_riot_status(exc.status),
+                detail=exc.message,
+            )
         except Exception:
             logger.exception("search_matches_riot_api_error", extra={"riot_id": riot_id})
             raise HTTPException(
@@ -166,9 +173,15 @@ async def search_riot_account(
         async with RiotApiClient() as client:
             account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
             summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
-    except RiotRequestError:
-        logger.exception("search_account_riot_request_error", extra={"riot_id": riot_id})
-        raise
+    except RiotRequestError as exc:
+        logger.warning(
+            "search_account_riot_request_error",
+            extra={"riot_id": riot_id, "status": exc.status, "error_message": exc.message},
+        )
+        raise HTTPException(
+            status_code=map_riot_status(exc.status),
+            detail=exc.message,
+        )
     except Exception:
         logger.exception("search_account_riot_api_error", extra={"riot_id": riot_id})
         raise HTTPException(
