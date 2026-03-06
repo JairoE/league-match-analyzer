@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-06
 **Branch:** `backend-tests-refactor` (merged with `llm-phase-0`)
-**Status:** STABLE — 42/42 tests pass, lint clean, race-condition blocker resolved; LLM pipeline Steps 1–2 implemented
+**Status:** STABLE — 88/88 tests pass, lint clean; LLM pipeline Steps 1–2 wired into ingestion flow, Step 3 prep complete
 
 ## What's Built
 
@@ -13,7 +13,7 @@
 - **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page).
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
-- **Background jobs**: `fetch_match_details_job` (batch), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
+- **Background jobs**: `fetch_match_details_job` (batch → auto-enqueues `extract_match_timeline_job`), `extract_match_timeline_job` (state vector + action extraction), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
 - **Data model**: `RiotAccount`, `Match` (with `game_info` JSONB), `RiotAccountMatch` join table. `pgvector` extension enabled.
 - **Observability**: Structured JSON logging, `increment_metric_safe` metric helper.
 
@@ -52,6 +52,19 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-06)
+
+### LLM Pipeline Wiring (Steps 1–2 → auto-trigger, Step 3 prep)
+
+- **Registered `extract_match_timeline_job`** in `WorkerSettings.functions` (`background_jobs.py`) — ARQ worker can now process extraction jobs.
+- **Created `enqueue_timeline_extraction.py`** — enqueue service that checks `match_state_vector` for idempotency, filters to matches with `game_info`, enqueues one job per match with deterministic `_job_id`.
+- **Wired `fetch_match_details_job` → `extract_match_timeline_job`** — after successfully persisting `game_info`, the details job now auto-enqueues extraction for successfully-fetched matches.
+- **Added ML dependencies** — `scikit-learn>=1.5.0` and `numpy>=1.26.0` to `pyproject.toml` for the V1 logistic regression model.
+- **Created `scripts/export_training_data.py`** — standalone script to export `match_state_vector` features + match outcomes as CSV for model training. Implements per-match 5-minute interval sampling per thesis anti-overfitting strategy.
+- **Fixed merge conflict** in `test_riot_api_client_retry.py` — resolved conflict markers, removed broken debug prints referencing undefined variables in `test_riot_api_client_match_fetch.py` and `test_riot_api_client_retry.py`. Test count now 88/88 (was 42/42 pre-merge).
 
 ---
 

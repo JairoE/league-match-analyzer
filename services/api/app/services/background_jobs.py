@@ -9,6 +9,7 @@ from app.jobs.match_ingestion import (
     fetch_timeline_cache_job,
 )
 from app.jobs.scheduled import sync_all_riot_accounts_matches
+from app.jobs.timeline_extraction import extract_match_timeline_job
 from app.services.riot_api_client import RiotApiClient
 
 logger = get_logger("league_api.jobs")
@@ -54,6 +55,7 @@ class WorkerSettings:
         fetch_riot_account_matches_job,
         fetch_match_details_job,
         fetch_timeline_cache_job,
+        extract_match_timeline_job,
     ]
 
     # Scheduled cron jobs

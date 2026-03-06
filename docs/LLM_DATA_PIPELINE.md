@@ -113,7 +113,8 @@ The LLM is asked to:
 |------|--------|----------------|
 | 1. Ingest | **Done** | `extract_match_timeline_job` in `app/jobs/timeline_extraction.py`. Fetches timeline via `RiotApiClient.fetch_match_timeline()`, caches in Redis (`timeline:{matchId}`, 1h TTL). |
 | 2. Extract | **Done** | `extract_state_vectors()` in `app/services/state_vector.py` — per-minute `GameStateVector` with cumulative KDA/objective trackers. `extract_actions()` in `app/services/action_extraction.py` — legendary item purchases + objective kills with pre/post state linking. |
-| 3. Score | Not started | Requires training a logistic regression on `match_state_vector.features` + match outcomes. |
+| 1→2 Wiring | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered in `WorkerSettings.functions`. |
+| 3. Score | **Prep done** | `scikit-learn` and `numpy` added to `pyproject.toml`. `scripts/export_training_data.py` exports `match_state_vector` features + match outcomes as CSV with 5-min interval sampling. Model training not yet implemented. |
 | 4. Compute ΔW | Not started | `match_action` table has `delta_w`, `pre_win_prob`, `post_win_prob` columns ready (nullable). |
 | 5. Aggregate | Not started | No aggregation service yet. |
 | 6. Compare | Not started | No comparison service yet. |
@@ -131,20 +132,24 @@ The LLM is asked to:
 - `services/api/app/services/state_vector.py` — `GameStateVector`, `PlayerState`, `TeamState` dataclasses; `extract_state_vectors()`, `get_nearest_state_vector()`
 - `services/api/app/services/action_extraction.py` — `MatchAction` dataclass, `ActionType` enum, `LEGENDARY_ITEM_IDS` set (82 items); `extract_actions()`
 - `services/api/app/jobs/timeline_extraction.py` — `extract_match_timeline_job` ARQ job (idempotent, Redis-cached timeline fetch)
+- `services/api/app/services/enqueue_timeline_extraction.py` — `enqueue_missing_extraction_jobs()` with DB idempotency check and deterministic `_job_id`
+- `services/api/app/services/background_jobs.py` — `WorkerSettings` with all 4 job functions registered
 - `services/api/app/models/match_state_vector.py` — `MatchStateVector` SQLModel
 - `services/api/app/models/match_action.py` — `MatchActionRecord` SQLModel
 - `services/api/app/models/llm_analysis.py` — `LLMAnalysis` SQLModel
+- `scripts/export_training_data.py` — standalone training data export (CSV, 5-min interval sampling per thesis)
 - `services/api/tests/test_state_vector.py` — 10 tests
 - `services/api/tests/test_action_extraction.py` — 12 tests
 
 ### Next steps to continue
 
-1. Wire `extract_match_timeline_job` into the existing match ingestion flow (enqueue after `fetch_match_details_job` completes)
-2. Build a training data export: query `match_state_vector` features + match outcomes from `match.game_info`
-3. Train V1 logistic regression and expose as a scoring service
-4. Populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows
-5. Build aggregation queries and comparison logic
-6. Implement LLM prompt construction and `llm_analysis` persistence
+1. ~~Wire `extract_match_timeline_job` into the existing match ingestion flow~~ **Done**
+2. ~~Build a training data export~~ **Done** (`scripts/export_training_data.py`)
+3. Accumulate training data by running the app with real matches (need state vectors in the DB)
+4. Train V1 logistic regression on exported CSV and expose as a scoring service
+5. Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows
+6. Build aggregation queries and comparison logic
+7. Implement LLM prompt construction and `llm_analysis` persistence
 
 ## Future Extensions
 

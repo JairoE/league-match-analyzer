@@ -70,10 +70,6 @@ async def test_fetch_match_by_id_returns_payload(
 
     assert result == fx["match_payload"]
     assert scripted.calls == 1
-    print(
-        f"[test_match_payload] match_id={MATCH_ID} -> "
-        f"payload keys: {list(result.keys())} | HTTP calls: {scripted.calls}"
-    )
 
 
 @pytest.mark.asyncio
@@ -105,10 +101,6 @@ async def test_fetch_match_timeline_returns_payload(
 
     assert result == fx["timeline_payload"]
     assert scripted.calls == 1
-    print(
-        f"[test_timeline_payload] match_id={MATCH_ID} -> "
-        f"payload keys: {list(result.keys())} | HTTP calls: {scripted.calls}"
-    )
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,8 @@ dependencies = [
     "arq>=0.26.1",
     "httpx>=0.28.0",
     "alembic>=1.14.0",
+    "scikit-learn>=1.5.0",
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]
