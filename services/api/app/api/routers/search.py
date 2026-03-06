@@ -60,7 +60,9 @@ async def search_riot_account_matches(
     if page == 1:
         try:
             async with RiotApiClient() as client:
-                account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
+                account_info = await client.fetch_account_by_riot_id(
+                    parsed.game_name, parsed.tag_line
+                )
                 summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
                 match_ids = await client.fetch_match_ids_by_puuid(
                     account_info["puuid"],
@@ -106,7 +108,9 @@ async def search_riot_account_matches(
     else:
         riot_account = await get_riot_account_by_riot_id(session, parsed.canonical)
         if not riot_account:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
+            )
 
     # Return the paginated match list
     matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)

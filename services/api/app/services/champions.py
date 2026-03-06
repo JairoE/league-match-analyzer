@@ -6,7 +6,6 @@ from sqlmodel import select
 from app.core.logging import get_logger
 from app.models.champion import Champion
 
-
 logger = get_logger("league_api.services.champions")
 
 

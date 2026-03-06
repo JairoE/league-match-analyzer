@@ -2,11 +2,9 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel
 
 from app.core.config import get_settings
 from app.models import *  # noqa: F401, F403
-
 
 settings = get_settings()
 engine = create_async_engine(

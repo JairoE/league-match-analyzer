@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import BigInteger, Column, String
-from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.logging import get_logger
@@ -30,7 +30,7 @@ class Match(SQLModel, table=True):
     )
     game_info: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
-    riot_accounts: list["RiotAccount"] = Relationship(
+    riot_accounts: list[RiotAccount] = Relationship(
         sa_relationship=relationship(
             "RiotAccount",
             back_populates="matches",

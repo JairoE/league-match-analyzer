@@ -46,11 +46,7 @@ class JsonFormatter(logging.Formatter):
             "processName",
             "process",
         }
-        extras = {
-            key: value
-            for key, value in record.__dict__.items()
-            if key not in reserved
-        }
+        extras = {key: value for key, value in record.__dict__.items() if key not in reserved}
         if extras:
             message.update(extras)
         return str(message)

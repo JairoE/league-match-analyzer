@@ -57,8 +57,12 @@ async def list_riot_account_matches(
             limit,
         )
         if match_ids is None:
-            logger.info("list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id})
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
+            logger.info(
+                "list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
+            )
         logger.info(
             "list_riot_account_matches_synced",
             extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
@@ -81,7 +85,10 @@ async def list_riot_account_matches(
 
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
-        logger.info("list_riot_account_matches_not_found_after_sync", extra={"riot_account_id": riot_account_id})
+        logger.info(
+            "list_riot_account_matches_not_found_after_sync",
+            extra={"riot_account_id": riot_account_id},
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
     matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)
 
@@ -95,7 +102,10 @@ async def list_riot_account_matches(
         )
         await backfill_match_details_inline(session, matches)
 
-    logger.info("list_riot_account_matches_done", extra={"riot_account_id": riot_account_id, "count": len(matches)})
+    logger.info(
+        "list_riot_account_matches_done",
+        extra={"riot_account_id": riot_account_id, "count": len(matches)},
+    )
     return PaginatedMatchList(
         data=[MatchListItem.model_validate(match) for match in matches],
         meta=PaginationMeta.build(page=page, limit=limit, total=total),
@@ -150,7 +160,9 @@ async def get_match_timeline_stats(
     Returns:
         LaneStats with available diff fields and opponent info.
     """
-    logger.info("get_timeline_stats_start", extra={"match_id": match_id, "participant_id": participant_id})
+    logger.info(
+        "get_timeline_stats_start", extra={"match_id": match_id, "participant_id": participant_id}
+    )
     stats = await fetch_timeline_stats(session, match_id, participant_id)
     if stats is None:
         logger.info("get_timeline_stats_unavailable", extra={"match_id": match_id})

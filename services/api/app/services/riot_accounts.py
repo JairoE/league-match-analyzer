@@ -29,7 +29,9 @@ def parse_riot_account_uuid(identifier: str) -> UUID | None:
         return None
 
 
-async def get_riot_account_by_id(session: AsyncSession, riot_account_id: UUID) -> RiotAccount | None:
+async def get_riot_account_by_id(
+    session: AsyncSession, riot_account_id: UUID
+) -> RiotAccount | None:
     """Fetch a riot account by UUID.
 
     Args:
@@ -42,7 +44,10 @@ async def get_riot_account_by_id(session: AsyncSession, riot_account_id: UUID) -
     logger.info("get_riot_account_by_id_start", extra={"riot_account_id": str(riot_account_id)})
     result = await session.execute(select(RiotAccount).where(RiotAccount.id == riot_account_id))
     account = result.scalar_one_or_none()
-    logger.info("get_riot_account_by_id_done", extra={"riot_account_id": str(riot_account_id), "found": bool(account)})
+    logger.info(
+        "get_riot_account_by_id_done",
+        extra={"riot_account_id": str(riot_account_id), "found": bool(account)},
+    )
     return account
 
 
@@ -59,7 +64,9 @@ async def get_riot_account_by_riot_id(session: AsyncSession, riot_id: str) -> Ri
     logger.info("get_riot_account_by_riot_id_start", extra={"riot_id": riot_id})
     result = await session.execute(select(RiotAccount).where(RiotAccount.riot_id == riot_id))
     account = result.scalar_one_or_none()
-    logger.info("get_riot_account_by_riot_id_done", extra={"riot_id": riot_id, "found": bool(account)})
+    logger.info(
+        "get_riot_account_by_riot_id_done", extra={"riot_id": riot_id, "found": bool(account)}
+    )
     return account
 
 

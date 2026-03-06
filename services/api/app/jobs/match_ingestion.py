@@ -14,9 +14,9 @@ from app.db.session import async_session_factory
 from app.models.match import Match
 from app.services.enqueue_match_details import enqueue_missing_detail_jobs
 from app.services.match_sync import upsert_matches_for_riot_account
+from app.services.riot_accounts import get_riot_account_by_id
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_match_id import normalize_match_id
-from app.services.riot_accounts import get_riot_account_by_id
 from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.jobs.match_ingestion")
@@ -55,7 +55,10 @@ async def fetch_riot_account_matches_job(
     try:
         account_uuid = UUID(riot_account_id)
     except ValueError:
-        logger.error("fetch_riot_account_matches_job_invalid_uuid", extra={"riot_account_id": riot_account_id})
+        logger.error(
+            "fetch_riot_account_matches_job_invalid_uuid",
+            extra={"riot_account_id": riot_account_id},
+        )
         await increment_metric_safe(
             "jobs.fetch_riot_account_matches.failed",
             tags={"reason": "invalid_uuid"},
@@ -73,7 +76,11 @@ async def fetch_riot_account_matches_job(
                 "jobs.fetch_riot_account_matches.failed",
                 tags={"reason": "account_not_found"},
             )
-            return {"riot_account_id": riot_account_id, "status": "error", "error": "account_not_found"}
+            return {
+                "riot_account_id": riot_account_id,
+                "status": "error",
+                "error": "account_not_found",
+            }
 
         try:
             client = ctx.get("riot_client") or RiotApiClient()
@@ -264,21 +271,13 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
                 payload = await client.fetch_match_by_id(riot_match_id)
 
                 # Update match record
-                result = await session.execute(
-                    select(Match).where(Match.game_id == match_id)
-                )
+                result = await session.execute(select(Match).where(Match.game_id == match_id))
                 match = result.scalar_one_or_none()
 
                 if match:
                     match.game_info = payload
-                    if (
-                        payload
-                        and "info" in payload
-                        and "gameStartTimestamp" in payload["info"]
-                    ):
-                        match.game_start_timestamp = payload["info"][
-                            "gameStartTimestamp"
-                        ]
+                    if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:
+                        match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
 
                     fetched += 1
                     pending_commit = True

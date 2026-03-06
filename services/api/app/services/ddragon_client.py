@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
-from contextlib import asynccontextmanager
 import httpx
 
 from app.core.logging import get_logger

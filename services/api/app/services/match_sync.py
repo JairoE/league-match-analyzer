@@ -35,9 +35,7 @@ async def upsert_matches_for_riot_account(
         return 0
 
     # Batch fetch existing matches
-    result = await session.execute(
-        select(Match).where(Match.game_id.in_(match_ids))
-    )
+    result = await session.execute(select(Match).where(Match.game_id.in_(match_ids)))
     existing_matches = {m.game_id: m for m in result.scalars().all()}
 
     # Create missing match records

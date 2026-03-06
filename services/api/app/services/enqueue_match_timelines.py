@@ -42,9 +42,7 @@ async def enqueue_missing_timeline_jobs(
     cache_keys = [f"timeline:{riot_id}" for _, riot_id in normalized]
 
     cached_values = await redis.mget(cache_keys)
-    uncached = [
-        mid for (mid, _), val in zip(normalized, cached_values) if val is None
-    ]
+    uncached = [mid for (mid, _), val in zip(normalized, cached_values) if val is None]
 
     if not uncached:
         logger.info(

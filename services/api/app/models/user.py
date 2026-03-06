@@ -22,7 +22,7 @@ class User(SQLModel, table=True):
     id: UUID | None = Field(default_factory=uuid4, primary_key=True, index=True)
     email: str = Field(sa_column=Column(String, unique=True, nullable=False, index=True))
 
-    riot_account_links: list["UserRiotAccount"] = Relationship(
+    riot_account_links: list[UserRiotAccount] = Relationship(
         sa_relationship=relationship(
             "UserRiotAccount",
             back_populates="user",

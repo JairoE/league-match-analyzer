@@ -47,9 +47,7 @@ async def upsert_riot_account(
     summoner_level = summoner_info.get("summonerLevel")
 
     result = await session.execute(
-        select(RiotAccount).where(
-            or_(RiotAccount.puuid == puuid, RiotAccount.riot_id == riot_id)
-        )
+        select(RiotAccount).where(or_(RiotAccount.puuid == puuid, RiotAccount.riot_id == riot_id))
     )
     account = result.scalar_one_or_none()
 

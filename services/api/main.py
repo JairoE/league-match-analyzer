@@ -8,11 +8,10 @@ from app.core.config import get_settings
 from app.core.cors import add_cors_middleware
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
-from app.core.redaction import redact_url
 from app.core.middleware import RequestLoggingMiddleware
+from app.core.redaction import redact_url
 from app.services.arq_pool import close_arq_pool
 from app.services.champion_seed import schedule_champion_seed_job
-
 
 setup_logging()
 logger = get_logger("league_api.main")

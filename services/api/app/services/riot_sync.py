@@ -13,10 +13,10 @@ from app.models.user import User
 from app.models.user_riot_account import UserRiotAccount
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import get_match_by_identifier
+from app.services.riot_account_upsert import upsert_riot_account, upsert_user_and_riot_account
 from app.services.riot_api_client import RiotApiClient
 from app.services.riot_id_parser import parse_riot_id
 from app.services.riot_match_id import normalize_match_id
-from app.services.riot_account_upsert import upsert_user_and_riot_account, upsert_riot_account
 
 logger = get_logger("league_api.services.riot_sync")
 
@@ -76,7 +76,9 @@ async def fetch_sign_in_user(
     Returns:
         Tuple of (User, RiotAccount) if credentials match, otherwise None.
     """
-    logger.info("riot_sync_sign_in_start", extra={"summoner_name": summoner_name, "has_email": bool(email)})
+    logger.info(
+        "riot_sync_sign_in_start", extra={"summoner_name": summoner_name, "has_email": bool(email)}
+    )
     parsed = parse_riot_id(summoner_name)
 
     # Find user by email
@@ -139,9 +141,12 @@ async def fetch_rank_for_riot_account(
     """
     logger.info("riot_sync_fetch_rank_start", extra={"riot_account_id": riot_account_id})
     from app.services.riot_accounts import resolve_riot_account_identifier
+
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
-        logger.info("riot_sync_fetch_rank_account_missing", extra={"riot_account_id": riot_account_id})
+        logger.info(
+            "riot_sync_fetch_rank_account_missing", extra={"riot_account_id": riot_account_id}
+        )
         return None
     async with RiotApiClient() as client:
         payload = await client.fetch_rank_by_puuid(riot_account.puuid)
@@ -171,12 +176,17 @@ async def fetch_match_list_for_riot_account(
         extra={"riot_account_id": riot_account_id, "start": start, "count": count},
     )
     from app.services.riot_accounts import resolve_riot_account_identifier
+
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
-        logger.info("riot_sync_fetch_match_list_account_missing", extra={"riot_account_id": riot_account_id})
+        logger.info(
+            "riot_sync_fetch_match_list_account_missing", extra={"riot_account_id": riot_account_id}
+        )
         return None
     async with RiotApiClient() as client:
-        match_ids = await client.fetch_match_ids_by_puuid(riot_account.puuid, start=start, count=count)
+        match_ids = await client.fetch_match_ids_by_puuid(
+            riot_account.puuid, start=start, count=count
+        )
     await upsert_matches_for_riot_account(session, riot_account.id, match_ids)
     logger.info(
         "riot_sync_fetch_match_list_done",
@@ -202,11 +212,7 @@ async def _backfill_single_match(
         riot_match_id, _ = normalize_match_id(match.game_id)
         payload = await client.fetch_match_by_id(riot_match_id)
         match.game_info = payload
-        if (
-            payload
-            and "info" in payload
-            and "gameStartTimestamp" in payload["info"]
-        ):
+        if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:
             match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
         return True
     except Exception:
@@ -372,8 +378,8 @@ async def fetch_timeline_stats(
     Returns:
         LaneStats dict, or None if timeline unavailable.
     """
-    from app.services.riot_match_id import normalize_match_id
     from app.services.cache import get_redis
+    from app.services.riot_match_id import normalize_match_id
 
     # Resolve the canonical Riot match ID
     match = await get_match_by_identifier(session, match_identifier)
@@ -415,20 +421,28 @@ async def fetch_timeline_stats(
     def participant_frame(frame: dict, pid: int) -> dict:
         return (frame.get("participantFrames") or {}).get(str(pid)) or {}
 
-    current_frame_10 = participant_frame(frames[idx_10], target_participant_id) if len(frames) > idx_10 else {}
-    current_frame_15 = participant_frame(frames[idx_15], target_participant_id) if len(frames) > idx_15 else {}
+    current_frame_10 = (
+        participant_frame(frames[idx_10], target_participant_id) if len(frames) > idx_10 else {}
+    )
+    current_frame_15 = (
+        participant_frame(frames[idx_15], target_participant_id) if len(frames) > idx_15 else {}
+    )
 
     # Participant metadata (individualPosition, teamId, championName) lives in the match
     # detail response, not the timeline — timeline participants only carry participantId + puuid.
     p_info_list: list[dict] = []
     if match and match.game_info:
         p_info_list = (match.game_info.get("info") or {}).get("participants") or []
-    current_meta = next((p for p in p_info_list if p.get("participantId") == target_participant_id), {})
+    current_meta = next(
+        (p for p in p_info_list if p.get("participantId") == target_participant_id), {}
+    )
     opponent_meta = None
     current_pos = current_meta.get("individualPosition") or ""
     current_team = current_meta.get("teamId") or 0
     if current_pos and current_team:
-        opponent_meta = _find_lane_opponent(p_info_list, target_participant_id, current_team, current_pos)
+        opponent_meta = _find_lane_opponent(
+            p_info_list, target_participant_id, current_team, current_pos
+        )
 
     result: dict = {}
 
