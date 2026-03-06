@@ -49,20 +49,23 @@ async def list_riot_account_matches(
     logger.info("list_riot_account_matches_start", extra={"riot_account_id": riot_account_id})
 
     # Only sync with Riot API on page 1; page 2+ just queries DB
+    riot_account = None
     if page == 1:
-        match_ids = await fetch_match_list_for_riot_account(
+        sync_result = await fetch_match_list_for_riot_account(
             session,
             riot_account_id,
             0,
             limit,
         )
-        if match_ids is None:
+        if sync_result is None:
             logger.info(
                 "list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id}
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
             )
+        # Unpack — reuse the already-resolved account to avoid a second DB round-trip.
+        match_ids, riot_account = sync_result
         logger.info(
             "list_riot_account_matches_synced",
             extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
@@ -83,7 +86,9 @@ async def list_riot_account_matches(
         )
         background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)
 
-    riot_account = await resolve_riot_account_identifier(session, riot_account_id)
+    # Page 2+: account not yet resolved — fetch it now (single DB call).
+    if riot_account is None:
+        riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
         logger.info(
             "list_riot_account_matches_not_found_after_sync",
@@ -143,7 +148,9 @@ async def get_match(
 )
 async def get_match_timeline_stats(
     match_id: str,
-    participant_id: int = Query(description="1-based participantId of the tracked player"),
+    participant_id: int = Query(
+        ge=1, le=10, description="1-based participantId of the tracked player"
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> LaneStats:
     """Return pre-computed laning stats for one participant from the match timeline.
