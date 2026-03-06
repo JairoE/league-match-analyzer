@@ -77,7 +77,7 @@ async def _enqueue_batch(
 
 async def _run(batch_size: int, dry_run: bool) -> None:
     """Main backfill logic."""
-    conn = await asyncpg.connect(DATABASE_URL)
+    conn = await asyncpg.connect(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1))
     print("Connected to database. Finding matches needing extraction...")
 
     try:

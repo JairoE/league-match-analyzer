@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /workspace
 
 COPY services/api /workspace/services/api
+COPY scripts /workspace/scripts
 
 RUN pip install -e /workspace/services/api
 
