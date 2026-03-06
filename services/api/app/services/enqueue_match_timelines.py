@@ -7,8 +7,6 @@ never change, so once cached in Redis they stay forever.
 
 from __future__ import annotations
 
-import hashlib
-
 from app.core.logging import get_logger
 from app.services.arq_pool import get_arq_pool
 from app.services.cache import get_redis
@@ -62,9 +60,7 @@ async def enqueue_missing_timeline_jobs(
 
     for i in range(0, len(sorted_ids), BATCH_SIZE):
         batch = sorted_ids[i : i + BATCH_SIZE]
-        batch_signature = "|".join(batch)
-        batch_hash = hashlib.sha1(batch_signature.encode("utf-8")).hexdigest()[:12]
-        job_id = f"timeline:{batch_hash}:{len(batch)}"
+        job_id = f"timeline:{batch[0]}..{batch[-1]}:{len(batch)}"
         try:
             await pool.enqueue_job("fetch_timeline_cache_job", batch, _job_id=job_id)
             enqueued += len(batch)

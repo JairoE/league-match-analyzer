@@ -46,9 +46,16 @@ def ok_response(url: str, payload: dict[str, Any]) -> httpx.Response:
     return httpx.Response(200, json=payload, request=httpx.Request("GET", url))
 
 
-def error_response(status_code: int, url: str, payload: dict[str, Any]) -> httpx.Response:
+def error_response(
+    status_code: int,
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
     """Build an httpx.Response with the given status code."""
-    return httpx.Response(status_code, json=payload, request=httpx.Request("GET", url))
+    return httpx.Response(
+        status_code, json=payload, headers=headers, request=httpx.Request("GET", url)
+    )
 
 
 async def noop_metric(*args: object, **kwargs: object) -> None:

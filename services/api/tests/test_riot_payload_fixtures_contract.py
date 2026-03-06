@@ -39,3 +39,50 @@ def test_riot_fixture_contract_core_keys_present() -> None:
     assert "metadata" in match_timeline
     assert "matchId" in match_timeline["metadata"]
     assert match_timeline["metadata"]["matchId"] == meta["primary_match_id"]
+
+
+def test_riot_fixture_contract_match_detail_participants() -> None:
+    """match_detail.info.participants must exist and have expected fields."""
+    match_detail = load_match_detail()
+    info = match_detail.get("info")
+    assert info is not None, "match_detail must have 'info' key"
+
+    participants = info.get("participants")
+    assert isinstance(participants, list), "info.participants must be a list"
+    assert len(participants) == 10, "a standard match has exactly 10 participants"
+
+    required_keys = {
+        "participantId",
+        "puuid",
+        "championName",
+        "teamId",
+        "individualPosition",
+        "kills",
+        "deaths",
+        "assists",
+        "win",
+    }
+    for p in participants:
+        missing = required_keys - set(p.keys())
+        assert not missing, (
+            f"participant {p.get('participantId')} missing keys: {missing}"
+        )
+
+
+def test_riot_fixture_contract_timeline_frames() -> None:
+    """timeline.info.frames must exist and have participantFrames."""
+    match_timeline = load_match_timeline()
+    info = match_timeline.get("info")
+    assert info is not None, "timeline must have 'info' key"
+
+    frames = info.get("frames")
+    assert isinstance(frames, list), "info.frames must be a list"
+    assert len(frames) > 0, "timeline must have at least one frame"
+
+    assert "frameInterval" in info, "info must have frameInterval"
+
+    # Each frame must have participantFrames with string keys "1".."10"
+    for i, frame in enumerate(frames):
+        pf = frame.get("participantFrames")
+        assert isinstance(pf, dict), f"frame[{i}] must have participantFrames dict"
+        assert len(pf) == 10, f"frame[{i}] must have 10 participantFrames"

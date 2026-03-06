@@ -110,3 +110,56 @@ async def test_riot_client_retries_network_then_raises(
     assert any(
         record.message == "riot_request_network_retry" for record in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_riot_client_retries_429_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """429 with Retry-After header triggers a sleep-and-retry loop."""
+    caplog.set_level(logging.INFO)
+    match_id = str(fixture_meta()["primary_match_id"])
+    url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{match_id}"
+    match_payload = load_match_detail()
+    scripted = ScriptedClient(
+        [
+            error_response(429, url, {}, headers={"Retry-After": "2"}),
+            ok_response(url, match_payload),
+        ]
+    )
+
+    client = _make_client(monkeypatch, scripted)
+
+    payload = await client.fetch_match_by_id(match_id)
+
+    assert payload["metadata"]["matchId"] == match_id
+    assert scripted.calls == 2
+    assert len(client._test_sleeps) == 1  # type: ignore[attr-defined]
+    assert client._test_sleeps[0] == 2.0  # type: ignore[attr-defined]
+    assert any(
+        kwargs.get("tags", {}).get("type") == "429"
+        for _, kwargs in client._test_metric_calls  # type: ignore[attr-defined]
+        if isinstance(kwargs.get("tags"), dict)
+    )
+    assert any(record.message == "riot_request_429" for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_riot_client_429_max_retries_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repeated 429s exhaust retries and raise RiotRequestError."""
+    match_id = str(fixture_meta()["primary_match_id"])
+    url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{match_id}"
+    scripted = ScriptedClient(
+        [error_response(429, url, {}, headers={"Retry-After": "1"}) for _ in range(4)]
+    )
+
+    client = _make_client(monkeypatch, scripted, max_retries=2)
+
+    with pytest.raises(RiotRequestError) as exc_info:
+        await client.fetch_match_by_id(match_id)
+
+    assert exc_info.value.status == 429
+    assert "max_retries" in exc_info.value.message.lower()
+    assert scripted.calls == 3  # initial + 2 retries

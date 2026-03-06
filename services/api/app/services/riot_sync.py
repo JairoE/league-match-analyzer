@@ -14,7 +14,7 @@ from app.models.user_riot_account import UserRiotAccount
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import get_match_by_identifier
 from app.services.riot_account_upsert import upsert_riot_account, upsert_user_and_riot_account
-from app.services.riot_api_client import RiotApiClient
+from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_id_parser import parse_riot_id
 from app.services.riot_match_id import normalize_match_id
 
@@ -217,6 +217,12 @@ async def _backfill_single_match(
         match.game_info = payload
         match.game_start_timestamp = timestamp
         return True
+    except RiotRequestError as exc:
+        logger.warning(
+            "backfill_single_match_riot_error",
+            extra={"game_id": match.game_id, "status": exc.status, "message": exc.message},
+        )
+        return False
     except Exception:
         logger.exception(
             "backfill_single_match_error",
@@ -396,6 +402,16 @@ async def fetch_timeline_stats(
         async with RiotApiClient() as client:
             try:
                 timeline = await client.fetch_match_timeline(riot_match_id)
+            except RiotRequestError as exc:
+                logger.warning(
+                    "fetch_timeline_stats_riot_error",
+                    extra={
+                        "match_id": riot_match_id,
+                        "status": exc.status,
+                        "message": exc.message,
+                    },
+                )
+                return None
             except Exception:
                 logger.exception("fetch_timeline_stats_error", extra={"match_id": riot_match_id})
                 return None
@@ -518,8 +534,12 @@ async def fetch_match_detail(
         payload = await client.fetch_match_by_id(riot_match_id)
 
     if not match:
-        match = Match(game_id=stored_match_id)
-        session.add(match)
+        # No existing DB record — return the payload without creating an orphan Match
+        logger.info(
+            "riot_sync_fetch_match_detail_no_db_record",
+            extra={"match_identifier": match_identifier},
+        )
+        return payload
     match.game_info = payload
     # Extract gameStartTimestamp for indexed ordering
     if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:
