@@ -1,19 +1,19 @@
 # App State
 
-**Last Updated:** 2026-03-05
-**Branch:** `frontend-refactor-match-row-relationships`
-**Status:** REFACTORING — MatchRow table row + match summary stats
+**Last Updated:** 2026-03-06
+**Branch:** `frontend-refresh-btn-stale-data-fix`
+**Status:** REFACTORING — backend hardening follow-ups (single strict lint gate)
 
 ## What's Built
 
 ### Backend (FastAPI + ARQ)
 
-- **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue full details in background. Supports `?page=N&limit=N` pagination.
+- **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue timeline prefetch in background. Supports `?page=N&limit=N` pagination.
 - **Auth match flow**: `GET /riot-accounts/{id}/matches` — paginated match list with Riot API sync on page 1 only.
 - **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page).
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
-- **Background jobs**: `fetch_match_details_job` (batch), `sync_all_riot_accounts_matches` (cron every 6h).
+- **Background jobs**: `fetch_match_details_job` (batch), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
 - **Data model**: `RiotAccount`, `Match` (with `game_info` JSONB), `RiotAccountMatch` join table. `pgvector` extension enabled.
 - **Observability**: Structured JSON logging, `increment_metric_safe` metric helper.
 
@@ -104,8 +104,8 @@ User → Page 2+ → GET /search/{riot_id}/matches?page=N
   → Return paginated match list + meta
 
 Background (async):
-  → Enqueue full details → Redis → ARQ worker
-  → Fetch full details (Riot API) → Upsert (DB)
+  → Enqueue timeline warmup → Redis/ARQ
+  → Fetch timeline (Riot API) → Cache `timeline:{match_id}`
 
 Optional:
   → Sign In/Up → POST /users/sign_in → Validate (DB) → Save session
@@ -255,6 +255,328 @@ Optional:
 
 - `queueId` is resolved in both `resolveQueueId` (MatchesTable) and inline in `MatchRow` (line 76). Low-priority duplication; could pass resolved `queueId` as a prop in a follow-up.
 - `MatchDetailPanel` is a thin wrapper around `MatchCard` + skeleton + close button. Could be inlined into `MatchRow` in a future cleanup pass.
+
+---
+
+## Recent Changes (2026-03-05, session 2)
+
+### Bug fix — Refresh shows stale matches (requires two presses)
+
+- **Root cause**: On page 1, `fetch_match_list_for_riot_account()` upserts new Match records with `game_info=NULL` / `game_start_timestamp=NULL`. The subsequent `list_matches_for_riot_account()` orders by `game_start_timestamp DESC NULLS LAST`, pushing new matches to the bottom. The inline backfill only operates on the already-returned (old) matches. New matches never get backfilled until the second request.
+- **Fix (8 files)**:
+  - `riot_sync.py` — new `backfill_match_details_by_game_ids(session, game_ids)` queries Match records by game ID where `game_info IS NULL`, fetches details from Riot API, persists `game_info` + `game_start_timestamp`.
+  - `matches.py` — calls `backfill_match_details_by_game_ids()` **before** the ordering query on page 1. Background task switched from detail enqueue to timeline pre-fetch.
+  - `search.py` — same pre-query backfill + timeline enqueue swap.
+  - `enqueue_match_timelines.py` *(new)* — `enqueue_missing_timeline_jobs()` enqueues `fetch_timeline_cache_job` per batch with deterministic `_job_id`.
+  - `match_timeline_enqueue.py` *(new)* — fire-and-forget wrapper `enqueue_timelines_background()`.
+  - `match_ingestion.py` — new `fetch_timeline_cache_job`: checks Redis (`timeline:{match_id}`), fetches from Riot if absent, caches indefinitely.
+  - `background_jobs.py` — registered `fetch_timeline_cache_job` in `WorkerSettings.functions`.
+  - `jobs/__init__.py` — exported `fetch_timeline_cache_job`.
+- **Why timeline enqueue instead of detail enqueue**: Details are now backfilled inline (pre-query). Background work shifts to pre-caching timelines so row-expand loads instantly.
+- **Safety net**: post-query `backfill_match_details_inline()` remains as a fallback for edge cases.
+- **Tests**: 19/19 pass. No new lint issues.
+
+### Code review follow-ups (session 3)
+
+- **`enqueue_match_timelines.py`** — added Redis `MGET` pre-filter so only uncached timelines are enqueued (previously enqueued all 20 blindly, relying on job-level Redis check).
+- **`riot_sync.py`** — extracted `_backfill_single_match()` and `_commit_and_refresh_backfilled()` helpers; both `backfill_match_details_inline` and `backfill_match_details_by_game_ids` now share the same fetch-and-persist logic instead of duplicating it.
+- **`matches.py` / `search.py`** — post-query backfill log level upgraded from `info` to `warning` (event names: `*_backfill_fallback`). If this safety net ever fires, it now stands out in logs.
+
+## Recent Changes (2026-03-05, session 4)
+
+### Backend hardening follow-up — high-impact fixes from review
+
+- **Page-1 sync now respects requested page size**:
+  - `GET /riot-accounts/{id}/matches?page=1&limit=N` now fetches `N` Riot match IDs before DB read (was hard-coded to 20).
+  - `GET /search/{riot_id}/matches?page=1&limit=N` now fetches `N` Riot match IDs before DB read (was hard-coded to 20).
+  - **Why**: avoids partial stale page-1 responses when `limit > 20`.
+- **Timeline enqueue `_job_id` collision risk removed**:
+  - `enqueue_match_timelines.py` now derives `_job_id` from a SHA-1 hash of the full sorted batch contents, not only first/last IDs + count.
+  - **Why**: prevents accidental de-duplication collisions across distinct batches.
+- **Timeline frame interval parsing hardened**:
+  - `riot_sync.py` now coerces `frameInterval` safely and clamps to at least 1ms before index math.
+  - **Why**: prevents divide-by-zero / malformed-payload 500s in `fetch_timeline_stats`.
+- **Backfill DB round-trips reduced**:
+  - Removed per-row `session.refresh()` calls after successful backfill commit.
+  - **Why**: lowers DB chatter without changing endpoint behavior.
+
+**Verification**:
+
+- `make test` — pass (19/19).
+- Targeted `ruff check` on edited files still reports pre-existing style noise in those files (import order/line length), with no functional regressions from this change set.
+
+---
+
+## Recent Changes (2026-03-05, session 5)
+
+### Backend bug fix — page-1 stale ordering when `limit > 20`
+
+- **Root cause**: both page-1 routes fetched `limit` Riot match IDs, but pre-query backfill called `backfill_match_details_by_game_ids(...)` without `max_fetch`, so it defaulted to `20`. With `limit=50`, only ~20 newly upserted rows got `game_start_timestamp` before ordering; remaining new rows could still sort stale on first load.
+- **Fix**:
+  - `services/api/app/api/routers/matches.py` now calls:
+    - `backfill_match_details_by_game_ids(session, match_ids, max_fetch=limit)`
+  - `services/api/app/api/routers/search.py` now calls:
+    - `backfill_match_details_by_game_ids(session, match_ids, max_fetch=limit)`
+- **Why**: ensures pre-query backfill capacity matches requested page size so all page-1 candidates can be timestamped before DB ordering.
+- **Status**: REFACTORING (no blockers introduced by this fix).
+
+**Verification**:
+
+- `make test` — pass (19/19).
+- `npm --prefix league-web run lint` — pass with 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`).
+- `make lint` — still fails on pre-existing repo-wide backend lint noise; no new lint errors introduced by this change.
+
+**Next recommended steps**:
+
+1. Add targeted unit tests around `backfill_match_details_by_game_ids(..., max_fetch=limit)` behavior for `limit > 20`.
+2. Triage and baseline existing backend `ruff` violations so `make lint` can become a blocking signal again.
+
+---
+
+## Recent Changes (2026-03-05, session 6)
+
+### Backend cleanup — flattened timeline enqueue path
+
+- **Question addressed**: whether the timeline enqueue flow still had avoidable over-structuring (`router wrapper -> enqueue service -> ARQ job`).
+- **Result**: yes, it still existed; the router wrapper layer was removed.
+- **What changed**:
+  - `services/api/app/api/routers/match_timeline_enqueue.py` deleted.
+  - `services/api/app/api/routers/matches.py` now schedules background work directly with:
+    - `background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)`
+  - `services/api/app/api/routers/search.py` now schedules background work directly with:
+    - `background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)`
+  - Both routers now log explicit route-level enqueue start events (`*_enqueuing_timelines`) before dispatch.
+- **Why**: removes one indirection layer while preserving behavior (same enqueue service + same ARQ timeline job), making the page-1 sync path simpler to follow and maintain.
+- **Current phase/status**: REFACTORING (incremental simplification, no behavior change intended).
+- **Blockers / open questions**:
+  - None introduced by this cleanup.
+  - Existing backend lint baseline still contains pre-existing line-length noise in router files; unchanged in scope.
+- **Verification**:
+  - `make test` — pass (19/19).
+  - `npm --prefix league-web run lint` — pass with 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`).
+  - `make lint` — still reports pre-existing backend lint noise; no new functional regressions found.
+
+---
+
+## Recent Changes (2026-03-05, session 7)
+
+### Documentation sync — technical flow docs updated to flattened timeline enqueue path
+
+- **What changed**:
+  - Updated `docs/TECHNICAL_REQUEST_FLOW.md` to reflect:
+    - direct route-level timeline enqueue (`router -> enqueue service -> ARQ`)
+    - pre-query detail backfill + post-query safety-net backfill
+    - timeline cache warmup semantics (`timeline:{match_id}`)
+  - Updated `docs/TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` to reflect:
+    - current page-1 correctness strategy (`backfill_match_details_by_game_ids(..., max_fetch=limit)`)
+    - timeline warmup job (`fetch_timeline_cache_job`)
+    - explicit flattened enqueue pattern and rationale
+    - refreshed "Last Updated" date
+- **Why**: existing docs still described an older background detail-enqueue path and wrapper indirection that no longer matched implementation.
+- **Current phase/status**: REFACTORING (documentation alignment; no runtime behavior changes).
+- **Blockers / open questions**:
+  - None introduced by this docs-only update.
+- **Next recommended steps**:
+  1. Keep request-flow docs synchronized whenever queue/job wiring changes.
+  2. Add a short "Flow changed?" checklist item to future backend PR descriptions for `matches.py` / `search.py` edits.
+
+---
+
+## Recent Changes (2026-03-06, session 8)
+
+### Branch review + follow-up execution
+
+- **Review outcome**:
+  - Confirmed the highest-priority race-condition blocker remains open in:
+    - `services/api/app/services/match_sync.py` (`upsert_matches_for_riot_account` uses select-then-insert flow)
+    - `services/api/app/services/riot_account_upsert.py` (`ensure_user_riot_account_link` uses select-then-insert flow)
+  - Existing `upsert_riot_account` already includes nested transaction + retry-on-`IntegrityError`, but link and match upserts still need atomic conflict-safe writes.
+
+### 1) Targeted tests for `backfill_match_details_by_game_ids(..., max_fetch=limit)` with `limit > 20`
+
+- **New file**: `services/api/tests/test_riot_sync_backfill.py`
+- **Added tests**:
+  - `test_backfill_by_game_ids_honors_max_fetch_above_default_20` — validates `max_fetch=25` backfills 25/30 matches and commits once.
+  - `test_backfill_by_game_ids_can_fetch_all_when_max_fetch_exceeds_missing` — validates `max_fetch=50` backfills all 30 matches.
+- **Why**: guards page-1 correctness for larger `limit` values and prevents regression to implicit 20-fetch behavior.
+
+### 2) Repo-wide backend lint-noise baseline
+
+- **New tooling**:
+  - `scripts/update_ruff_baseline.py` — captures and normalizes current ruff violations into `scripts/ruff_baseline.json`.
+  - `scripts/check_ruff_new_violations.py` — runs ruff and fails only on violations not present in the baseline.
+- **Make targets added**:
+  - `make lint-baseline`
+  - `make lint-new`
+- **Baseline snapshot**:
+  - `scripts/ruff_baseline.json` currently tracks **63** known violations.
+- **Why**: allows lint to become a reliable blocking signal for *new* issues while existing noise is burned down incrementally.
+
+### Verification
+
+- `./.venv/bin/pytest services/api/tests/test_riot_sync_backfill.py` — pass (2/2).
+- `make test` — pass (21/21).
+- `make lint` — still fails on pre-existing repo-wide ruff noise (expected).
+- `make lint-new` — pass (no new violations vs baseline).
+- `npm --prefix league-web run lint` — pass with 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`).
+
+### Blockers / open questions
+
+- **Still open**: race-condition hardening in `match_sync.py` and `riot_account_upsert.py` remains the top reliability blocker.
+- **Operational note**: if large lint cleanup shifts line numbers substantially, refresh baseline via `make lint-baseline`.
+
+---
+
+## Recent Changes (2026-03-06, session 9)
+
+### Lint policy simplification — single strict gate
+
+- **What changed**:
+  - `Makefile` now exposes one lint command path: `make lint`.
+  - `make lint` now runs:
+    - backend Ruff: `./.venv/bin/ruff check services/api services/llm`
+    - frontend lint: `npm --prefix league-web run lint`
+  - Removed baseline-only targets:
+    - `make lint-baseline`
+    - `make lint-new`
+  - Removed baseline scripts/artifacts:
+    - `scripts/update_ruff_baseline.py`
+    - `scripts/check_ruff_new_violations.py`
+    - `scripts/ruff_baseline.json`
+- **Why**: project policy switched to one future-facing lint command with no legacy baseline support.
+- **Current phase/status**: REFACTORING (tooling simplification complete; strict lint is now canonical).
+- **Blockers / open questions**:
+  - None for tooling shape.
+  - Any existing backend Ruff violations must now be fixed directly because baseline bypass was removed.
+
+---
+
+## Recent Changes (2026-03-06, session 10)
+
+### Backend lint debt cleanup — strict `make lint` now green
+
+- **What changed**:
+  - Ran Ruff auto-fixes across backend services:
+    - `./.venv/bin/ruff check services/api services/llm --fix`
+  - Ran Ruff formatter to resolve remaining line-length violations:
+    - `./.venv/bin/ruff format services/api services/llm`
+  - This removed remaining backend Ruff violations (line length/import/order/annotation/unused-import mix) introduced by strict no-baseline policy.
+- **Why**: `make lint` was intentionally made strict and was failing on legacy backend Ruff debt; this cleanup makes the single lint gate operational.
+- **Current phase/status**: REFACTORING (lint policy fully enforced; backend lint debt removed).
+- **Blockers / open questions**:
+  - No lint blockers remain.
+  - Frontend still has 1 pre-existing ESLint warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`), but it does not fail `npm run lint`.
+- **Verification**:
+  - `./.venv/bin/ruff check services/api services/llm` — pass.
+  - `make lint` — pass (backend clean; frontend warning unchanged).
+  - `make test` — pass (`23/23`).
+
+---
+
+## Recent Changes (2026-03-06, session 10)
+
+### Centralized Riot test payload fixtures + router coverage
+
+- **What changed**:
+  - Added live-capture utility:
+    - `scripts/capture_riot_test_fixtures.py`
+    - Captures and writes canonical Riot fixtures for `damanjr#NA1`:
+      - account payload
+      - summoner payload
+      - match IDs payload
+      - match detail payload
+      - match timeline payload
+      - `manifest.json` to map canonical fixture names to files
+  - Added centralized fixture loader:
+    - `services/api/tests/fixtures/riot_payloads.py`
+    - Shared helpers: `fixture_meta()`, `load_account_info()`, `load_summoner_info()`,
+      `load_match_ids()`, `load_match_detail()`, `load_match_timeline()`
+  - Added fixture capture Make target:
+    - `make capture-riot-fixtures`
+  - Refactored Riot-related tests to use centralized real payload fixtures instead of
+    handcrafted inline payload dicts:
+    - `services/api/tests/test_riot_api_client_match_fetch.py`
+    - `services/api/tests/test_riot_api_client_retry.py`
+    - `services/api/tests/test_riot_sync_backfill.py`
+    - `services/api/tests/test_riot_account_upsert.py`
+  - Added router-level coverage for captured payload chain:
+    - `services/api/tests/test_search_router_riot_fixtures.py`
+    - Verifies page-1 `/search/{riot_id}/matches` call path invokes
+      account -> summoner -> match IDs with `count=limit`, then upsert/backfill/enqueue.
+  - Added fixture contract test:
+    - `services/api/tests/test_riot_payload_fixtures_contract.py`
+    - Validates required keys and cross-fixture consistency (`puuid`, `primary_match_id`).
+- **Why**: removes drift between tests and Riot payload reality, and centralizes fixture
+  maintenance so all backend tests share one source of truth.
+- **Current phase/status**: REFACTORING — backend hardening follow-ups (fixture realism + test
+  maintainability).
+- **Blockers / open questions**:
+  - `make lint` still reports existing repo-wide Ruff violations unrelated to this change.
+  - Frontend lint retains 1 pre-existing warning in `league-web/src/components/Auth/AuthForm.tsx`.
+- **Verification**:
+  - Targeted pytest for updated files: pass (12/12).
+  - `make test`: pass (23/23).
+  - Ruff on edited files: pass.
+  - `npm --prefix league-web run lint`: pass with 1 pre-existing warning.
+
+---
+
+## Recent Changes (2026-03-06, session 11)
+
+### Fixture review follow-ups — trim, dedup, defer
+
+- **Timeline fixture trimmed**: `match_timeline.na1_5506397559.json` cut from 64K lines to 9K lines.
+  Kept 16 frames (covers 0–15 min laning phase). Stripped `events` arrays (tests only use
+  `participantFrames`). Capture script now accepts `--timeline-frames N` (default 16).
+- **Shared test helpers extracted**: new `tests/fixtures/fake_riot_helpers.py` with `FakeRateLimiter`,
+  `ScriptedClient`, `ok_response`, `error_response`, `noop_metric`. Eliminates duplication across
+  `test_riot_api_client_match_fetch.py` and `test_riot_api_client_retry.py`.
+- **Import-time I/O deferred**: `test_riot_api_client_match_fetch.py` no longer loads fixture JSON
+  at module scope. Data is now loaded inside a `@pytest.fixture` so it's only read when tests in
+  that file actually run.
+
+**Verification**: 23/23 tests pass. Ruff clean on changed files.
+
+---
+
+## Recent Changes (2026-03-06, session 12)
+
+### Code review fixes — backfill atomicity, job cleanup, polling, tab state
+
+- **Atomic backfill writes** (`riot_sync.py`):
+  - `_backfill_single_match` now extracts `timestamp` into a local variable before assigning either
+    `game_info` or `game_start_timestamp`. Prevents partial state where `game_info` is set but
+    `game_start_timestamp` remains NULL on exception — the exact ordering bug this branch fixes.
+  - Same pattern applied to `fetch_match_details_job` in `match_ingestion.py`.
+
+- **Fallback RiotApiClient cleanup** (`match_ingestion.py`):
+  - Three job functions (`fetch_riot_account_matches_job`, `fetch_timeline_cache_job`,
+    `fetch_match_details_job`) used `ctx.get("riot_client") or RiotApiClient()` but never closed the
+    fallback client. Added `try/finally` blocks that call `await client.close()` only when the
+    fallback was used (not the shared context client). Prevents HTTP connection leaks.
+
+- **Resilient timeline enqueue** (`enqueue_match_timelines.py`):
+  - `enqueue_missing_timeline_jobs` runs in FastAPI `BackgroundTasks` where exceptions are silently
+    swallowed. Added try/except around `get_arq_pool()` (returns 0 if pool unavailable) and per-batch
+    `enqueue_job` calls (logs warning, continues to next batch instead of aborting).
+
+- **Durable poll counter** (`home/page.tsx`, `riot-account/[riotId]/page.tsx`):
+  - Polling `MAX_POLLS` safeguard was ineffective — `pollCount` was a local variable inside the
+    polling `useEffect`, resetting to 0 every time the effect re-ran (triggered by
+    `missingDetailCount` changes). Replaced with `useRef(0)` that persists across effect re-runs.
+    Separate effect resets the ref on `refreshIndex`/`page` change.
+  - Also added missing `refreshIndex` to riot-account polling effect deps for consistency with home.
+
+- **Stale tab fallback** (`MatchesTable.tsx`):
+  - After page navigation or refresh, `activeTab` could reference a queue group with no matches in
+    the new data, showing an empty view. React 19 strict lint rules prevent `useEffect`/ref-based
+    reset during render. Solution: `filteredMatches` now falls back to showing all matches when the
+    active tab yields zero results.
+
+**Verification**:
+- `make test` — pass (23/23).
+- `make lint` — pass.
+- `npm --prefix league-web run lint` — pass with 1 pre-existing warning.
 
 ---
 

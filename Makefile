@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev llm-dev db-up db-down db-migrate db-reset db-revision lint test
+.PHONY: help install api-dev worker-dev llm-dev db-up db-down db-migrate db-reset db-revision lint test capture-riot-fixtures
 
 help:
 	@echo "Available targets:"
@@ -11,8 +11,9 @@ help:
 	@echo "  db-migrate   Apply Alembic migrations"
 	@echo "  db-reset     Clear all data and run migrations"
 	@echo "  db-revision  Create new Alembic migration"
-	@echo "  lint         Run ruff on all services"
+	@echo "  lint         Run backend + frontend lint gates"
 	@echo "  test         Run pytest on all services"
+	@echo "  capture-riot-fixtures  Capture live Riot JSON fixtures for tests"
 
 install:
 	pip install --upgrade pip setuptools wheel
@@ -53,3 +54,6 @@ lint:
 
 test:
 	./.venv/bin/pytest services/api services/llm
+
+capture-riot-fixtures:
+	./.venv/bin/python scripts/capture_riot_test_fixtures.py --game-name damanjr --tag-line NA1 --count 40

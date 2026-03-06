@@ -3,7 +3,11 @@ from arq.cron import cron
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.jobs.match_ingestion import fetch_match_details_job, fetch_riot_account_matches_job
+from app.jobs.match_ingestion import (
+    fetch_match_details_job,
+    fetch_riot_account_matches_job,
+    fetch_timeline_cache_job,
+)
 from app.jobs.scheduled import sync_all_riot_accounts_matches
 from app.services.riot_api_client import RiotApiClient
 
@@ -49,6 +53,7 @@ class WorkerSettings:
     functions = [
         fetch_riot_account_matches_job,
         fetch_match_details_job,
+        fetch_timeline_cache_job,
     ]
 
     # Scheduled cron jobs

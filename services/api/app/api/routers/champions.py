@@ -6,7 +6,6 @@ from app.db.session import get_session
 from app.schemas.champion import ChampionPublic
 from app.services.champions import get_champion_by_id, list_champions
 
-
 router = APIRouter(prefix="/champions", tags=["champions"])
 logger = get_logger("league_api.champions")
 

@@ -4,7 +4,6 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.redaction import redact_url
 
-
 _redis_client: Redis | None = None
 logger = get_logger("league_api.cache")
 

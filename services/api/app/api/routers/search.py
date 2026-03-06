@@ -2,17 +2,17 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.api.routers.match_detail_enqueue import enqueue_details_background
 from app.db.session import get_session
 from app.schemas.match import MatchListItem, PaginatedMatchList, PaginationMeta
 from app.schemas.user import RiotAccountResponse
+from app.services.enqueue_match_timelines import enqueue_missing_timeline_jobs
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_account_upsert import find_or_create_riot_account
 from app.services.riot_accounts import get_riot_account_by_riot_id
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_id_parser import parse_riot_id
-from app.services.riot_sync import backfill_match_details_inline
+from app.services.riot_sync import backfill_match_details_by_game_ids, backfill_match_details_inline
 
 router = APIRouter(prefix="/search", tags=["search"])
 logger = get_logger("league_api.search")
@@ -60,9 +60,15 @@ async def search_riot_account_matches(
     if page == 1:
         try:
             async with RiotApiClient() as client:
-                account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
+                account_info = await client.fetch_account_by_riot_id(
+                    parsed.game_name, parsed.tag_line
+                )
                 summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
-                match_ids = await client.fetch_match_ids_by_puuid(account_info["puuid"], start=0, count=20)
+                match_ids = await client.fetch_match_ids_by_puuid(
+                    account_info["puuid"],
+                    start=0,
+                    count=limit,
+                )
         except RiotRequestError:
             logger.exception("search_matches_riot_request_error", extra={"riot_id": riot_id})
             raise
@@ -84,28 +90,37 @@ async def search_riot_account_matches(
 
         await upsert_matches_for_riot_account(session, riot_account.id, match_ids)
 
+        # Pre-query backfill: populate game_info + game_start_timestamp for newly
+        # upserted matches so they sort correctly on the first request.
         if match_ids:
-            background_tasks.add_task(
-                enqueue_details_background,
-                logger=logger,
-                match_ids=match_ids,
-                context={"riot_account_id": str(riot_account.id)},
-                success_event="search_matches_enqueued_details",
-                failure_event="search_matches_enqueue_failed",
+            await backfill_match_details_by_game_ids(
+                session,
+                match_ids,
+                max_fetch=limit,
             )
+
+            # Pre-fetch timelines in background for instant UX on row expand.
+            logger.info(
+                "search_matches_enqueuing_timelines",
+                extra={"riot_account_id": str(riot_account.id), "match_count": len(match_ids)},
+            )
+            background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)
     else:
         riot_account = await get_riot_account_by_riot_id(session, parsed.canonical)
         if not riot_account:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
+            )
 
     # Return the paginated match list
     matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)
 
-    # Inline backfill: fetch missing game_info directly from Riot API
+    # Safety-net backfill: should be a no-op after the pre-query step on page 1.
+    # If this triggers, something unexpected happened (partial failure, race, page 2+).
     missing_count = sum(1 for m in matches if not m.game_info)
     if missing_count:
-        logger.info(
-            "search_matches_backfill_start",
+        logger.warning(
+            "search_matches_backfill_fallback",
             extra={"riot_id": riot_id, "missing": missing_count},
         )
         await backfill_match_details_inline(session, matches)

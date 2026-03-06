@@ -57,10 +57,10 @@ graph TD
   Search -- "9. Display Results" --> Home
 
   %% Background Task (Async)
-  Service -. "10. Enqueue Full Details" .-> Redis
-  Redis -. "11. Pull Job" .-> ARQ
-  ARQ -. "12. Fetch Full Details" .-> Riot
-  ARQ -. "13. Update Records" .-> DB
+  SearchRoute -. "10. Enqueue Missing Timelines (direct)" .-> Redis
+  Redis -. "11. Pull Timeline Job" .-> ARQ
+  ARQ -. "12. Fetch Timeline if uncached" .-> Riot
+  ARQ -. "13. Cache timeline:{match_id}" .-> Redis
 
   %% Optional Auth Flow
   Home -- "14. Optional Sign In" --> Auth
@@ -91,14 +91,26 @@ graph TD
 - **Stateless Lookup**: Search works without prior user registration
 - **Idempotent Upsert**: `find_or_create_riot_account` ensures data consistency
 - **Hybrid Backfill**:
-  - **Inline**: Basic match details fetched immediately for UI responsiveness
-  - **Background**: Full match details enqueued for async processing
+  - **Inline (Pre-query)**: Missing match details are backfilled before the DB
+    list query so page-1 ordering is correct on first response.
+  - **Inline (Safety net)**: Post-query fallback backfill still exists, but should
+    usually be a no-op.
+  - **Background**: Timeline prefetch is enqueued asynchronously for fast row-expand
+    detail UX.
 
 ### 4. Asynchronous Processing
 
-- **ARQ & Redis**: Heavy operations (fetching full match details) are offloaded to background jobs
-- **Worker Service**: Separate process picks up jobs, fetches data from **Riot**, and performs upserts into **PostgreSQL**
-- **Job Types**: `fetch_match_details_job` for batch processing, `sync_all_riot_accounts_matches` for periodic updates
+- **ARQ & Redis**: Timeline prefetch is offloaded to background jobs.
+- **Router -> Service flattening**: Match routes now enqueue directly with
+  `enqueue_missing_timeline_jobs(match_ids)` via FastAPI background tasks
+  (the extra router wrapper layer was removed).
+- **Worker Service**: Separate process picks up `fetch_timeline_cache_job`,
+  fetches timeline data from **Riot** only when cache is missing, and writes to
+  Redis as `timeline:{match_id}`.
+- **Job Types**:
+  - `fetch_match_details_job` (batch detail backfill path, still available)
+  - `fetch_timeline_cache_job` (timeline warmup path used by search/matches page 1)
+  - `sync_all_riot_accounts_matches` (periodic sync)
 
 ### 5. Database Architecture
 
@@ -125,6 +137,12 @@ The application prioritizes immediate access to match data:
 
 ### Background Job Integration
 
-- **Immediate response**: Basic match data returned quickly for UI
-- **Progressive enhancement**: Full details populated asynchronously
-- **Reliability**: Jobs retry on failure with exponential backoff
+- **Immediate response**: Match list details are backfilled inline before the
+  initial response where needed.
+- **Progressive enhancement**: Timelines are prefetched asynchronously, so
+  expand-on-demand lane stats feel instant when possible.
+- **De-duplication and cache skipping**:
+  - enqueue service checks Redis in bulk (`MGET`) and only enqueues uncached
+    timelines.
+  - deterministic ARQ `_job_id` generation avoids duplicate scheduling.
+- **Reliability**: Jobs still rely on retry/backoff behavior from the worker.

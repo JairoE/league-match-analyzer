@@ -4,18 +4,18 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.api.routers.match_detail_enqueue import enqueue_details_background
 from app.db.session import get_session
 from app.schemas.match import LaneStats, MatchListItem, PaginatedMatchList, PaginationMeta
+from app.services.enqueue_match_timelines import enqueue_missing_timeline_jobs
 from app.services.matches import list_matches_for_riot_account
 from app.services.riot_accounts import resolve_riot_account_identifier
 from app.services.riot_sync import (
+    backfill_match_details_by_game_ids,
     backfill_match_details_inline,
     fetch_match_detail,
     fetch_match_list_for_riot_account,
     fetch_timeline_stats,
 )
-
 
 router = APIRouter(tags=["matches"])
 logger = get_logger("league_api.matches")
@@ -50,41 +50,62 @@ async def list_riot_account_matches(
 
     # Only sync with Riot API on page 1; page 2+ just queries DB
     if page == 1:
-        match_ids = await fetch_match_list_for_riot_account(session, riot_account_id, 0, 20)
+        match_ids = await fetch_match_list_for_riot_account(
+            session,
+            riot_account_id,
+            0,
+            limit,
+        )
         if match_ids is None:
-            logger.info("list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id})
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
+            logger.info(
+                "list_riot_account_matches_not_found", extra={"riot_account_id": riot_account_id}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
+            )
         logger.info(
             "list_riot_account_matches_synced",
             extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
         )
 
-        background_tasks.add_task(
-            enqueue_details_background,
-            logger=logger,
-            match_ids=match_ids,
-            context={"riot_account_id": riot_account_id},
-            success_event="list_riot_account_matches_enqueued_details",
-            failure_event="list_riot_account_matches_enqueue_failed",
+        # Pre-query backfill: populate game_info + game_start_timestamp for newly
+        # upserted matches so they sort correctly on the first request.
+        await backfill_match_details_by_game_ids(
+            session,
+            match_ids,
+            max_fetch=limit,
         )
+
+        # Pre-fetch timelines in background for instant UX on row expand.
+        logger.info(
+            "list_riot_account_matches_enqueuing_timelines",
+            extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
+        )
+        background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)
 
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
-        logger.info("list_riot_account_matches_not_found_after_sync", extra={"riot_account_id": riot_account_id})
+        logger.info(
+            "list_riot_account_matches_not_found_after_sync",
+            extra={"riot_account_id": riot_account_id},
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found")
     matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)
 
-    # Inline backfill: fetch missing game_info directly from Riot API
-    # so matches render immediately without needing the ARQ worker.
+    # Safety-net backfill: should be a no-op after the pre-query step on page 1.
+    # If this triggers, something unexpected happened (partial failure, race, page 2+).
     missing_count = sum(1 for m in matches if not m.game_info)
     if missing_count:
-        logger.info(
-            "list_riot_account_matches_backfill_start",
+        logger.warning(
+            "list_riot_account_matches_backfill_fallback",
             extra={"riot_account_id": riot_account_id, "missing": missing_count},
         )
         await backfill_match_details_inline(session, matches)
 
-    logger.info("list_riot_account_matches_done", extra={"riot_account_id": riot_account_id, "count": len(matches)})
+    logger.info(
+        "list_riot_account_matches_done",
+        extra={"riot_account_id": riot_account_id, "count": len(matches)},
+    )
     return PaginatedMatchList(
         data=[MatchListItem.model_validate(match) for match in matches],
         meta=PaginationMeta.build(page=page, limit=limit, total=total),
@@ -139,7 +160,9 @@ async def get_match_timeline_stats(
     Returns:
         LaneStats with available diff fields and opponent info.
     """
-    logger.info("get_timeline_stats_start", extra={"match_id": match_id, "participant_id": participant_id})
+    logger.info(
+        "get_timeline_stats_start", extra={"match_id": match_id, "participant_id": participant_id}
+    )
     stats = await fetch_timeline_stats(session, match_id, participant_id)
     if stats is None:
         logger.info("get_timeline_stats_unavailable", extra={"match_id": match_id})

@@ -100,13 +100,14 @@ export default function MatchesTable({
     return QUEUE_GROUP_DISPLAY_ORDER.filter((group) => groups.has(group));
   }, [matches, resolveQueueId]);
 
-  // Filter matches by active tab
+  // Filter matches by active tab; fall back to "all" when tab has no matches
   const filteredMatches = useMemo(() => {
     if (activeTab === "all") return matches;
-    return matches.filter((match) => {
+    const filtered = matches.filter((match) => {
       const queueId = resolveQueueId(match);
       return getQueueGroup(queueId) === activeTab;
     });
+    return filtered.length > 0 ? filtered : matches;
   }, [matches, resolveQueueId, activeTab]);
 
   // Summary stats: win rate & best consecutive-win champion
@@ -286,7 +287,7 @@ export default function MatchesTable({
           {matchSummaryStats.bestStreakCount >= 2 && (
             <div className={styles.summaryStreak}>
               <span className={styles.summaryLabel}>
-                Best Win Streak{" "}
+                Best Champion Win Streak{" "}
               </span>
               {matchSummaryStats.bestStreakChampId != null &&
                 championById[

@@ -10,7 +10,6 @@ from app.core.logging import get_logger
 from app.models.match import Match
 from app.models.riot_account_match import RiotAccountMatch
 
-
 logger = get_logger("league_api.services.matches")
 
 
@@ -47,7 +46,9 @@ async def list_matches_for_riot_account(
         Tuple of (matches, total_count). Matches are sorted by
         game_start_timestamp DESC with nulls last.
     """
-    logger.info("list_matches_for_riot_account_start", extra={"riot_account_id": str(riot_account_id)})
+    logger.info(
+        "list_matches_for_riot_account_start", extra={"riot_account_id": str(riot_account_id)}
+    )
 
     base_filter = (
         select(Match)
@@ -55,15 +56,12 @@ async def list_matches_for_riot_account(
         .where(RiotAccountMatch.riot_account_id == riot_account_id)
     )
 
-    count_result = await session.execute(
-        select(func.count()).select_from(base_filter.subquery())
-    )
+    count_result = await session.execute(select(func.count()).select_from(base_filter.subquery()))
     total = count_result.scalar_one()
 
     offset = (page - 1) * limit
     result = await session.execute(
-        base_filter
-        .order_by(Match.game_start_timestamp.desc().nulls_last())
+        base_filter.order_by(Match.game_start_timestamp.desc().nulls_last())
         .offset(offset)
         .limit(limit),
     )
@@ -71,7 +69,11 @@ async def list_matches_for_riot_account(
 
     logger.info(
         "list_matches_for_riot_account_done",
-        extra={"riot_account_id": str(riot_account_id), "match_count": len(matches), "total": total},
+        extra={
+            "riot_account_id": str(riot_account_id),
+            "match_count": len(matches),
+            "total": total,
+        },
     )
     return matches, total
 

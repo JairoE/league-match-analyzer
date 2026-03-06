@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.riot_account import RiotAccount
 from app.services.riot_account_upsert import upsert_riot_account
+from tests.fixtures.riot_payloads import load_summoner_info
 
 
 class _ScalarResult:
@@ -54,6 +55,7 @@ class _FakeSession:
 
 @pytest.mark.asyncio
 async def test_upsert_riot_account_recovers_from_insert_race() -> None:
+    summoner_info = load_summoner_info()
     existing = RiotAccount(
         riot_id="Teemo#NA1",
         puuid="puuid-123",
@@ -68,15 +70,14 @@ async def test_upsert_riot_account_recovers_from_insert_race() -> None:
         riot_id="Teemo#NA1",
         puuid="puuid-123",
         summoner_info={
-            "name": "UpdatedName",
-            "profileIconId": 2,
-            "summonerLevel": 20,
+            "profileIconId": summoner_info["profileIconId"],
+            "summonerLevel": summoner_info["summonerLevel"],
         },
     )
 
     assert account is existing
-    assert account.summoner_name == "UpdatedName"
-    assert account.profile_icon_id == 2
-    assert account.summoner_level == 20
+    assert account.summoner_name == "Teemo"
+    assert account.profile_icon_id == summoner_info["profileIconId"]
+    assert account.summoner_level == summoner_info["summonerLevel"]
     # First flush fails during insert race, second flush persists updates.
     assert session.flush_calls == 2
