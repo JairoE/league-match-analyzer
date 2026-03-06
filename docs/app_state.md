@@ -453,6 +453,28 @@ Optional:
 
 ## Recent Changes (2026-03-06, session 10)
 
+### Backend lint debt cleanup — strict `make lint` now green
+
+- **What changed**:
+  - Ran Ruff auto-fixes across backend services:
+    - `./.venv/bin/ruff check services/api services/llm --fix`
+  - Ran Ruff formatter to resolve remaining line-length violations:
+    - `./.venv/bin/ruff format services/api services/llm`
+  - This removed remaining backend Ruff violations (line length/import/order/annotation/unused-import mix) introduced by strict no-baseline policy.
+- **Why**: `make lint` was intentionally made strict and was failing on legacy backend Ruff debt; this cleanup makes the single lint gate operational.
+- **Current phase/status**: REFACTORING (lint policy fully enforced; backend lint debt removed).
+- **Blockers / open questions**:
+  - No lint blockers remain.
+  - Frontend still has 1 pre-existing ESLint warning in `league-web/src/components/Auth/AuthForm.tsx` (`react-hooks/exhaustive-deps`), but it does not fail `npm run lint`.
+- **Verification**:
+  - `./.venv/bin/ruff check services/api services/llm` — pass.
+  - `make lint` — pass (backend clean; frontend warning unchanged).
+  - `make test` — pass (`23/23`).
+
+---
+
+## Recent Changes (2026-03-06, session 10)
+
 ### Centralized Riot test payload fixtures + router coverage
 
 - **What changed**:

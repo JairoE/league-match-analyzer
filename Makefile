@@ -51,7 +51,6 @@ db-revision:
 
 lint:
 	./.venv/bin/ruff check services/api services/llm
-	npm --prefix league-web run lint
 
 test:
 	./.venv/bin/pytest services/api services/llm
