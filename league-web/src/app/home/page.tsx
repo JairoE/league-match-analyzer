@@ -3,9 +3,8 @@
 import {useEffect, useMemo, useState} from "react";
 import {useRouter} from "next/navigation";
 import styles from "./page.module.css";
-import Header from "../../components/Header/Header";
+import MatchPageShell from "../../components/MatchPageShell/MatchPageShell";
 import SubHeader from "../../components/SubHeader/SubHeader";
-import SearchBar from "../../components/SearchBar/SearchBar";
 import MatchesTable from "../../components/MatchesTable";
 import {apiGet} from "../../lib/api";
 import {clearCache} from "../../lib/cache";
@@ -203,31 +202,32 @@ export default function HomePage() {
   }
 
   return (
-    <div className={styles.page}>
-      <Header />
-
-      <SubHeader
-        kicker="Signed in as"
-        title={displayName}
-        subtitle={rankSubtitle}
-        actions={
-          <button className={styles.secondaryButton} onClick={handleRefresh}>
-            Refresh
-          </button>
-        }
-      />
-
-      <SearchBar />
-
-      {liveGame && userPuuid ? (
-        <LiveGameCard
-          game={liveGame}
-          targetPuuid={userPuuid}
+    <MatchPageShell
+      subHeader={
+        <SubHeader
+          kicker="Signed in as"
+          title={displayName}
+          subtitle={rankSubtitle}
+          actions={
+            <button
+              className={styles.secondaryButton}
+              onClick={handleRefresh}
+            >
+              Refresh
+            </button>
+          }
         />
-      ) : null}
-
-      {errorMessage ? <p className={styles.error}>{errorMessage}</p> : null}
-
+      }
+      liveGame={
+        liveGame && userPuuid ? (
+          <LiveGameCard
+            game={liveGame}
+            targetPuuid={userPuuid}
+          />
+        ) : null
+      }
+      error={errorMessage}
+    >
       <MatchesTable
         matches={matches}
         matchDetails={matchDetails}
@@ -237,6 +237,6 @@ export default function HomePage() {
         paginationMeta={paginationMeta}
         onPageChange={handlePageChange}
       />
-    </div>
+    </MatchPageShell>
   );
 }

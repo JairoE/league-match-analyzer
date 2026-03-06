@@ -3,12 +3,12 @@
 import {useEffect, useMemo, useState} from "react";
 import {useParams, useRouter} from "next/navigation";
 import styles from "./page.module.css";
-import Header from "../../../components/Header/Header";
+import MatchPageShell from "../../../components/MatchPageShell/MatchPageShell";
 import SubHeader from "../../../components/SubHeader/SubHeader";
-import SearchBar from "../../../components/SearchBar/SearchBar";
 import MatchesTable from "../../../components/MatchesTable";
 import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";
+import {clearCache} from "../../../lib/cache";
 import {useAppError} from "../../../lib/errors/error-store";
 import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
@@ -41,6 +41,7 @@ export default function RiotAccountPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [hasSession, setHasSession] = useState(false);
+  const [refreshIndex, setRefreshIndex] = useState(0);
   const [page, setPage] = useState(1);
   const [paginationMeta, setPaginationMeta] = useState<PaginationMeta | null>(null);
   const {errorMessage, reportError, clearError} = useAppError("riotAccount.load");
@@ -101,7 +102,7 @@ export default function RiotAccountPage() {
     return () => {
       isActive = false;
     };
-  }, [riotId, decodeError, clearError, reportError]);
+  }, [riotId, decodeError, refreshIndex, clearError, reportError]);
 
   // Fetch matches — re-runs on riotId or page change, but never touches the account endpoint
   useEffect(() => {
@@ -147,7 +148,7 @@ export default function RiotAccountPage() {
     return () => {
       isActive = false;
     };
-  }, [riotId, decodeError, page, clearError, reportError]);
+  }, [riotId, decodeError, refreshIndex, page, clearError, reportError]);
 
   // Seed matchDetails from game_info present in the list response.
   useEffect(() => {
@@ -242,41 +243,52 @@ export default function RiotAccountPage() {
     window.scrollTo(0, 0);
   };
 
+  const handleRefresh = () => {
+    console.debug("[riot-account] manual refresh");
+    clearCache();
+    setPage(1);
+    setRefreshIndex((prev) => prev + 1);
+  };
+
   const error = pageError ?? errorMessage;
 
   return (
-    <div className={styles.page}>
-      <Header />
-
-      <SubHeader
-        kicker="Viewing matches for"
-        title={displayLabel}
-        actions={
-          <>
-            {hasSession ? (
+    <MatchPageShell
+      subHeader={
+        <SubHeader
+          kicker="Viewing matches for"
+          title={displayLabel}
+          actions={
+            <>
               <button
                 className={styles.secondaryButton}
-                onClick={() => router.push("/home")}
+                onClick={handleRefresh}
               >
-                &larr; My matches
+                Refresh
               </button>
-            ) : null}
-            <CompareButton />
-          </>
-        }
-      />
-
-      <SearchBar />
-
-      {liveGame && accountPuuid ? (
-        <LiveGameCard
-          game={liveGame}
-          targetPuuid={accountPuuid}
+              {hasSession ? (
+                <button
+                  className={styles.secondaryButton}
+                  onClick={() => router.push("/home")}
+                >
+                  &larr; My matches
+                </button>
+              ) : null}
+              <CompareButton />
+            </>
+          }
         />
-      ) : null}
-
-      {error ? <p className={styles.error}>{error}</p> : null}
-
+      }
+      liveGame={
+        liveGame && accountPuuid ? (
+          <LiveGameCard
+            game={liveGame}
+            targetPuuid={accountPuuid}
+          />
+        ) : null
+      }
+      error={error}
+    >
       <MatchesTable
         matches={matches}
         matchDetails={matchDetails}
@@ -287,6 +299,6 @@ export default function RiotAccountPage() {
         paginationMeta={paginationMeta}
         onPageChange={handlePageChange}
       />
-    </div>
+    </MatchPageShell>
   );
 }
