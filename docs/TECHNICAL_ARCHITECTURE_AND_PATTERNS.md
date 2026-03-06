@@ -28,13 +28,15 @@ Key architectural highlights include a robust **Redis-backed rate limiting syste
 
 The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern:
 
-1. **Request**: User searches for a Riot ID (`GameName#Tag`).
-2. **Live Fetch** (page 1 only): API client fetches Account, Summoner, and Match IDs from Riot API.
-3. **Idempotent Upsert**: `find_or_create_riot_account` upserts identity data; `upsert_matches_for_riot_account` inserts new match IDs.
-4. **Hybrid Backfill**:
-   - **Inline**: Missing match details fetched immediately (`backfill_match_details_inline`) for UI responsiveness.
-   - **Background**: Full details enqueued (`enqueue_details_background`) for async processing via ARQ.
-5. **Pagination**: Page 2+ resolves from DB only — no Riot API calls.
+1.  **Request**: User searches for a Riot ID (`GameName#Tag`).
+2.  **Live Fetch**: API client fetches Account, Summoner, and Match IDs directly from Riot API (ensuring freshness).
+3.  **Idempotent Upsert**:
+    - `find_or_create_riot_account`: Upserts identity data.
+    - `upsert_matches_for_riot_account`: efficiently inserts new match IDs and links them to the account.
+4.  **Hybrid Backfill + Warmup**:
+    - **Inline (Pre-query)**: Missing details are backfilled by game IDs (`backfill_match_details_by_game_ids`) before the page-1 DB list query so ordering is correct on first response.
+    - **Inline (Fallback)**: `backfill_match_details_inline` remains as a safety net after the query if missing `game_info` rows are still detected.
+    - **Background (Timeline warmup)**: Page-1 routes enqueue missing timeline cache work (`enqueue_missing_timeline_jobs`) directly from router background tasks.
 
 ### 1.3 LLM Data Pipeline
 
@@ -70,10 +72,16 @@ See `docs/LLM_DATA_PIPELINE.md` for the full specification.
 - **Job Types**:
   - `fetch_riot_account_matches_job`: Pagination-aware match ID fetching.
   - `fetch_match_details_job`: Batch fetching of match payloads.
-  - `extract_match_timeline_job`: Timeline ingest, state vector + action extraction, DB persistence. Idempotent (skips if vectors already exist). Manages `RiotApiClient` lifecycle with `owns_client` pattern.
+  - `extract_match_timeline_job`: Timeline ingest, state vector + action extraction, DB persistence. Idempotent (skips if vectors already exist).
+  - `fetch_timeline_cache_job`: Timeline prefetch/caching for match detail expansion UX.
   - **Cron**: `sync_all_riot_accounts_matches` runs every 6 hours.
 
-### 2.3 Service Layer (`app/services/`)
+### 2.3 Request-Path Simplification Pattern
+
+- **Flattened enqueue path**: routers call `background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)` directly.
+- Enqueue service performs Redis `MGET` pre-filtering; ARQ jobs use deterministic `_job_id` signatures.
+
+### 2.4 Service Layer (`app/services/`)
 
 | Service | Purpose |
 |---|---|
@@ -204,6 +212,16 @@ All components are folderized in `src/components/`, each with its own CSS module
   - `formatApiError` — translates backend codes via `DETAIL_MESSAGES` lookup; handles `riot_api_failed` with `riotStatus` branching (404/429/other); HTTP status fallbacks
   - `useAppError(scope)` React hook — `{ errorMessage, reportError, clearError }`
 
+- **Composition Pattern**:
+  - `MatchPageShell` - Shared page layout (Header + SubHeader + SearchBar + error + children) used by `/home` and `/riot-account/[riotId]`
+  - `AuthForm` - Shared form logic for sign in/up
+  - `SignInForm` / `SignUpForm` - Specific implementations
+  - `MatchCard` - Reusable match display component
+- **Hydration Handling**:
+  - `isHydrated` pattern to prevent hydration mismatches
+  - Client-side only state initialization with `useEffect`
+- **Type Safety**: Full TypeScript coverage with shared type definitions
+
 ### 3.6 Performance Optimizations
 
 - **Code Splitting**: Automatic route-based code splitting via App Router
@@ -231,9 +249,20 @@ All components are folderized in `src/components/`, each with its own CSS module
 
 ### 4.3 Testing
 
+### 4.3 Testing
+
 - **Backend**: pytest with `asyncio_mode = "auto"` in `services/api/tests/`
-- **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests)
-- **No frontend test suite** currently
+- **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests); 42/42 tests pass.
+- **No frontend test suite** currently.
+
+## 5. Key Updates
+
+- **Riot API Client Evolution**: The client now includes a highly sophisticated, Redis-backed rate limiter that dynamically adapts to Riot's header responses.
+- **Stateless Search**: The `/search` endpoint architecture supports instant-feedback lookups without requiring prior user registration.
+- **Page-1 Correctness Hardening**: Match details are backfilled before initial page-1 list ordering to avoid stale first-load ordering when new matches were just upserted.
+- **Timeline Warmup Refactor**: Timeline enqueue was flattened to direct router->service dispatch, replacing the extra wrapper layer.
+- **LLM Service Stub**: A dedicated `league-llm` service structure exists, though currently minimal, indicating the architectural separation of concerns for future AI features.
+- **Metric Instrumentation**: Added internal metric tracking (`worker_metrics.py`) for job reliability monitoring.
 
 ## 5. Design Decisions & Trade-offs
 

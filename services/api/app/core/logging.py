@@ -85,10 +85,10 @@ class DevFormatter(logging.Formatter):
     """Human-readable colored output for local development."""
 
     COLORS = {
-        "DEBUG": "\033[36m",     # cyan
-        "INFO": "\033[32m",      # green
-        "WARNING": "\033[33m",   # yellow
-        "ERROR": "\033[31m",     # red
+        "DEBUG": "\033[36m",  # cyan
+        "INFO": "\033[32m",  # green
+        "WARNING": "\033[33m",  # yellow
+        "ERROR": "\033[31m",  # red
         "CRITICAL": "\033[35m",  # magenta
     }
     RESET = "\033[0m"
@@ -119,7 +119,7 @@ class DevFormatter(logging.Formatter):
         extra_str = " ".join(f"{k}={v}" for k, v in extras.items()) if extras else ""
 
         msg = record.getMessage()
-        
+
         # Format: [req_id] LEVEL logger_name message key=value ...
         return (
             f"{self.DIM}[{req_id_short}]{self.RESET} "
@@ -141,15 +141,15 @@ class DevFormatter(logging.Formatter):
         """
         if not isinstance(value, str):
             return str(value)
-        
+
         # Truncate UUIDs and PUUIDs
         if key in TRUNCATE_FIELDS and len(value) > 12:
             return value[:8] + "..."
-        
+
         # Truncate long URLs
         if key == "url" and len(value) > 50:
             return value[:45] + "..."
-        
+
         return value
 
 
@@ -165,16 +165,16 @@ def setup_logging() -> None:
     settings = get_settings()
     root_logger = logging.getLogger()
     root_logger.setLevel(settings.log_level.upper())
-    
+
     handler = logging.StreamHandler(sys.stdout)
     handler.addFilter(RequestIdFilter())
-    
+
     # Use human-readable format locally, JSON in production
     if settings.environment == "development":
         handler.setFormatter(DevFormatter())
     else:
         handler.setFormatter(JsonFormatter())
-    
+
     root_logger.handlers = [handler]
 
 

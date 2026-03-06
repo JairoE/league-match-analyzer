@@ -8,7 +8,6 @@ from app.schemas.user import AuthResponse, RiotAccountResponse
 from app.services.riot_id_parser import parse_riot_id
 from app.services.riot_sync import fetch_sign_in_user, fetch_user_profile
 
-
 router = APIRouter(prefix="/users", tags=["auth"])
 logger = get_logger("league_api.auth")
 
@@ -40,7 +39,9 @@ async def sign_up(
         extra={"canonical": parsed_riot_id.canonical, "summoner_name": parsed_riot_id.game_name},
     )
     user, riot_account = await fetch_user_profile(session, parsed_riot_id.canonical, payload.email)
-    logger.info("sign_up_success", extra={"user_id": str(user.id), "riot_account_id": str(riot_account.id)})
+    logger.info(
+        "sign_up_success", extra={"user_id": str(user.id), "riot_account_id": str(riot_account.id)}
+    )
     return AuthResponse(
         id=user.id,
         email=user.email,
@@ -79,7 +80,9 @@ async def sign_in(
         logger.info("sign_in_user_missing", extra={"summoner_name": payload.summoner_name})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     user, riot_account = result
-    logger.info("sign_in_success", extra={"user_id": str(user.id), "riot_account_id": str(riot_account.id)})
+    logger.info(
+        "sign_in_success", extra={"user_id": str(user.id), "riot_account_id": str(riot_account.id)}
+    )
     return AuthResponse(
         id=user.id,
         email=user.email,

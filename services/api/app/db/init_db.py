@@ -4,7 +4,6 @@ from sqlmodel import SQLModel
 from app.core.logging import get_logger
 from app.db.session import engine
 
-
 logger = get_logger("league_api.db")
 
 

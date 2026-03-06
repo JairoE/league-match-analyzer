@@ -1,10 +1,9 @@
 "use client";
 
-import React, {useMemo, useState, useCallback} from "react";
+import {useMemo, useState, useCallback, useRef} from "react";
 import Image from "next/image";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "../MatchRow/MatchRow";
-import MatchDetailPanel from "../MatchDetailPanel/MatchDetailPanel";
 import Pagination from "../Pagination/Pagination";
 import SkeletonRows from "./SkeletonRows";
 import {COLUMNS} from "./constants";
@@ -24,6 +23,10 @@ import {
   getQueueGroupLabel,
   QUEUE_GROUP_DISPLAY_ORDER,
 } from "../../lib/types/queue";
+
+// Stable empty array — prevents memo-defeating new references on every render
+// for rows whose champion history hasn't loaded yet.
+const EMPTY_HISTORY: ChampionKdaPoint[] = [];
 
 type MatchesTableProps = {
   matches: MatchSummary[];
@@ -46,7 +49,7 @@ export default function MatchesTable({
   paginationMeta = null,
   onPageChange,
 }: MatchesTableProps) {
-  const {expandedMatchIds, toggleMatch, closeMatch, clearAll} = useMatchSelection();
+  const {selectedMatchId, toggleMatch, closeMatch, clearAll} = useMatchSelection();
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
 
   /** Resolve queueId from detail or match-level fallback */
@@ -83,7 +86,7 @@ export default function MatchesTable({
   }, [getParticipantForMatch, matches]);
 
   const {championById, rankByPuuid, laneStatsByMatchId} = useMatchDetailData({
-    expandedMatchIds,
+    selectedMatchId,
     matches,
     matchDetails,
     getParticipantForMatch,
@@ -101,17 +104,37 @@ export default function MatchesTable({
     return QUEUE_GROUP_DISPLAY_ORDER.filter((group) => groups.has(group));
   }, [matches, resolveQueueId]);
 
-  // Filter matches by active tab
+  // Filter matches by active tab; fall back to "all" when tab has no matches
   const filteredMatches = useMemo(() => {
     if (activeTab === "all") return matches;
-    return matches.filter((match) => {
+    const filtered = matches.filter((match) => {
       const queueId = resolveQueueId(match);
       return getQueueGroup(queueId) === activeTab;
     });
+    return filtered.length > 0 ? filtered : matches;
   }, [matches, resolveQueueId, activeTab]);
+
+  // Stable gate for matchSummaryStats: a number that only grows when new match
+  // details arrive. matchDetails gets a new object reference on every polling
+  // tick, but this count only changes when previously-null entries are filled.
+  const loadedDetailCount = useMemo(
+    () =>
+      filteredMatches.filter((m) => {
+        const id = getMatchId(m);
+        return id != null && matchDetails[id] != null;
+      }).length,
+    [filteredMatches, matchDetails],
+  );
+
+  // Snapshot ref lets matchSummaryStats read matchDetails from the closure
+  // when loadedDetailCount changes, without adding matchDetails to its deps.
+  // This prevents the 80-line memo from re-running on every polling tick.
+  const matchDetailsRef = useRef(matchDetails);
+  matchDetailsRef.current = matchDetails;
 
   // Summary stats: win rate & best consecutive-win champion
   const matchSummaryStats = useMemo(() => {
+    const details = matchDetailsRef.current;
     let wins = 0;
     let total = 0;
 
@@ -124,25 +147,20 @@ export default function MatchesTable({
 
     // Process in chronological order (oldest first)
     const sorted = [...filteredMatches].sort((a, b) => {
-      const tsA =
-        a.game_start_timestamp ?? a.gameCreation ?? 0;
-      const tsB =
-        b.game_start_timestamp ?? b.gameCreation ?? 0;
+      const tsA = a.game_start_timestamp ?? a.gameCreation ?? 0;
+      const tsB = b.game_start_timestamp ?? b.gameCreation ?? 0;
       return tsA - tsB;
     });
 
     for (const match of sorted) {
       const matchId = getMatchId(match);
-      const detail = matchId
-        ? (matchDetails[matchId] ?? null)
-        : null;
-      const participant = getParticipantForMatch(match);
+      const detail = matchId ? (details[matchId] ?? null) : null;
+      const participant = isSearchView
+        ? getParticipantByPuuid(detail, targetPuuid)
+        : getParticipantForUser(detail, user);
       if (!participant) continue;
 
-      const outcome = getMatchOutcome(
-        participant,
-        detail?.info?.gameDuration
-      );
+      const outcome = getMatchOutcome(participant, detail?.info?.gameDuration);
       if (outcome === "remake") continue;
 
       total++;
@@ -182,22 +200,21 @@ export default function MatchesTable({
       }
     }
 
-    return {
-      wins,
-      total,
-      bestStreakChampId,
-      bestStreakCount,
-      bestStreakName,
-    };
-  }, [
-    filteredMatches,
-    matchDetails,
-    getParticipantForMatch,
-  ]);
+    return {wins, total, bestStreakChampId, bestStreakCount, bestStreakName};
+    // loadedDetailCount is an intentional gate: it is a derived number that
+    // only changes when new match details arrive. matchDetails is read via
+    // matchDetailsRef so this memo skips ticks where only the reference
+    // changed with no new content (i.e., every 3-second polling tick where
+    // no new game_info loaded). ESLint flags loadedDetailCount as
+    // "unnecessary" because it is not read inside the body — that is by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredMatches, loadedDetailCount, isSearchView, targetPuuid, user]);
 
   // Build KDA history per champion, keyed by matchId.
   // Only includes matches whose details have loaded; only entries with 2+ games on the champion are stored.
+  // Only computed when a row is expanded — avoids iterating all matches on every detail fetch.
   const championHistoryByMatchId = useMemo<Record<string, ChampionKdaPoint[]>>(() => {
+    if (!selectedMatchId) return {};
     const groupByChamp: Record<number, ChampionKdaPoint[]> = {};
 
     for (const match of matches) {
@@ -235,7 +252,7 @@ export default function MatchesTable({
       if (history && history.length > 1) result[matchId] = history;
     }
     return result;
-  }, [matches, matchDetails, getParticipantForMatch]);
+  }, [selectedMatchId, matches, matchDetails, getParticipantForMatch]);
 
   return (
     <div className={styles.wrapper}>
@@ -285,7 +302,7 @@ export default function MatchesTable({
           {matchSummaryStats.bestStreakCount >= 2 && (
             <div className={styles.summaryStreak}>
               <span className={styles.summaryLabel}>
-                Best Win Streak{" "}
+                Best Champion Win Streak{" "}
               </span>
               {matchSummaryStats.bestStreakChampId != null &&
                 championById[
@@ -343,48 +360,37 @@ export default function MatchesTable({
               filteredMatches.map((match, index) => {
                 const matchId = getMatchId(match);
                 const detail = matchId ? (matchDetails[matchId] ?? null) : null;
-                const isExpanded = matchId ? expandedMatchIds.has(matchId) : false;
+                const isExpanded = matchId ? selectedMatchId === matchId : false;
                 const participant = getParticipantForMatch(match);
                 const championId = participant?.championId ?? null;
                 const champion =
                   championId != null ? (championById[championId] ?? null) : null;
                 const laneStats = matchId ? (laneStatsByMatchId[matchId] ?? null) : null;
-                const championHistory = matchId
-                  ? (championHistoryByMatchId[matchId] ?? [])
-                  : [];
+                // Only pass expensive maps to the one expanded row — prevents
+                // rankByPuuid / championHistory new-reference churn from
+                // defeating React.memo on all 19 other rows.
+                const championHistory = isExpanded && matchId
+                  ? (championHistoryByMatchId[matchId] ?? EMPTY_HISTORY)
+                  : EMPTY_HISTORY;
 
                 return (
-                  <React.Fragment key={matchId ?? `match-${index}`}>
-                    <MatchRow
-                      match={match}
-                      detail={detail}
-                      user={user}
-                      isSearchView={isSearchView}
-                      targetPuuid={targetPuuid}
-                      isSelected={isExpanded}
-                      index={index}
-                      championById={championById}
-                      onClick={() => matchId && toggleMatch(matchId)}
-                    />
-                    {isExpanded && matchId && (
-                      <tr>
-                        <td colSpan={COLUMNS.length} className={styles.panelCell}>
-                          <MatchDetailPanel
-                            match={match}
-                            detail={detail}
-                            champion={champion}
-                            user={user}
-                            isSearchView={isSearchView}
-                            targetPuuid={targetPuuid}
-                            rankByPuuid={rankByPuuid}
-                            laneStats={laneStats}
-                            championHistory={championHistory}
-                            onClose={() => closeMatch(matchId)}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                  <MatchRow
+                    key={matchId ?? `match-${index}`}
+                    match={match}
+                    detail={detail}
+                    user={user}
+                    isSearchView={isSearchView}
+                    targetPuuid={targetPuuid}
+                    isSelected={isExpanded}
+                    index={index}
+                    colCount={COLUMNS.length}
+                    champion={champion}
+                    rankByPuuid={isExpanded ? rankByPuuid : undefined}
+                    laneStats={laneStats}
+                    championHistory={championHistory}
+                    onClick={() => matchId && toggleMatch(matchId)}
+                    onClose={() => matchId && closeMatch(matchId)}
+                  />
                 );
               })
             )}

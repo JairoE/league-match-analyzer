@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -19,9 +20,8 @@ async def upsert_matches_for_riot_account(
 ) -> int:
     """Upsert match records and link them to a riot account.
 
-    Retrieves: Existing matches and riot-account-match links in batch.
-    Transforms: Creates missing matches and links to the riot account.
-    Why: Keeps match list sync lightweight while persisting IDs.
+    Uses INSERT ... ON CONFLICT DO NOTHING for both Match and
+    RiotAccountMatch to avoid race conditions under concurrency.
 
     Args:
         session: Async database session for queries.
@@ -34,37 +34,39 @@ async def upsert_matches_for_riot_account(
     if not match_ids:
         return 0
 
-    # Batch fetch existing matches
+    # Atomic upsert: insert all match IDs, skip duplicates on game_id unique constraint
+    match_rows = [{"id": uuid4(), "game_id": mid} for mid in match_ids]
+    stmt = pg_insert(Match).values(match_rows).on_conflict_do_nothing(index_elements=["game_id"])
+    await session.execute(stmt)
+
+    # Fetch all match UUIDs (existing + just-inserted) in one query
     result = await session.execute(
-        select(Match).where(Match.game_id.in_(match_ids))
+        select(Match.id, Match.game_id).where(Match.game_id.in_(match_ids))
     )
-    existing_matches = {m.game_id: m for m in result.scalars().all()}
+    match_uuid_map = {row.game_id: row.id for row in result.fetchall()}
 
-    # Create missing match records
-    for match_id in match_ids:
-        if match_id not in existing_matches:
-            match = Match(game_id=match_id)
-            session.add(match)
-            existing_matches[match_id] = match
-
-    await session.flush()
-
-    # Batch fetch existing riot-account-match links
-    all_match_uuids = [m.id for m in existing_matches.values()]
-    result = await session.execute(
-        select(RiotAccountMatch.match_id).where(
-            RiotAccountMatch.riot_account_id == riot_account_id,
-            RiotAccountMatch.match_id.in_(all_match_uuids),
+    # Atomic link upsert: insert links, skip duplicates on (riot_account_id, match_id) constraint
+    link_rows = [
+        {
+            "id": uuid4(),
+            "riot_account_id": riot_account_id,
+            "match_id": match_uuid_map[mid],
+        }
+        for mid in match_ids
+        if mid in match_uuid_map
+    ]
+    if link_rows:
+        link_stmt = (
+            pg_insert(RiotAccountMatch)
+            .values(link_rows)
+            .on_conflict_do_nothing(
+                constraint="uq_riot_account_match",
+            )
         )
-    )
-    already_linked = {row[0] for row in result.fetchall()}
-
-    # Create missing links
-    created = 0
-    for match in existing_matches.values():
-        if match.id not in already_linked:
-            session.add(RiotAccountMatch(riot_account_id=riot_account_id, match_id=match.id))
-            created += 1
+        result = await session.execute(link_stmt)
+        created = result.rowcount if result.rowcount and result.rowcount > 0 else 0
+    else:
+        created = 0
 
     await session.commit()
     logger.info(

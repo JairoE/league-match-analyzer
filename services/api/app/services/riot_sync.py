@@ -13,10 +13,10 @@ from app.models.user import User
 from app.models.user_riot_account import UserRiotAccount
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import get_match_by_identifier
-from app.services.riot_api_client import RiotApiClient
+from app.services.riot_account_upsert import upsert_riot_account, upsert_user_and_riot_account
+from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_id_parser import parse_riot_id
 from app.services.riot_match_id import normalize_match_id
-from app.services.riot_account_upsert import upsert_user_and_riot_account, upsert_riot_account
 
 logger = get_logger("league_api.services.riot_sync")
 
@@ -76,7 +76,9 @@ async def fetch_sign_in_user(
     Returns:
         Tuple of (User, RiotAccount) if credentials match, otherwise None.
     """
-    logger.info("riot_sync_sign_in_start", extra={"summoner_name": summoner_name, "has_email": bool(email)})
+    logger.info(
+        "riot_sync_sign_in_start", extra={"summoner_name": summoner_name, "has_email": bool(email)}
+    )
     parsed = parse_riot_id(summoner_name)
 
     # Find user by email
@@ -139,9 +141,12 @@ async def fetch_rank_for_riot_account(
     """
     logger.info("riot_sync_fetch_rank_start", extra={"riot_account_id": riot_account_id})
     from app.services.riot_accounts import resolve_riot_account_identifier
+
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
-        logger.info("riot_sync_fetch_rank_account_missing", extra={"riot_account_id": riot_account_id})
+        logger.info(
+            "riot_sync_fetch_rank_account_missing", extra={"riot_account_id": riot_account_id}
+        )
         return None
     async with RiotApiClient() as client:
         payload = await client.fetch_rank_by_puuid(riot_account.puuid)
@@ -154,8 +159,11 @@ async def fetch_match_list_for_riot_account(
     riot_account_id: str,
     start: int,
     count: int,
-) -> list[str] | None:
+) -> tuple[list[str], RiotAccount] | None:
     """Fetch match ids for a riot account and upsert match records.
+
+    Returns the resolved RiotAccount alongside the match IDs so callers can
+    reuse the already-resolved account and avoid a second DB round-trip.
 
     Args:
         session: Async database session for queries.
@@ -164,25 +172,66 @@ async def fetch_match_list_for_riot_account(
         count: Number of matches to retrieve.
 
     Returns:
-        Match ID list fetched from Riot, or None if account missing.
+        Tuple of (match_id_list, RiotAccount) or None if account missing.
     """
     logger.info(
         "riot_sync_fetch_match_list_start",
         extra={"riot_account_id": riot_account_id, "start": start, "count": count},
     )
     from app.services.riot_accounts import resolve_riot_account_identifier
+
     riot_account = await resolve_riot_account_identifier(session, riot_account_id)
     if not riot_account:
-        logger.info("riot_sync_fetch_match_list_account_missing", extra={"riot_account_id": riot_account_id})
+        logger.info(
+            "riot_sync_fetch_match_list_account_missing", extra={"riot_account_id": riot_account_id}
+        )
         return None
     async with RiotApiClient() as client:
-        match_ids = await client.fetch_match_ids_by_puuid(riot_account.puuid, start=start, count=count)
+        match_ids = await client.fetch_match_ids_by_puuid(
+            riot_account.puuid, start=start, count=count
+        )
     await upsert_matches_for_riot_account(session, riot_account.id, match_ids)
     logger.info(
         "riot_sync_fetch_match_list_done",
         extra={"riot_account_id": riot_account_id, "match_count": len(match_ids)},
     )
-    return match_ids
+    return match_ids, riot_account
+
+
+async def _backfill_single_match(
+    client: RiotApiClient,
+    match: Match,
+) -> bool:
+    """Fetch and persist game_info for a single match.
+
+    Args:
+        client: Active Riot API client.
+        match: Match record to populate.
+
+    Returns:
+        True if the match was successfully backfilled.
+    """
+    try:
+        riot_match_id, _ = normalize_match_id(match.game_id)
+        payload = await client.fetch_match_by_id(riot_match_id)
+        timestamp = None
+        if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:
+            timestamp = payload["info"]["gameStartTimestamp"]
+        match.game_info = payload
+        match.game_start_timestamp = timestamp
+        return True
+    except RiotRequestError as exc:
+        logger.warning(
+            "backfill_single_match_riot_error",
+            extra={"game_id": match.game_id, "status": exc.status, "error_message": exc.message},
+        )
+        return False
+    except Exception:
+        logger.exception(
+            "backfill_single_match_error",
+            extra={"game_id": match.game_id},
+        )
+        return False
 
 
 async def backfill_match_details_inline(
@@ -212,34 +261,84 @@ async def backfill_match_details_inline(
         extra={"missing": len(missing), "max_fetch": max_fetch},
     )
 
+    to_process = missing[:max_fetch]
     fetched = 0
     async with RiotApiClient() as client:
-        for match in missing[:max_fetch]:
-            try:
-                riot_match_id, _ = normalize_match_id(match.game_id)
-                payload = await client.fetch_match_by_id(riot_match_id)
-                match.game_info = payload
-                if (
-                    payload
-                    and "info" in payload
-                    and "gameStartTimestamp" in payload["info"]
-                ):
-                    match.game_start_timestamp = payload["info"]["gameStartTimestamp"]
+        for match in to_process:
+            if await _backfill_single_match(client, match):
                 fetched += 1
-            except Exception:
-                logger.exception(
-                    "backfill_match_details_inline_error",
-                    extra={"game_id": match.game_id},
-                )
 
     if fetched:
         await session.commit()
-        for match in missing[:max_fetch]:
-            if match.game_info:
-                await session.refresh(match)
 
     logger.info(
         "backfill_match_details_inline_done",
+        extra={"fetched": fetched, "total_missing": len(missing)},
+    )
+    return fetched
+
+
+async def backfill_match_details_by_game_ids(
+    session: AsyncSession,
+    game_ids: list[str],
+    max_fetch: int = 20,
+) -> int:
+    """Fetch missing game_info for matches identified by Riot game IDs.
+
+    Unlike ``backfill_match_details_inline`` (which operates on already-loaded
+    Match objects), this queries the DB for Match records whose ``game_id`` is in
+    ``game_ids`` and whose ``game_info`` is NULL, then fetches details from Riot.
+    Call this *before* the ordering query so new matches get timestamps and sort
+    correctly on the first request.
+
+    Args:
+        session: Async database session.
+        game_ids: Riot match ID strings (e.g. ``["NA1_12345", ...]``).
+        max_fetch: Maximum number of Riot API calls to make.
+
+    Returns:
+        Number of matches backfilled.
+    """
+    if not game_ids:
+        return 0
+
+    from sqlalchemy import String, cast, or_
+
+    result = await session.execute(
+        select(Match).where(
+            Match.game_id.in_(game_ids),
+            or_(
+                Match.game_info.is_(None),
+                cast(Match.game_info, String) == "null",
+            ),
+        )
+    )
+    missing = list(result.scalars().all())
+
+    if not missing:
+        logger.info(
+            "backfill_by_game_ids_none_needed",
+            extra={"checked": len(game_ids)},
+        )
+        return 0
+
+    logger.info(
+        "backfill_by_game_ids_start",
+        extra={"missing": len(missing), "max_fetch": max_fetch},
+    )
+
+    to_process = missing[:max_fetch]
+    fetched = 0
+    async with RiotApiClient() as client:
+        for match in to_process:
+            if await _backfill_single_match(client, match):
+                fetched += 1
+
+    if fetched:
+        await session.commit()
+
+    logger.info(
+        "backfill_by_game_ids_done",
         extra={"fetched": fetched, "total_missing": len(missing)},
     )
     return fetched
@@ -283,8 +382,8 @@ async def fetch_timeline_stats(
     Returns:
         LaneStats dict, or None if timeline unavailable.
     """
-    from app.services.riot_match_id import normalize_match_id
     from app.services.cache import get_redis
+    from app.services.riot_match_id import normalize_match_id
 
     # Resolve the canonical Riot match ID
     match = await get_match_by_identifier(session, match_identifier)
@@ -299,6 +398,16 @@ async def fetch_timeline_stats(
         async with RiotApiClient() as client:
             try:
                 timeline = await client.fetch_match_timeline(riot_match_id)
+            except RiotRequestError as exc:
+                logger.warning(
+                    "fetch_timeline_stats_riot_error",
+                    extra={
+                        "match_id": riot_match_id,
+                        "status": exc.status,
+                        "error_message": exc.message,
+                    },
+                )
+                return None
             except Exception:
                 logger.exception("fetch_timeline_stats_error", extra={"match_id": riot_match_id})
                 return None
@@ -312,28 +421,42 @@ async def fetch_timeline_stats(
     if not frames:
         return None
 
-    # frameInterval is in ms; default 60 000 ms = 1 frame/min
-    frame_interval_ms: int = timeline_info.get("frameInterval") or 60_000
+    # frameInterval is in ms; default 60 000 ms = 1 frame/min.
+    # Guard against malformed/zero values so we never divide by zero.
+    raw_frame_interval = timeline_info.get("frameInterval")
+    try:
+        frame_interval_ms = int(raw_frame_interval or 60_000)
+    except (TypeError, ValueError):
+        frame_interval_ms = 60_000
+    frame_interval_ms = max(1, frame_interval_ms)
     idx_10 = round(10 * 60_000 / frame_interval_ms)
     idx_15 = round(15 * 60_000 / frame_interval_ms)
 
     def participant_frame(frame: dict, pid: int) -> dict:
         return (frame.get("participantFrames") or {}).get(str(pid)) or {}
 
-    current_frame_10 = participant_frame(frames[idx_10], target_participant_id) if len(frames) > idx_10 else {}
-    current_frame_15 = participant_frame(frames[idx_15], target_participant_id) if len(frames) > idx_15 else {}
+    current_frame_10 = (
+        participant_frame(frames[idx_10], target_participant_id) if len(frames) > idx_10 else {}
+    )
+    current_frame_15 = (
+        participant_frame(frames[idx_15], target_participant_id) if len(frames) > idx_15 else {}
+    )
 
     # Participant metadata (individualPosition, teamId, championName) lives in the match
     # detail response, not the timeline — timeline participants only carry participantId + puuid.
     p_info_list: list[dict] = []
     if match and match.game_info:
         p_info_list = (match.game_info.get("info") or {}).get("participants") or []
-    current_meta = next((p for p in p_info_list if p.get("participantId") == target_participant_id), {})
+    current_meta = next(
+        (p for p in p_info_list if p.get("participantId") == target_participant_id), {}
+    )
     opponent_meta = None
     current_pos = current_meta.get("individualPosition") or ""
     current_team = current_meta.get("teamId") or 0
     if current_pos and current_team:
-        opponent_meta = _find_lane_opponent(p_info_list, target_participant_id, current_team, current_pos)
+        opponent_meta = _find_lane_opponent(
+            p_info_list, target_participant_id, current_team, current_pos
+        )
 
     result: dict = {}
 
@@ -407,8 +530,12 @@ async def fetch_match_detail(
         payload = await client.fetch_match_by_id(riot_match_id)
 
     if not match:
-        match = Match(game_id=stored_match_id)
-        session.add(match)
+        # No existing DB record — return the payload without creating an orphan Match
+        logger.info(
+            "riot_sync_fetch_match_detail_no_db_record",
+            extra={"match_identifier": match_identifier},
+        )
+        return payload
     match.game_info = payload
     # Extract gameStartTimestamp for indexed ordering
     if payload and "info" in payload and "gameStartTimestamp" in payload["info"]:

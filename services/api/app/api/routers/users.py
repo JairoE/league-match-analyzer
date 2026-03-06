@@ -7,7 +7,6 @@ from app.core.logging import get_logger
 from app.db.session import get_session
 from app.services.riot_sync import fetch_rank_for_riot_account
 
-
 router = APIRouter(tags=["users"])
 logger = get_logger("league_api.users")
 

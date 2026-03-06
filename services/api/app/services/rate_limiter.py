@@ -110,9 +110,7 @@ class RiotRateLimiter:
         """
         return f"rl:{bucket}"
 
-    async def _get_window_state(
-        self, key: str, window_start: float
-    ) -> tuple[int, float | None]:
+    async def _get_window_state(self, key: str, window_start: float) -> tuple[int, float | None]:
         """Get request count and oldest timestamp in the window.
 
         Args:
@@ -248,17 +246,13 @@ class RiotRateLimiter:
             bucket
         )
         if limit:
-            await self._record_request(
-                self._get_key(bucket), now, limit.window_seconds
-            )
+            await self._record_request(self._get_key(bucket), now, limit.window_seconds)
             recorded.add(bucket)
 
         # Record in app-level buckets (skip if already recorded above)
         for app_bucket, app_limit in self._instance_default_limits.items():
             if app_bucket not in recorded:
-                await self._record_request(
-                    self._get_key(app_bucket), now, app_limit.window_seconds
-                )
+                await self._record_request(self._get_key(app_bucket), now, app_limit.window_seconds)
 
     async def wait_if_needed(self, bucket: str) -> None:
         """Block until a rate limit slot is available.

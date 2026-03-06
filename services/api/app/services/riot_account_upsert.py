@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import or_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -47,9 +48,7 @@ async def upsert_riot_account(
     summoner_level = summoner_info.get("summonerLevel")
 
     result = await session.execute(
-        select(RiotAccount).where(
-            or_(RiotAccount.puuid == puuid, RiotAccount.riot_id == riot_id)
-        )
+        select(RiotAccount).where(or_(RiotAccount.puuid == puuid, RiotAccount.riot_id == riot_id))
     )
     account = result.scalar_one_or_none()
 
@@ -125,7 +124,9 @@ async def ensure_user_riot_account_link(
     user_id: UUID,
     riot_account_id: UUID,
 ) -> UserRiotAccount:
-    """Ensure a user ↔ riot_account link exists.
+    """Ensure a user - riot_account link exists.
+
+    Uses INSERT ... ON CONFLICT DO NOTHING to avoid race conditions.
 
     Args:
         session: Async database session for queries.
@@ -135,24 +136,54 @@ async def ensure_user_riot_account_link(
     Returns:
         The existing or newly created link record.
     """
+    stmt = (
+        pg_insert(UserRiotAccount)
+        .values(id=uuid4(), user_id=user_id, riot_account_id=riot_account_id)
+        .on_conflict_do_nothing(constraint="uq_user_riot_account")
+    )
+    await session.execute(stmt)
+    await session.flush()
+
     result = await session.execute(
         select(UserRiotAccount).where(
             UserRiotAccount.user_id == user_id,
             UserRiotAccount.riot_account_id == riot_account_id,
         )
     )
-    link = result.scalar_one_or_none()
-    if link:
-        return link
-
-    link = UserRiotAccount(user_id=user_id, riot_account_id=riot_account_id)
-    session.add(link)
-    await session.flush()
+    link = result.scalar_one()
     logger.info(
-        "user_riot_account_link_created",
+        "user_riot_account_link_ensured",
         extra={"user_id": str(user_id), "riot_account_id": str(riot_account_id)},
     )
     return link
+
+
+async def _upsert_user_by_email(
+    session: AsyncSession,
+    email: str,
+) -> User:
+    """Find or create a user by email using INSERT ON CONFLICT.
+
+    Args:
+        session: Async database session.
+        email: User email address.
+
+    Returns:
+        User record (existing or newly created).
+    """
+    stmt = (
+        pg_insert(User)
+        .values(id=uuid4(), email=email)
+        .on_conflict_do_nothing(index_elements=["email"])
+    )
+    await session.execute(stmt)
+    await session.flush()
+
+    user = await get_user_by_email(session, email)
+    if not user:
+        logger.exception("upsert_user_by_email_failed", extra={"email": email})
+        raise RuntimeError(f"Failed to upsert user with email {email}")
+    return user
 
 
 async def upsert_user_and_riot_account(
@@ -177,18 +208,11 @@ async def upsert_user_and_riot_account(
     Returns:
         Tuple of (User, RiotAccount) after upsert.
     """
-    # Find or create user by email
-    user = await get_user_by_email(session, email)
-    if not user:
-        user = User(email=email)
-        session.add(user)
-        await session.flush()
-        logger.info("user_created", extra={"user_id": str(user.id), "email": email})
+    user = await _upsert_user_by_email(session, email)
+    logger.info("user_upserted", extra={"user_id": str(user.id), "email": email})
 
-    # Upsert riot account
     riot_account = await upsert_riot_account(session, riot_id, puuid, summoner_info)
 
-    # Ensure link
     await ensure_user_riot_account_link(session, user.id, riot_account.id)
 
     await session.commit()

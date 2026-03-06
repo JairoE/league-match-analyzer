@@ -5,7 +5,6 @@ from arq.connections import RedisSettings
 from app.config import get_settings
 from app.logging import get_logger, setup_logging
 
-
 setup_logging()
 logger = get_logger("league_llm.worker")
 

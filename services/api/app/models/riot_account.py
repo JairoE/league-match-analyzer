@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import Column, String
@@ -12,7 +12,6 @@ from app.models.riot_account_match import RiotAccountMatch
 
 if TYPE_CHECKING:
     from app.models.match import Match
-    from app.models.user import User
     from app.models.user_riot_account import UserRiotAccount
 
 logger = get_logger("league_api.models.riot_account")
@@ -31,7 +30,7 @@ class RiotAccount(SQLModel, table=True):
     profile_icon_id: int | None = Field(default=None)
     summoner_level: int | None = Field(default=None)
 
-    matches: list["Match"] = Relationship(
+    matches: list[Match] = Relationship(
         sa_relationship=relationship(
             "Match",
             back_populates="riot_accounts",
@@ -39,7 +38,7 @@ class RiotAccount(SQLModel, table=True):
         )
     )
 
-    user_links: list["UserRiotAccount"] = Relationship(
+    user_links: list[UserRiotAccount] = Relationship(
         sa_relationship=relationship(
             "UserRiotAccount",
             back_populates="riot_account",

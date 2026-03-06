@@ -7,18 +7,22 @@ export type MatchOutcome = "victory" | "defeat" | "remake";
 
 /**
  * Determines match outcome for a participant.
- * Remake = game ended in early surrender AND duration < 300 seconds.
+ * Remake = early surrender flag OR duration ≤ 210 seconds (League remake window).
  *
- * Used by: MatchCard outcome styling, LLM normalize step.
+ * The duration fallback handles cases where gameEndedInEarlySurrender is absent
+ * from the stored payload (e.g. older cached game_info entries).
+ *
+ * Used by: MatchCard outcome styling, MatchRow result column, LLM normalize step.
  */
 export function getMatchOutcome(
   participant: Participant | null,
   gameDuration: number | undefined
 ): MatchOutcome {
   if (!participant) return "defeat";
+  const duration = gameDuration ?? 0;
   const isRemake =
-    participant.gameEndedInEarlySurrender === true &&
-    (gameDuration ?? 0) < 300;
+    participant.gameEndedInEarlySurrender === true ||
+    (duration > 0 && duration <= 210);
   if (isRemake) return "remake";
   return participant.win ? "victory" : "defeat";
 }
@@ -128,11 +132,14 @@ export function getTotalCs(participant: Participant | null): number {
 
 // ── Display helpers ───────────────────────────────────────────────────
 
-/** Converts 1 → "1st", 2 → "2nd", 3 → "3rd", N → "Nth". */
+/** Converts 1 → "1st", 2 → "2nd", 3 → "3rd", 11 → "11th", 21 → "21st", etc. */
 export function ordinalSuffix(n: number): string {
-  if (n === 1) return "1st";
-  if (n === 2) return "2nd";
-  if (n === 3) return "3rd";
+  const lastTwo = n % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;
+  const lastOne = n % 10;
+  if (lastOne === 1) return `${n}st`;
+  if (lastOne === 2) return `${n}nd`;
+  if (lastOne === 3) return `${n}rd`;
   return `${n}th`;
 }
 
@@ -177,7 +184,7 @@ export function getParticipantForUser(
     if (match) return match;
   }
 
-  return participants[0] ?? null;
+  return null;
 }
 
 /**

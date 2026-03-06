@@ -13,8 +13,8 @@ Tables:
   - champion (static champion data)
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "20260212_0001"
@@ -61,7 +61,9 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", "riot_account_id", name="uq_user_riot_account"),
     )
     op.create_index(op.f("ix_user_riot_account_user_id"), "user_riot_account", ["user_id"])
-    op.create_index(op.f("ix_user_riot_account_riot_account_id"), "user_riot_account", ["riot_account_id"])
+    op.create_index(
+        op.f("ix_user_riot_account_riot_account_id"), "user_riot_account", ["riot_account_id"]
+    )
 
     # --- match ---
     op.create_table(
@@ -87,7 +89,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("riot_account_id", "match_id", name="uq_riot_account_match"),
     )
-    op.create_index(op.f("ix_riot_account_match_riot_account_id"), "riot_account_match", ["riot_account_id"])
+    op.create_index(
+        op.f("ix_riot_account_match_riot_account_id"), "riot_account_match", ["riot_account_id"]
+    )
     op.create_index(op.f("ix_riot_account_match_match_id"), "riot_account_match", ["match_id"])
 
     # --- champion ---

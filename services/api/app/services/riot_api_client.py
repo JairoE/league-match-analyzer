@@ -33,13 +33,17 @@ class RiotApiClient:
     Why: Provides rate-limited access for both sync handlers and background jobs.
     """
 
-    ACCOUNT_BY_RIOT_ID_URL = "https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
+    ACCOUNT_BY_RIOT_ID_URL = (
+        "https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
+    )
     SUMMONER_BY_PUUID_URL = "https://na1.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/"
     RANK_BY_PUUID_URL = "https://na1.api.riotgames.com/lol/league/v4/entries/by-puuid/"
     MATCH_IDS_BY_PUUID_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/"
     MATCH_DETAIL_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/"
     MATCH_TIMELINE_URL = "https://americas.api.riotgames.com/lol/match/v5/matches/"
-    SPECTATOR_BY_PUUID_URL = "https://na1.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/"
+    SPECTATOR_BY_PUUID_URL = (
+        "https://na1.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/"
+    )
 
     # Retry configuration
     MAX_RETRIES = 3
@@ -146,9 +150,7 @@ class RiotApiClient:
 
         return payload[0]
 
-    async def fetch_match_ids_by_puuid(
-        self, puuid: str, start: int, count: int
-    ) -> list[str]:
+    async def fetch_match_ids_by_puuid(self, puuid: str, start: int, count: int) -> list[str]:
         """Retrieve match ids for a PUUID.
 
         Retrieves: Riot match ID list for a PUUID.
@@ -367,9 +369,7 @@ class RiotApiClient:
                     "riot_api.failed",
                     tags={"type": "network", "bucket": bucket},
                 )
-                raise RiotRequestError(
-                    "riot_api_failed", status=502, body=str(exc)
-                ) from exc
+                raise RiotRequestError("riot_api_failed", status=502, body=str(exc)) from exc
 
             logger.info(
                 "riot_request_ok",

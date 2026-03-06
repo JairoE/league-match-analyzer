@@ -7,7 +7,7 @@ from app.services.riot_api_client import RiotRequestError
 logger = get_logger("league_api.exceptions")
 
 
-def _map_riot_status(status: int | None) -> int:
+def map_riot_status(status: int | None) -> int:
     if status is None:
         return 502
     if status in {400, 401, 403, 404, 429}:
@@ -29,7 +29,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RiotRequestError)
     async def riot_request_error_handler(request: Request, exc: RiotRequestError) -> JSONResponse:
-        mapped_status = _map_riot_status(exc.status)
+        mapped_status = map_riot_status(exc.status)
         logger.info(
             "riot_request_error_handled",
             extra={

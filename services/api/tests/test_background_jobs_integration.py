@@ -62,7 +62,9 @@ async def test_sync_all_riot_accounts_matches_enqueues_all_active_accounts(
         return None
 
     monkeypatch.setattr(scheduled, "async_session_factory", lambda: _DummySessionContext())
-    monkeypatch.setattr(scheduled, "list_all_active_riot_accounts", _fake_list_all_active_riot_accounts)
+    monkeypatch.setattr(
+        scheduled, "list_all_active_riot_accounts", _fake_list_all_active_riot_accounts
+    )
     monkeypatch.setattr(scheduled, "increment_metric_safe", _noop_metric)
 
     result = await sync_all_riot_accounts_matches({"redis": redis})
@@ -147,9 +149,7 @@ async def test_enqueue_missing_detail_jobs_batches_of_five(
         async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
             return False
 
-    monkeypatch.setattr(
-        enqueue_match_details, "async_session_factory", lambda: _DummyDbContext()
-    )
+    monkeypatch.setattr(enqueue_match_details, "async_session_factory", lambda: _DummyDbContext())
 
     async def _fake_get_arq_pool() -> _FakeRedisQueue:
         return redis
@@ -191,9 +191,7 @@ async def test_enqueue_missing_detail_jobs_none_missing(
         async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
             return False
 
-    monkeypatch.setattr(
-        enqueue_match_details, "async_session_factory", lambda: _DummyDbContext()
-    )
+    monkeypatch.setattr(enqueue_match_details, "async_session_factory", lambda: _DummyDbContext())
 
     async def _fake_get_arq_pool() -> _FakeRedisQueue:
         return redis
@@ -232,14 +230,10 @@ async def test_enqueue_missing_detail_jobs_accepts_explicit_pool(
         async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
             return False
 
-    monkeypatch.setattr(
-        enqueue_match_details, "async_session_factory", lambda: _DummyDbContext()
-    )
+    monkeypatch.setattr(enqueue_match_details, "async_session_factory", lambda: _DummyDbContext())
 
     # Pass pool= explicitly (the worker path) — get_arq_pool should NOT be called
-    result = await enqueue_match_details.enqueue_missing_detail_jobs(
-        match_ids, pool=redis
-    )
+    result = await enqueue_match_details.enqueue_missing_detail_jobs(match_ids, pool=redis)
 
     assert result == 2
     assert len(redis.calls) == 1
