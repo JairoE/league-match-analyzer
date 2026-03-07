@@ -163,6 +163,7 @@ export function useMatchList({
         if (!isActive) return;
         const fetched = Array.isArray(res?.data) ? res.data : [];
         const meta = res?.meta ?? null;
+        // Any response that includes meta must update both lastMetaFromApi and staleReason so the shell can show a stale warning.
         if (meta?.total != null) setTotalFromApi(meta.total);
         setStaleReason(meta?.stale_reason ?? null);
         setLastMetaFromApi(meta ?? null);
@@ -244,6 +245,10 @@ export function useMatchList({
           useCache: false,
         });
         if (!isActive) return;
+        if (fresh?.meta != null) {
+          setStaleReason(fresh.meta?.stale_reason ?? null);
+          setLastMetaFromApi(fresh.meta);
+        }
         const freshArray = Array.isArray(fresh?.data) ? fresh.data : [];
         const stillMissing = freshArray.some((m) => !m.game_info?.info);
 
@@ -299,7 +304,10 @@ export function useMatchList({
     try {
       const res = await apiGet<PaginatedMatchList>(url, {useCache: false});
       const newMatches = Array.isArray(res?.data) ? res.data : [];
-      if (res?.meta) setLastMetaFromApi(res.meta);
+      if (res?.meta) {
+        setLastMetaFromApi(res.meta);
+        setStaleReason(res.meta?.stale_reason ?? null);
+      }
 
       const currentYearStart = new Date(
         new Date().getFullYear(),

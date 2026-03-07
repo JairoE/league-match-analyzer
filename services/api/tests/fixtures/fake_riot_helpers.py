@@ -20,7 +20,7 @@ class FakeRateLimiter:
     def update_from_headers(self, bucket: str, headers: dict[str, str]) -> None:
         return None
 
-    def set_retry_after(self, seconds: float) -> None:
+    async def set_retry_after(self, seconds: float) -> None:
         return None
 
 

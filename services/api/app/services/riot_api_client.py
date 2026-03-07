@@ -279,7 +279,7 @@ class RiotApiClient:
                 # Handle 429 rate limit response
                 if response.status_code == 429:
                     retry_after = self._parse_retry_after(response)
-                    self._rate_limiter.set_retry_after(retry_after)
+                    await self._rate_limiter.set_retry_after(retry_after)
                     logger.warning(
                         "riot_request_429",
                         extra={

@@ -12,6 +12,7 @@ from app.schemas.user import RiotAccountResponse
 from app.services.enqueue_match_timelines import enqueue_missing_timeline_jobs
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import list_matches_for_riot_account
+from app.services.rate_limiter import get_rate_limiter
 from app.services.riot_account_upsert import find_or_create_riot_account
 from app.services.riot_accounts import get_riot_account_by_riot_id
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
@@ -244,6 +245,10 @@ async def search_riot_account_matches(
         "search_matches_done",
         extra={"riot_id": riot_id, "riot_account_id": str(riot_account.id), "count": len(matches)},
     )
+    # Mark DB-only responses as stale when API is in global backoff so frontend can show warning
+    if not sync_skipped and await get_rate_limiter().is_globally_backing_off():
+        sync_skipped = True
+        sync_skip_reason = "rate_limited"
     return PaginatedMatchList(
         data=[MatchListItem.model_validate(match) for match in matches],
         meta=PaginationMeta.build(
