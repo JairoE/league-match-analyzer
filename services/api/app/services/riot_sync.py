@@ -13,7 +13,7 @@ from app.models.user import User
 from app.models.user_riot_account import UserRiotAccount
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import get_match_by_identifier
-from app.services.riot_account_upsert import upsert_riot_account, upsert_user_and_riot_account
+from app.services.riot_account_upsert import upsert_user_and_riot_account
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_id_parser import parse_riot_id
 from app.services.riot_match_id import normalize_match_id
@@ -63,10 +63,9 @@ async def fetch_sign_in_user(
     summoner_name: str,
     email: str,
 ) -> tuple[User, RiotAccount] | None:
-    """Fetch Riot profile data and validate sign-in credentials.
+    """Validate sign-in credentials and return user + linked riot account from DB.
 
-    Verifies the user exists by email, then checks that the riot account
-    is linked to them. Updates riot account data from Riot API.
+    Does not call Riot API; uses existing account data only.
 
     Args:
         session: Async database session for queries.
@@ -105,25 +104,14 @@ async def fetch_sign_in_user(
         )
         return None
 
-    # Refresh riot account data from Riot API
-    async with RiotApiClient() as client:
-        account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
-        summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
-
-    riot_account = await upsert_riot_account(
-        session,
-        parsed.canonical,
-        account_info["puuid"],
-        summoner_info,
-    )
-    await session.commit()
-    await session.refresh(riot_account)
-
     logger.info(
         "riot_sync_sign_in_done",
-        extra={"user_id": str(existing_user.id), "riot_account_id": str(riot_account.id)},
+        extra={
+            "user_id": str(existing_user.id),
+            "riot_account_id": str(existing_account.id),
+        },
     )
-    return existing_user, riot_account
+    return existing_user, existing_account
 
 
 async def fetch_rank_for_riot_account(

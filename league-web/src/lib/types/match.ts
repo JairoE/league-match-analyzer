@@ -3,6 +3,8 @@ export type PaginationMeta = {
   limit: number;
   total: number;
   last_page: number;
+  stale?: boolean;
+  stale_reason?: string | null;
 };
 
 export type PaginatedMatchList = {

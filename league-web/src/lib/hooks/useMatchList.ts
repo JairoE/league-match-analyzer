@@ -5,6 +5,7 @@ import {apiGet} from "../api";
 import {clearCache} from "../cache";
 import {useAppError} from "../errors/error-store";
 import {getMatchId} from "../match-utils";
+import {getStaleMessage} from "../stale-message";
 import type {
   MatchDetail,
   MatchSummary,
@@ -16,8 +17,10 @@ const LIMIT = 20;
 const MAX_POLLS = 20;
 const POLL_INTERVAL_MS = 3_000;
 
+type MatchListUrlOptions = {refresh?: boolean};
+
 type UseMatchListOptions = {
-  matchesUrl: (page: number) => string;
+  matchesUrl: (page: number, opts?: MatchListUrlOptions) => string;
   errorScope: string;
   enabled?: boolean;
   cacheOptions?: {cacheTtlMs?: number; useCache?: boolean};
@@ -35,6 +38,7 @@ type UseMatchListReturn = {
   paginationMeta: PaginationMeta | null;
   page: number;
   errorMessage: string | null;
+  staleMessage: string | null;
   reportError: (err: unknown) => void;
   clearError: () => void;
   handlePageChange: (newPage: number) => void;
@@ -76,6 +80,10 @@ export function useMatchList({
   const [totalFromApi, setTotalFromApi] = useState<number | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [yearBoundaryReached, setYearBoundaryReached] = useState(false);
+  const [staleReason, setStaleReason] = useState<string | null>(null);
+  const [lastMetaFromApi, setLastMetaFromApi] =
+    useState<PaginationMeta | null>(null);
+  const nextFetchIsRefreshRef = useRef(false);
 
   const {errorMessage, reportError, clearError} =
     useAppError(errorScope);
@@ -89,10 +97,18 @@ export function useMatchList({
 
   const limit = LIMIT;
   const total = Math.max(totalFromApi ?? 0, allMatches.length);
-  const paginationMeta = useMemo(
-    () => buildPaginationMeta(page, total, limit),
-    [page, total, limit]
-  );
+  const last_page = Math.max(1, Math.ceil(total / limit));
+  const paginationMeta = useMemo((): PaginationMeta | null => {
+    const base = lastMetaFromApi
+      ? {
+          ...lastMetaFromApi,
+          page,
+          total,
+          last_page,
+        }
+      : buildPaginationMeta(page, total, limit);
+    return base;
+  }, [lastMetaFromApi, page, total, last_page, limit]);
 
   // Slice for current page — this is what the table displays
   const matches = useMemo(
@@ -114,6 +130,8 @@ export function useMatchList({
     setTotalFromApi(null);
     setMatchDetails({});
     setYearBoundaryReached(false);
+    setStaleReason(null);
+    setLastMetaFromApi(null);
   }, [resetKey]);
 
   // Fetch a page when we don't have enough data for the current page.
@@ -130,7 +148,12 @@ export function useMatchList({
     const load = async () => {
       setIsLoading(true);
       clearError();
-      const url = matchesUrl(page);
+      const opts =
+        nextFetchIsRefreshRef.current
+          ? ({refresh: true} as MatchListUrlOptions)
+          : undefined;
+      if (opts) nextFetchIsRefreshRef.current = false;
+      const url = matchesUrl(page, opts);
       console.debug(`[${tag}] fetching matches`, {url, page});
       try {
         const res = await apiGet<PaginatedMatchList>(
@@ -140,7 +163,17 @@ export function useMatchList({
         if (!isActive) return;
         const fetched = Array.isArray(res?.data) ? res.data : [];
         const meta = res?.meta ?? null;
+        // Any response that includes meta must update both lastMetaFromApi and staleReason so the shell can show a stale warning.
         if (meta?.total != null) setTotalFromApi(meta.total);
+        const reason =
+          meta?.stale_reason ?? (meta?.stale ? "cached" : null);
+        setStaleReason(reason);
+        setLastMetaFromApi(meta ?? null);
+        console.debug(`[${tag}] meta`, {
+          stale: meta?.stale,
+          stale_reason: meta?.stale_reason,
+          resolvedReason: reason,
+        });
 
         setAllMatches((prev) => {
           if (page === 1 && prev.length === 0) return fetched;
@@ -219,6 +252,12 @@ export function useMatchList({
           useCache: false,
         });
         if (!isActive) return;
+        if (fresh?.meta != null) {
+          const reason =
+            fresh.meta?.stale_reason ?? (fresh.meta?.stale ? "cached" : null);
+          setStaleReason(reason);
+          setLastMetaFromApi(fresh.meta);
+        }
         const freshArray = Array.isArray(fresh?.data) ? fresh.data : [];
         const stillMissing = freshArray.some((m) => !m.game_info?.info);
 
@@ -256,6 +295,8 @@ export function useMatchList({
     pollCountRef.current = 0;
   }, [refreshIndex, page]);
 
+  const staleMessage = getStaleMessage(staleReason);
+
   const canLoadMore = useMemo(() => {
     if (isLoadingMore || yearBoundaryReached) return false;
     return paginationMeta != null && page === paginationMeta.last_page;
@@ -272,6 +313,12 @@ export function useMatchList({
     try {
       const res = await apiGet<PaginatedMatchList>(url, {useCache: false});
       const newMatches = Array.isArray(res?.data) ? res.data : [];
+      if (res?.meta) {
+        setLastMetaFromApi(res.meta);
+        const reason =
+          res.meta?.stale_reason ?? (res.meta?.stale ? "cached" : null);
+        setStaleReason(reason);
+      }
 
       const currentYearStart = new Date(
         new Date().getFullYear(),
@@ -326,12 +373,15 @@ export function useMatchList({
 
   const handleRefresh = useCallback(() => {
     console.debug(`[${logTagRef.current}] manual refresh`);
+    nextFetchIsRefreshRef.current = true;
     clearCache();
     setPage(1);
     setAllMatches([]);
     setTotalFromApi(null);
     setMatchDetails({});
     setYearBoundaryReached(false);
+    setStaleReason(null);
+    setLastMetaFromApi(null);
     setRefreshIndex((prev) => prev + 1);
   }, []);
 
@@ -344,6 +394,7 @@ export function useMatchList({
     paginationMeta,
     page,
     errorMessage,
+    staleMessage,
     reportError,
     clearError,
     handlePageChange,

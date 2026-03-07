@@ -64,6 +64,9 @@ class RiotRateLimiter:
     MAX_BACKOFF_SECONDS = 60.0
     JITTER_FACTOR = 0.5
 
+    # Redis key for global backoff so all API workers see rate-limit state
+    REDIS_RATE_LIMITED_UNTIL = "riot_rate_limited_until"
+
     def __init__(self, redis_client: redis.Redis | None = None) -> None:
         """Initialize rate limiter with optional Redis client.
 
@@ -305,19 +308,52 @@ class RiotRateLimiter:
         )
         raise RuntimeError(f"Rate limit max retries exceeded for bucket: {bucket}")
 
-    def set_retry_after(self, seconds: float) -> None:
-        """Set global retry-after from 429 response.
+    async def set_retry_after(self, seconds: float) -> None:
+        """Set global retry-after from 429 response (in-memory and Redis).
 
         Called when Riot API returns 429 with Retry-After header.
+        Persists to Redis so all API workers see backoff and can mark
+        DB-only responses as stale.
 
         Args:
             seconds: Seconds to wait before next request.
         """
-        self._retry_after = time.time() + seconds
+        until = time.time() + seconds
+        self._retry_after = until
         logger.warning(
             "rate_limit_429_received",
             extra={"retry_after_seconds": seconds},
         )
+        try:
+            r = await self._get_redis()
+            await r.set(
+                self.REDIS_RATE_LIMITED_UNTIL,
+                str(until),
+                ex=int(seconds) + 10,
+            )
+        except Exception:
+            logger.warning(
+                "rate_limit_redis_set_backoff_failed",
+                extra={"retry_after_seconds": seconds},
+            )
+
+    async def is_globally_backing_off(self) -> bool:
+        """Return True if we are in global backoff from a recent 429.
+
+        Checks in-memory state then Redis so all API workers see the
+        same backoff. Used by match-list endpoints to mark DB-only
+        responses as stale so the frontend can show a warning.
+        """
+        if self._retry_after > time.time():
+            return True
+        try:
+            r = await self._get_redis()
+            raw = await r.get(self.REDIS_RATE_LIMITED_UNTIL)
+            if raw is None:
+                return False
+            return float(raw) > time.time()
+        except Exception:
+            return False
 
     def update_from_headers(self, bucket: str, headers: dict[str, str]) -> None:
         """Update rate limit configs from Riot response headers.
