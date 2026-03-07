@@ -45,9 +45,9 @@ export default function RiotAccountPage() {
   const displayLabel = account?.riot_id ?? riotId;
 
   const matchesUrl = useCallback(
-    (page: number) => {
+    (page: number, opts?: {refresh?: boolean}) => {
       const encoded = encodeURIComponent(riotId);
-      return `/search/${encoded}/matches?page=${page}&limit=20`;
+      return `/search/${encoded}/matches?page=${page}&limit=20${opts?.refresh ? "&refresh=true" : ""}`;
     },
     [riotId]
   );
@@ -77,6 +77,7 @@ export default function RiotAccountPage() {
     canLoadMore,
     paginationMeta,
     errorMessage,
+    staleMessage,
     clearError,
     reportError,
     handlePageChange,
@@ -207,6 +208,7 @@ export default function RiotAccountPage() {
         />
       }
       error={error}
+      warning={staleMessage}
     >
       <MatchesTable
         matches={matches}

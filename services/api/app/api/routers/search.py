@@ -35,39 +35,54 @@ async def search_riot_account_matches(
         ge=0,
         description="Load-more offset: number of matches already loaded by the client.",
     ),
+    refresh: bool = Query(
+        default=False,
+        description="When true (and page 1), fetch fresh match IDs from Riot.",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> PaginatedMatchList:
     """Search for a riot account by Riot ID and return their matches.
 
-    This is a stateless lookup: finds or creates the riot_account,
-    syncs their recent matches, and returns the list. Does not
-    auto-link to any user.
+    Account is resolved from DB when present; Riot is only called for account
+    on first sync. Match IDs are fetched from Riot on first sync, refresh, or
+    see more (after > 0).
 
     Args:
         riot_id: Riot ID in gameName#tagLine format (URL-encoded # as %23).
         background_tasks: FastAPI background task runner.
         page: Page number (1-based).
         limit: Items per page (max 100).
-        after: Load-more offset. When >0, used as the DB offset (page is
-            ignored) and the backend fetches from Riot if the DB has no
-            more rows at that offset.
+        after: Load-more offset; when >0 backend fetches fresh match IDs from Riot.
+        refresh: When true and page 1, fetch fresh match IDs from Riot.
         session: Async database session for queries.
 
     Returns:
         Paginated match list for the searched account.
     """
-    logger.info("search_matches_start", extra={"riot_id": riot_id})
+    logger.info(
+        "search_matches_start",
+        extra={"riot_id": riot_id, "page": page, "after": after, "refresh": refresh},
+    )
 
-    # Parse and validate the riot ID
     try:
         parsed = parse_riot_id(riot_id)
     except ValueError:
         logger.info("search_matches_invalid_riot_id", extra={"riot_id": riot_id})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_riot_id")
 
-    # Only sync with Riot API on page 1 (and not during load-more).
-    # Page 2+ just queries DB.
-    if page == 1 and after == 0:
+    sync_skipped = False
+    sync_skip_reason: str | None = None
+
+    # Resolve account: DB first; only call Riot when account does not exist (first sync).
+    riot_account = await get_riot_account_by_riot_id(session, parsed.canonical)
+
+    if riot_account is None and (page != 1 or after != 0):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
+        )
+
+    if riot_account is None:
+        # First sync: fetch account + summoner + match IDs from Riot.
         try:
             async with RiotApiClient() as client:
                 account_info = await client.fetch_account_by_riot_id(
@@ -75,19 +90,35 @@ async def search_riot_account_matches(
                 )
                 summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
                 match_ids = await client.fetch_match_ids_by_puuid(
-                    account_info["puuid"],
-                    start=0,
-                    count=limit,
+                    account_info["puuid"], start=0, count=limit
                 )
         except RiotRequestError as exc:
-            logger.warning(
-                "search_matches_riot_request_error",
-                extra={"riot_id": riot_id, "status": exc.status, "error_message": exc.message},
-            )
-            raise HTTPException(
-                status_code=map_riot_status(exc.status),
-                detail=exc.message,
-            )
+            if exc.status == 429:
+                sync_skipped = True
+                sync_skip_reason = "rate_limited"
+                logger.warning(
+                    "search_matches_rate_limited",
+                    extra={"riot_id": riot_id, "error_message": exc.message},
+                )
+                riot_account = await get_riot_account_by_riot_id(session, parsed.canonical)
+                if not riot_account:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="riot_api_max_retries_exceeded",
+                    )
+            else:
+                logger.warning(
+                    "search_matches_riot_request_error",
+                    extra={
+                        "riot_id": riot_id,
+                        "status": exc.status,
+                        "error_message": exc.message,
+                    },
+                )
+                raise HTTPException(
+                    status_code=map_riot_status(exc.status),
+                    detail=exc.message,
+                )
         except Exception:
             logger.exception("search_matches_riot_api_error", extra={"riot_id": riot_id})
             raise HTTPException(
@@ -95,87 +126,86 @@ async def search_riot_account_matches(
                 detail="Failed to fetch account from Riot API",
             )
 
-        riot_account = await find_or_create_riot_account(
-            session,
-            riot_id=parsed.canonical,
-            puuid=account_info["puuid"],
-            summoner_info=summoner_info,
-        )
-        await session.commit()
-        await session.refresh(riot_account)
-
-        await upsert_matches_for_riot_account(session, riot_account.id, match_ids)
-
-        # Pre-query backfill: populate game_info + game_start_timestamp for newly
-        # upserted matches so they sort correctly on the first request.
-        if match_ids:
-            await backfill_match_details_by_game_ids(
+        if not sync_skipped:
+            riot_account = await find_or_create_riot_account(
                 session,
-                match_ids,
-                max_fetch=limit,
+                riot_id=parsed.canonical,
+                puuid=account_info["puuid"],
+                summoner_info=summoner_info,
             )
-
-            # Pre-fetch timelines in background for instant UX on row expand.
-            logger.info(
-                "search_matches_enqueuing_timelines",
-                extra={"riot_account_id": str(riot_account.id), "match_count": len(match_ids)},
-            )
-            background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)
+            await session.commit()
+            await session.refresh(riot_account)
+            await upsert_matches_for_riot_account(session, riot_account.id, match_ids)
+            if match_ids:
+                await backfill_match_details_by_game_ids(
+                    session, match_ids, max_fetch=limit
+                )
+                background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)
     else:
-        riot_account = await get_riot_account_by_riot_id(session, parsed.canonical)
-        if not riot_account:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
-            )
+        # Account exists: fetch fresh match IDs only on refresh (page 1) or see more (after > 0).
+        want_fresh_match_ids = (page == 1 and after == 0 and refresh) or (after > 0)
+        if want_fresh_match_ids and riot_account.puuid and not sync_skipped:
+            try:
+                async with RiotApiClient() as client:
+                    start = after if after > 0 else 0
+                    new_ids = await client.fetch_match_ids_by_puuid(
+                        riot_account.puuid, start=start, count=limit
+                    )
+                if new_ids:
+                    await upsert_matches_for_riot_account(
+                        session, riot_account.id, new_ids
+                    )
+                    await backfill_match_details_by_game_ids(
+                        session, new_ids, max_fetch=limit
+                    )
+                    background_tasks.add_task(enqueue_missing_timeline_jobs, new_ids)
+            except RiotRequestError as exc:
+                if exc.status == 429:
+                    sync_skipped = True
+                    sync_skip_reason = "rate_limited"
+                    logger.warning(
+                        "search_matches_fresh_ids_rate_limited",
+                        extra={"riot_id": riot_id, "after": after},
+                    )
+                else:
+                    logger.warning(
+                        "search_matches_fresh_ids_error",
+                        extra={
+                            "riot_id": riot_id,
+                            "status": exc.status,
+                            "error_message": exc.message,
+                        },
+                    )
+            except Exception:
+                logger.exception(
+                    "search_matches_fresh_ids_error",
+                    extra={"riot_id": riot_id, "after": after},
+                )
 
-    # Query DB — use offset_override for load-more, normal page offset otherwise.
+    if riot_account is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
+        )
+
     offset_override = after if after > 0 else None
     matches, total = await list_matches_for_riot_account(
         session, riot_account.id, page, limit, offset_override=offset_override
     )
 
-    # Load-more: if DB returned nothing, try fetching more match IDs from Riot.
-    if after > 0 and len(matches) == 0 and riot_account.puuid:
-        logger.info(
-            "search_matches_load_more_riot",
-            extra={"riot_id": riot_id, "after": after},
+    if sync_skipped and total == 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="riot_api_max_retries_exceeded",
         )
-        try:
-            async with RiotApiClient() as client:
-                new_ids = await client.fetch_match_ids_by_puuid(
-                    riot_account.puuid, start=after, count=limit
-                )
-            if new_ids:
-                await upsert_matches_for_riot_account(session, riot_account.id, new_ids)
-                await backfill_match_details_by_game_ids(session, new_ids, max_fetch=limit)
-                background_tasks.add_task(enqueue_missing_timeline_jobs, new_ids)
-                # Re-query now that new matches are in the DB.
-                matches, total = await list_matches_for_riot_account(
-                    session, riot_account.id, page, limit, offset_override=after
-                )
-        except RiotRequestError as exc:
-            logger.warning(
-                "search_matches_load_more_riot_error",
-                extra={
-                    "riot_id": riot_id,
-                    "status": exc.status,
-                    "error_message": exc.message,
-                },
-            )
-        except Exception:
-            logger.exception(
-                "search_matches_load_more_error",
-                extra={"riot_id": riot_id, "after": after},
-            )
 
-    # Backfill missing game_info for any page / load-more batch.
-    missing_count = sum(1 for m in matches if not m.game_info)
-    if missing_count:
-        logger.info(
-            "search_matches_backfill",
-            extra={"riot_id": riot_id, "missing": missing_count, "page": page},
-        )
-        await backfill_match_details_inline(session, matches, max_fetch=limit)
+    if not sync_skipped:
+        missing_count = sum(1 for m in matches if not m.game_info)
+        if missing_count:
+            logger.info(
+                "search_matches_backfill",
+                extra={"riot_id": riot_id, "missing": missing_count, "page": page},
+            )
+            await backfill_match_details_inline(session, matches, max_fetch=limit)
 
     logger.info(
         "search_matches_done",
@@ -183,7 +213,13 @@ async def search_riot_account_matches(
     )
     return PaginatedMatchList(
         data=[MatchListItem.model_validate(match) for match in matches],
-        meta=PaginationMeta.build(page=page, limit=limit, total=total),
+        meta=PaginationMeta.build(
+            page=page,
+            limit=limit,
+            total=total,
+            stale=sync_skipped,
+            stale_reason=sync_skip_reason,
+        ),
     )
 
 
@@ -198,7 +234,7 @@ async def search_riot_account(
     riot_id: str,
     session: AsyncSession = Depends(get_session),
 ) -> RiotAccountResponse:
-    """Search for a riot account by Riot ID and return account info.
+    """Return riot account by Riot ID. Uses DB when present; calls Riot only if not found.
 
     Args:
         riot_id: Riot ID in gameName#tagLine format.
@@ -214,9 +250,16 @@ async def search_riot_account(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_riot_id")
 
+    riot_account = await get_riot_account_by_riot_id(session, parsed.canonical)
+    if riot_account is not None:
+        logger.info("search_account_from_db", extra={"riot_account_id": str(riot_account.id)})
+        return RiotAccountResponse.model_validate(riot_account)
+
     try:
         async with RiotApiClient() as client:
-            account_info = await client.fetch_account_by_riot_id(parsed.game_name, parsed.tag_line)
+            account_info = await client.fetch_account_by_riot_id(
+                parsed.game_name, parsed.tag_line
+            )
             summoner_info = await client.fetch_summoner_by_puuid(account_info["puuid"])
     except RiotRequestError as exc:
         logger.warning(

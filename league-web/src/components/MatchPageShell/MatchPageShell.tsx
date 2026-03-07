@@ -8,6 +8,7 @@ import SearchBar from "../SearchBar/SearchBar";
 type MatchPageShellProps = {
   subHeader: ReactNode;
   error?: string | null;
+  warning?: string | null;
   liveGame?: ReactNode;
   children: ReactNode;
 };
@@ -15,6 +16,7 @@ type MatchPageShellProps = {
 export default function MatchPageShell({
   subHeader,
   error,
+  warning,
   liveGame,
   children,
 }: MatchPageShellProps) {
@@ -24,6 +26,7 @@ export default function MatchPageShell({
       {subHeader}
       <SearchBar />
       {liveGame}
+      {warning ? <p className={styles.warning}>{warning}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
       {children}
     </div>

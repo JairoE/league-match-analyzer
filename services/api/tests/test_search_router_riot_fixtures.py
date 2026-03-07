@@ -107,6 +107,10 @@ async def test_search_matches_page1_uses_captured_riot_payload_chain(
         list_calls.append((db_session, riot_account_id, page, limit))
         return [], 0
 
+    async def _fake_get_account_none(session: object, riot_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(search, "get_riot_account_by_riot_id", _fake_get_account_none)
     monkeypatch.setattr(search, "RiotApiClient", lambda: fake_client)
     monkeypatch.setattr(search, "find_or_create_riot_account", _fake_find_or_create_riot_account)
     monkeypatch.setattr(search, "upsert_matches_for_riot_account", _fake_upsert_matches)

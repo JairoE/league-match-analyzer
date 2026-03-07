@@ -1,16 +1,16 @@
 # App State
 
-**Last Updated:** 2026-03-06
+**Last Updated:** 2026-03-07
 **Branch:** `frontend-graceful-degradation`
-**Status:** STABLE — lint clean, build clean; match list pagination rewritten (accumulate + slice), See more appends and Previous keeps match info
+**Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning)
 
 ## What's Built
 
 ### Backend (FastAPI + ARQ)
 
-- **Search flow**: `GET /search/{riot_id}/matches` — find-or-create account, upsert match IDs, backfill basic details inline, enqueue timeline prefetch in background. Supports `?page=N&limit=N` pagination.
-- **Auth match flow**: `GET /riot-accounts/{id}/matches` — paginated match list with Riot API sync on page 1 only.
-- **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page).
+- **Search flow**: `GET /search/{riot_id}/matches` — account resolved from DB first; Riot called for account only on first sync (account not in DB). Match IDs fetched from Riot on first sync, `?refresh=true` (page 1), or see more (`after>0`). Supports `?page=N&limit=N&refresh=true`.
+- **Auth match flow**: `GET /riot-accounts/{id}/matches` — paginated match list from DB; Riot match IDs only when `?refresh=true` (page 1) or see more (`after>0`).
+- **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page, stale, stale_reason). On 429 during page-1 sync, endpoints fall back to DB and return cached data with `stale=true`.
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
 - **Background jobs**: `fetch_match_details_job` (batch → auto-enqueues `extract_match_timeline_job`), `extract_match_timeline_job` (state vector + action extraction), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
@@ -53,6 +53,31 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-07)
+
+### Riot API call gating (account once, fresh match IDs when appropriate)
+
+- **Account/summoner**: Riot is called only when the account is not in DB (first sync). `GET /search/{riot_id}/account` and sign-in use DB only when account exists; sign-in no longer refreshes account from Riot.
+- **Match IDs**: Fetched from Riot on first sync (account just created), on explicit refresh (`?refresh=true` on page 1), and on see more (`after>0`). Otherwise match list is served from DB. Match detail and timeline are only requested from Riot when not already stored/cached.
+- **Backend**: Search router resolves account via `get_riot_account_by_riot_id` first; first sync when missing; page 1 without refresh uses DB only; `refresh` and see-more paths fetch fresh match IDs, upsert, backfill, enqueue timelines. Matches router: page 1 DB-only unless `refresh=true`; see more fetches fresh match IDs. `riot_sync.fetch_sign_in_user` no longer calls Riot — returns existing user + account from DB.
+- **Frontend**: `useMatchList` passes `refresh=true` when the user clicks Refresh (`matchesUrl(page, { refresh: true })`). Home and riot-account pages build match URLs with optional `&refresh=true`.
+
+### 429 rate-limit graceful degradation
+
+- **Goal**: When Riot API returns 429 on page-1 sync, return cached matches from DB with a `stale` signal instead of a blank error screen.
+- **Backend**:
+  - `PaginationMeta` now has `stale: bool` and `stale_reason: str | None`; `PaginationMeta.build()` accepts and forwards them.
+  - **matches.py** (page 1): Page-1 block wrapped in `try/except RiotRequestError`. On `exc.status == 429` set `sync_skipped = True`, `sync_skip_reason = "rate_limited"`, log warning, fall through to `resolve_riot_account_identifier` and DB query. After query: if `sync_skipped and total == 0` → raise `HTTPException(429, detail="riot_api_max_retries_exceeded")`. Skip `backfill_match_details_inline` when `sync_skipped`. Pass `stale`/`stale_reason` to `PaginationMeta.build()`.
+  - **search.py** (page 1): On 429 in existing `except RiotRequestError`, set `sync_skipped`, resolve account via `get_riot_account_by_riot_id`; if no account or 0 matches → raise 429. Skip inline backfill when `sync_skipped`. Pass `stale`/`stale_reason` to meta.
+  - **Tests**: `test_rate_limit_fallback.py` — 6 tests (matches 429+cached → 200+stale, matches 429+no data → 429, matches non-429 propagates; search 429+cached → 200+stale, search 429+no account → 429, search 429+0 matches → 429). Updated `test_search_router_page2.py::test_search_page1_riot_429_maps_to_http_429` to mock `get_riot_account_by_riot_id` returning None so 429 path is exercised without real DB.
+- **Frontend**:
+  - `PaginationMeta` type in `match.ts`: added `stale?`, `stale_reason?`.
+  - **useMatchList**: `staleReason` state set from `meta?.stale_reason` on fetch success; reset in `handleRefresh` and `resetKey` effect. `staleMessage` derived via useMemo (`rate_limited` → "Riot API is temporarily rate limited. Showing cached match data."; other → "Showing cached data. Some information may be outdated."). Exposed `staleMessage` in return.
+  - **MatchPageShell**: New optional `warning?: string | null` prop; rendered as `<p className={styles.warning}>` above error slot. `.warning` in CSS: amber color, light background, left border.
+  - **home/page.tsx** and **riot-account/[riotId]/page.tsx**: Destructure `staleMessage` from `useMatchList`, pass as `warning` to `MatchPageShell`.
 
 ---
 

@@ -14,14 +14,32 @@ class PaginationMeta(SQLModel):
     limit: int = Field(description="Items per page.")
     total: int = Field(description="Total matching items in the database.")
     last_page: int = Field(description="Last available page number.")
+    stale: bool = Field(
+        default=False,
+        description="True when response used cached data due to API limits.",
+    )
+    stale_reason: str | None = Field(
+        default=None,
+        description="Reason for stale data, e.g. rate_limited.",
+    )
 
     @classmethod
-    def build(cls, *, page: int, limit: int, total: int) -> PaginationMeta:
+    def build(
+        cls,
+        *,
+        page: int,
+        limit: int,
+        total: int,
+        stale: bool = False,
+        stale_reason: str | None = None,
+    ) -> PaginationMeta:
         return cls(
             page=page,
             limit=limit,
             total=total,
             last_page=max(1, math.ceil(total / limit)),
+            stale=stale,
+            stale_reason=stale_reason,
         )
 
 

@@ -35,8 +35,8 @@ export default function HomePage() {
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
 
   const matchesUrl = useCallback(
-    (page: number) =>
-      `/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20`,
+    (page: number, opts?: {refresh?: boolean}) =>
+      `/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20${opts?.refresh ? "&refresh=true" : ""}`,
     [riotAccountId]
   );
 
@@ -48,6 +48,7 @@ export default function HomePage() {
     canLoadMore,
     paginationMeta,
     errorMessage,
+    staleMessage,
     handlePageChange,
     handleRefresh,
     loadMoreMatches,
@@ -104,6 +105,7 @@ export default function HomePage() {
         />
       }
       error={errorMessage}
+      warning={staleMessage}
     >
       <MatchesTable
         matches={matches}

@@ -178,6 +178,10 @@ async def test_search_page1_riot_404_maps_to_http_404(
     background_tasks = BackgroundTasks()
     exc = RiotRequestError("riot_api_failed", status=404)
 
+    async def _get_none(session: object, riot_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(search, "get_riot_account_by_riot_id", _get_none)
     monkeypatch.setattr(search, "RiotApiClient", lambda: _ErrorRiotClient(exc))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -197,12 +201,17 @@ async def test_search_page1_riot_404_maps_to_http_404(
 async def test_search_page1_riot_429_maps_to_http_429(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Riot 429 (rate limited) should become HTTP 429."""
+    """Riot 429 with no cached account returns HTTP 429 (graceful degradation path)."""
     session = _FakeSession()
     background_tasks = BackgroundTasks()
     exc = RiotRequestError("riot_api_failed", status=429)
 
     monkeypatch.setattr(search, "RiotApiClient", lambda: _ErrorRiotClient(exc))
+
+    async def _get_account_none(session: object, riot_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(search, "get_riot_account_by_riot_id", _get_account_none)
 
     with pytest.raises(HTTPException) as exc_info:
         await search.search_riot_account_matches(
@@ -215,6 +224,7 @@ async def test_search_page1_riot_429_maps_to_http_429(
         )
 
     assert exc_info.value.status_code == 429
+    assert exc_info.value.detail == "riot_api_max_retries_exceeded"
 
 
 @pytest.mark.asyncio
@@ -226,6 +236,10 @@ async def test_search_page1_riot_500_maps_to_http_502(
     background_tasks = BackgroundTasks()
     exc = RiotRequestError("riot_api_failed", status=500)
 
+    async def _get_none(session: object, riot_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(search, "get_riot_account_by_riot_id", _get_none)
     monkeypatch.setattr(search, "RiotApiClient", lambda: _ErrorRiotClient(exc))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -249,6 +263,10 @@ async def test_search_account_riot_401_maps_to_http_401(
     session = _FakeSession()
     exc = RiotRequestError("missing_riot_api_key", status=401)
 
+    async def _get_none(session: object, riot_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(search, "get_riot_account_by_riot_id", _get_none)
     monkeypatch.setattr(search, "RiotApiClient", lambda: _ErrorRiotClient(exc))
 
     with pytest.raises(HTTPException) as exc_info:
