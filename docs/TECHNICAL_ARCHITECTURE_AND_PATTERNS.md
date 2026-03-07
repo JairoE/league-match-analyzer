@@ -1,6 +1,6 @@
 # Technical Architecture & Design Patterns
 
-**Last Updated:** March 5, 2026
+**Last Updated:** March 7, 2026
 **Scope:** Full codebase of `league-match-analyzer` (FastAPI + Next.js + Infrastructure + LLM Pipeline)
 
 ## Executive Summary
@@ -61,7 +61,7 @@ See `docs/LLM_DATA_PIPELINE.md` for the full specification.
 - **Rate Limiting Compliance**:
   - **Custom Rate Limiter** (`RiotRateLimiter`): Redis-backed sliding window algorithm.
   - **Dynamic Configuration**: Parses `X-App-Rate-Limit` and `X-Method-Rate-Limit` headers from every response to adjust limits in real-time.
-  - **Global Backoff**: Respects `Retry-After` headers globally across all workers.
+  - **Global Backoff**: On 429, backoff is stored in Redis (`riot_rate_limited_until`) so all workers see it; match-list endpoints mark DB-only responses as stale (meta.stale_reason) so the frontend can show an amber rate-limit warning.
 - **Async Context**: Designed as an async context manager (`async with RiotApiClient()`) for deterministic resource cleanup.
 - **Timeline Support**: `fetch_match_timeline()` for the `/timeline` endpoint, used by both laning stats and the LLM pipeline.
 
@@ -213,7 +213,7 @@ All components are folderized in `src/components/`, each with its own CSS module
   - `useAppError(scope)` React hook — `{ errorMessage, reportError, clearError }`
 
 - **Composition Pattern**:
-  - `MatchPageShell` - Shared page layout (Header + SubHeader + SearchBar + error + children) used by `/home` and `/riot-account/[riotId]`
+  - `MatchPageShell` - Shared page layout (Header + SubHeader + SearchBar + optional warning + error + children) used by `/home` and `/riot-account/[riotId]`; accepts `warning` prop for stale/rate-limit messages from `useMatchList`
   - `AuthForm` - Shared form logic for sign in/up
   - `SignInForm` / `SignUpForm` - Specific implementations
   - `MatchCard` - Reusable match display component

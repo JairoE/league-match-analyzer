@@ -249,6 +249,10 @@ async def search_riot_account_matches(
     if not sync_skipped and await get_rate_limiter().is_globally_backing_off():
         sync_skipped = True
         sync_skip_reason = "rate_limited"
+        logger.info(
+            "search_matches_stale_global_backoff",
+            extra={"riot_id": riot_id},
+        )
     return PaginatedMatchList(
         data=[MatchListItem.model_validate(match) for match in matches],
         meta=PaginationMeta.build(

@@ -1,6 +1,6 @@
 # Request Flow: Search to Home (with Optional Auth)
 
-**Last Updated:** March 5, 2026
+**Last Updated:** March 7, 2026
 
 This document outlines the high-level request flow for the `league-match-analyzer` application, illustrating how services and technologies interact across search, match display, live game, and LLM analysis flows.
 
@@ -112,6 +112,7 @@ User → Riot ID → GET /search/{riot_id}/matches?page=1
   → If account missing: Riot account + summoner + match IDs → find_or_create_riot_account, upsert matches, backfill, enqueue timelines
   → If account exists and no refresh: list from DB, backfill missing details, enqueue missing timelines (no Riot match IDs)
   → If account exists and ?refresh=true: fetch fresh match IDs (Riot), upsert, backfill, enqueue, list from DB
+  → On 429 from Riot: return cached matches from DB with meta.stale and meta.stale_reason so the frontend can show a rate-limit warning
   → Return PaginatedMatchList { data, meta }
 ```
 
@@ -250,7 +251,7 @@ Frontend → Save to sessionStorage → useSession hook
 
 - **Redis-backed sliding window** algorithm tracks Riot API quotas
 - **Dynamic configuration** adapts to `X-App-Rate-Limit` and `X-Method-Rate-Limit` headers
-- **Global backoff** respects `Retry-After` headers across all workers
+- **Global backoff**: On 429, backoff is stored in Redis (`riot_rate_limited_until`) so all API workers see it; match-list endpoints mark DB-only responses as stale (meta.stale_reason) when in backoff so the frontend shows an amber warning
 
 ### Background Job Integration
 

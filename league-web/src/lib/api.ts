@@ -44,6 +44,8 @@ export async function apiFetch<T>(
   try {
     res = await fetch(url, {
       ...init,
+      // When not using app cache, avoid browser cache so we get current meta (e.g. stale_reason)
+      cache: useCache ? undefined : "no-store",
       headers: {
         "Content-Type": "application/json",
         ...(init.headers ?? {}),

@@ -165,8 +165,15 @@ export function useMatchList({
         const meta = res?.meta ?? null;
         // Any response that includes meta must update both lastMetaFromApi and staleReason so the shell can show a stale warning.
         if (meta?.total != null) setTotalFromApi(meta.total);
-        setStaleReason(meta?.stale_reason ?? null);
+        const reason =
+          meta?.stale_reason ?? (meta?.stale ? "cached" : null);
+        setStaleReason(reason);
         setLastMetaFromApi(meta ?? null);
+        console.debug(`[${tag}] meta`, {
+          stale: meta?.stale,
+          stale_reason: meta?.stale_reason,
+          resolvedReason: reason,
+        });
 
         setAllMatches((prev) => {
           if (page === 1 && prev.length === 0) return fetched;
@@ -246,7 +253,9 @@ export function useMatchList({
         });
         if (!isActive) return;
         if (fresh?.meta != null) {
-          setStaleReason(fresh.meta?.stale_reason ?? null);
+          const reason =
+            fresh.meta?.stale_reason ?? (fresh.meta?.stale ? "cached" : null);
+          setStaleReason(reason);
           setLastMetaFromApi(fresh.meta);
         }
         const freshArray = Array.isArray(fresh?.data) ? fresh.data : [];
@@ -306,7 +315,9 @@ export function useMatchList({
       const newMatches = Array.isArray(res?.data) ? res.data : [];
       if (res?.meta) {
         setLastMetaFromApi(res.meta);
-        setStaleReason(res.meta?.stale_reason ?? null);
+        const reason =
+          res.meta?.stale_reason ?? (res.meta?.stale ? "cached" : null);
+        setStaleReason(reason);
       }
 
       const currentYearStart = new Date(
