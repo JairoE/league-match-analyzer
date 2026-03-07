@@ -5,6 +5,7 @@ import {apiGet} from "../api";
 import {clearCache} from "../cache";
 import {useAppError} from "../errors/error-store";
 import {getMatchId} from "../match-utils";
+import {getStaleMessage} from "../stale-message";
 import type {
   MatchDetail,
   MatchSummary,
@@ -80,6 +81,8 @@ export function useMatchList({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [yearBoundaryReached, setYearBoundaryReached] = useState(false);
   const [staleReason, setStaleReason] = useState<string | null>(null);
+  const [lastMetaFromApi, setLastMetaFromApi] =
+    useState<PaginationMeta | null>(null);
   const nextFetchIsRefreshRef = useRef(false);
 
   const {errorMessage, reportError, clearError} =
@@ -94,10 +97,18 @@ export function useMatchList({
 
   const limit = LIMIT;
   const total = Math.max(totalFromApi ?? 0, allMatches.length);
-  const paginationMeta = useMemo(
-    () => buildPaginationMeta(page, total, limit),
-    [page, total, limit]
-  );
+  const last_page = Math.max(1, Math.ceil(total / limit));
+  const paginationMeta = useMemo((): PaginationMeta | null => {
+    const base = lastMetaFromApi
+      ? {
+          ...lastMetaFromApi,
+          page,
+          total,
+          last_page,
+        }
+      : buildPaginationMeta(page, total, limit);
+    return base;
+  }, [lastMetaFromApi, page, total, last_page, limit]);
 
   // Slice for current page — this is what the table displays
   const matches = useMemo(
@@ -120,6 +131,7 @@ export function useMatchList({
     setMatchDetails({});
     setYearBoundaryReached(false);
     setStaleReason(null);
+    setLastMetaFromApi(null);
   }, [resetKey]);
 
   // Fetch a page when we don't have enough data for the current page.
@@ -153,6 +165,7 @@ export function useMatchList({
         const meta = res?.meta ?? null;
         if (meta?.total != null) setTotalFromApi(meta.total);
         setStaleReason(meta?.stale_reason ?? null);
+        setLastMetaFromApi(meta ?? null);
 
         setAllMatches((prev) => {
           if (page === 1 && prev.length === 0) return fetched;
@@ -268,13 +281,7 @@ export function useMatchList({
     pollCountRef.current = 0;
   }, [refreshIndex, page]);
 
-  const staleMessage = useMemo((): string | null => {
-    if (!staleReason) return null;
-    if (staleReason === "rate_limited") {
-      return "Riot API is temporarily rate limited. Showing cached match data.";
-    }
-    return "Showing cached data. Some information may be outdated.";
-  }, [staleReason]);
+  const staleMessage = getStaleMessage(staleReason);
 
   const canLoadMore = useMemo(() => {
     if (isLoadingMore || yearBoundaryReached) return false;
@@ -292,6 +299,7 @@ export function useMatchList({
     try {
       const res = await apiGet<PaginatedMatchList>(url, {useCache: false});
       const newMatches = Array.isArray(res?.data) ? res.data : [];
+      if (res?.meta) setLastMetaFromApi(res.meta);
 
       const currentYearStart = new Date(
         new Date().getFullYear(),
@@ -354,6 +362,7 @@ export function useMatchList({
     setMatchDetails({});
     setYearBoundaryReached(false);
     setStaleReason(null);
+    setLastMetaFromApi(null);
     setRefreshIndex((prev) => prev + 1);
   }, []);
 

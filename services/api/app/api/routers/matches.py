@@ -22,6 +22,13 @@ router = APIRouter(tags=["matches"])
 logger = get_logger("league_api.matches")
 
 
+def _mark_rate_limited_or_reraise(exc: RiotRequestError) -> tuple[bool, str]:
+    """On 429 return (True, 'rate_limited'); otherwise re-raise."""
+    if exc.status == 429:
+        return (True, "rate_limited")
+    raise
+
+
 @router.get(
     "/riot-accounts/{riot_account_id}/matches",
     response_model=PaginatedMatchList,
@@ -100,15 +107,11 @@ async def list_riot_account_matches(
                 )
                 background_tasks.add_task(enqueue_missing_timeline_jobs, new_ids)
         except RiotRequestError as exc:
-            if exc.status == 429:
-                sync_skipped = True
-                sync_skip_reason = "rate_limited"
-                logger.warning(
-                    "list_riot_account_matches_rate_limited",
-                    extra={"riot_account_id": riot_account_id, "error_message": exc.message},
-                )
-            else:
-                raise
+            sync_skipped, sync_skip_reason = _mark_rate_limited_or_reraise(exc)
+            logger.warning(
+                "list_riot_account_matches_rate_limited",
+                extra={"riot_account_id": riot_account_id, "error_message": exc.message},
+            )
         except Exception:
             logger.exception(
                 "list_riot_account_matches_fresh_ids_error",

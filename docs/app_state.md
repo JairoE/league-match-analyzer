@@ -1,8 +1,10 @@
 # App State
 
 **Last Updated:** 2026-03-07
-**Branch:** `frontend-graceful-degradation`
+**Branch:** `frontend-api-db-cache-rework`
 **Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning)
+
+**Review:** See `docs/REVIEW_recent_changes.md`. Optional suggestions implemented: search handler extracted to `_first_sync_account_and_matches` / `_refresh_matches_if_requested`; matches 429 helper `_mark_rate_limited_or_reraise`; frontend `getStaleMessage()` + API meta merged into `paginationMeta` via `lastMetaFromApi`.
 
 ## What's Built
 
@@ -75,7 +77,7 @@
   - **Tests**: `test_rate_limit_fallback.py` — 6 tests (matches 429+cached → 200+stale, matches 429+no data → 429, matches non-429 propagates; search 429+cached → 200+stale, search 429+no account → 429, search 429+0 matches → 429). Updated `test_search_router_page2.py::test_search_page1_riot_429_maps_to_http_429` to mock `get_riot_account_by_riot_id` returning None so 429 path is exercised without real DB.
 - **Frontend**:
   - `PaginationMeta` type in `match.ts`: added `stale?`, `stale_reason?`.
-  - **useMatchList**: `staleReason` state set from `meta?.stale_reason` on fetch success; reset in `handleRefresh` and `resetKey` effect. `staleMessage` derived via useMemo (`rate_limited` → "Riot API is temporarily rate limited. Showing cached match data."; other → "Showing cached data. Some information may be outdated."). Exposed `staleMessage` in return.
+  - **useMatchList**: `staleReason` state set from `meta?.stale_reason` on fetch success; reset in `handleRefresh` and `resetKey` effect. `staleMessage` from `getStaleMessage(staleReason)` (`league-web/src/lib/stale-message.ts`). `paginationMeta` merges API `meta` when present (`lastMetaFromApi`) with current page/total/last_page so `stale`/`stale_reason` come from one source.
   - **MatchPageShell**: New optional `warning?: string | null` prop; rendered as `<p className={styles.warning}>` above error slot. `.warning` in CSS: amber color, light background, left border.
   - **home/page.tsx** and **riot-account/[riotId]/page.tsx**: Destructure `staleMessage` from `useMatchList`, pass as `warning` to `MatchPageShell`.
 
