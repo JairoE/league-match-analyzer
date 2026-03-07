@@ -353,17 +353,24 @@ export default function MatchesTable({
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            key={
+              isLoading
+                ? "skeleton"
+                : `page-${paginationMeta?.page ?? 0}-${filteredMatches.length}`
+            }
+          >
             {isLoading ? (
               <SkeletonRows count={8} colCount={COLUMNS.length} />
-            ) : filteredMatches.length === 0 ? (
+            ) : filteredMatches.length === 0 && !isLoadingMore ? (
               <tr>
                 <td colSpan={COLUMNS.length} className={styles.empty}>
                   No matches found.
                 </td>
               </tr>
             ) : (
-              filteredMatches.map((match, index) => {
+              <>
+                {filteredMatches.map((match, index) => {
                 const matchId = getMatchId(match);
                 const detail = matchId ? (matchDetails[matchId] ?? null) : null;
                 const isExpanded = matchId ? selectedMatchId === matchId : false;
@@ -398,7 +405,11 @@ export default function MatchesTable({
                     onClose={() => matchId && closeMatch(matchId)}
                   />
                 );
-              })
+              })}
+                {isLoadingMore && (
+                  <SkeletonRows count={5} colCount={COLUMNS.length} />
+                )}
+              </>
             )}
           </tbody>
         </table>

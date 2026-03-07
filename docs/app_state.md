@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-06
 **Branch:** `frontend-graceful-degradation`
-**Status:** STABLE — lint clean, build clean; "See more" load-more button added to match history table
+**Status:** STABLE — lint clean, build clean; match list pagination rewritten (accumulate + slice), See more appends and Previous keeps match info
 
 ## What's Built
 
@@ -56,6 +56,14 @@
 ---
 
 ## Recent Changes (2026-03-06)
+
+### Match list pagination rewrite (`useMatchList`)
+
+- **Accumulate-then-slice**: Matches are stored in one list (`allMatches`). The table always shows a slice for the current page: `matches = allMatches.slice((page-1)*limit, page*limit)`. Pagination meta is derived from `total = max(totalFromApi, allMatches.length)` and `last_page = ceil(total/limit)`.
+- **Fetch behavior**: Initial load fetches page 1 and sets the list. Navigating to page N fetches only when `allMatches.length < page*limit` and merges (replaces that page’s segment). So Next accumulates pages; Previous just changes `page` and uses existing data — no refetch, no clearing `matchDetails`.
+- **See more**: Fetches with `after=allMatches.length`, appends the new batch to `allMatches`, then sets `page` to the page that contains the first new item (`floor(offset/limit)+1`). So e.g. 73 matches + 20 new → stay on page 4 (20 rows: 13 old + 7 new); 20 + 20 → go to page 2 (20 new rows). Total and last_page update from the new length.
+- **Previous bug fixed**: We no longer clear `matchDetails` on page change or refetch when going back; the slice comes from accumulated matches and details stay in sync.
+- **Removed**: Virtual page / `hasLoadedMore` / `realLastPageRef` / `loadMorePage`; polling now merges into the current page’s segment of `allMatches`.
 
 ### Background job rate-limit retry hardening (`llm-phase-0`, session 2)
 

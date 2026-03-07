@@ -81,9 +81,6 @@
   position: relative;
   width: 100%;
   overflow-x: auto;
-  overflow-y: auto;
-  max-height: calc(100vh - 320px);
-  min-height: 300px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-surface);
