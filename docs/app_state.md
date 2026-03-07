@@ -30,6 +30,7 @@
   - Queue type modeling is centralized in `src/lib/types/queue.ts` with coarse tab grouping (`GameQueueGroup`) and granular row labels (`GameQueueMode`).
 - **Match card**: `MatchCard` is decomposed into `ItemSlot`, `Teams`, `ChampionKdaChart`, `match-card.utils.ts`, and `types.ts` within `MatchCard/`. The main file is a ~200-line orchestrator, `memo`-wrapped at export.
 - **Pagination**: Reusable `Pagination` component with Previous/Next buttons, "Page X of Y", total count. Hidden when single page. Wired into `MatchesTable` via optional `paginationMeta`/`onPageChange` props.
+- **Rank in header**: `useRank(riotAccountId, { refreshIndex })` in `src/lib/hooks/useRank.ts` fetches `GET /riot-accounts/{id}/fetch_rank` and returns `{ rank, rankSubtitle }`. Used on `/home` and `/riot-account/[riotId]` so both show rank subtitle in `SubHeader`; refresh on either page refetches rank via `refreshIndex`.
 - **Error handling** (`src/lib/errors/`):
   - `ApiError` class with `status`, `detail`, `riotStatus` fields.
   - `buildApiErrorFromResponse` / `toApiError` for normalising HTTP and plain errors.
@@ -56,6 +57,12 @@
 ---
 
 ## Recent Changes (2026-03-06)
+
+### Rank data shared across home and riot-account pages
+
+- **useRank hook** (`league-web/src/lib/hooks/useRank.ts`): Fetches `GET /riot-accounts/{id}/fetch_rank` when `riotAccountId` is set; re-runs on `riotAccountId` or `refreshIndex` change. Returns `{ rank, rankSubtitle }` with subtitle formatted as "Queue · Tier Rank · N LP" or "Rank data unavailable". Debug logging: `[useRank] fetch start/done/fail`.
+- **Home** (`league-web/src/app/home/page.tsx`): Removed local `rank` state and rank `useEffect`; uses `useRank(riotAccountId ?? null, { refreshIndex })` and passes `rankSubtitle` to `SubHeader` as before.
+- **Riot-account** (`league-web/src/app/riot-account/[riotId]/page.tsx`): Uses `useRank(account?.id ?? null, { refreshIndex })` and passes `subtitle={rankSubtitle}` to `SubHeader` so the search result view shows rank under the title.
 
 ### Live game: gate on matches ready, single attempt, status UI
 

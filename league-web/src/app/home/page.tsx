@@ -6,7 +6,6 @@ import styles from "./page.module.css";
 import MatchPageShell from "../../components/MatchPageShell/MatchPageShell";
 import SubHeader from "../../components/SubHeader/SubHeader";
 import MatchesTable from "../../components/MatchesTable";
-import {apiGet} from "../../lib/api";
 import {loadSessionUser} from "../../lib/session";
 import {
   getUserDisplayName,
@@ -15,8 +14,8 @@ import {
 } from "../../lib/user-utils";
 import {useLiveGameWhenReady} from "../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../lib/hooks/useMatchList";
+import {useRank} from "../../lib/hooks/useRank";
 import {LiveGameSlot} from "../../components/LiveGameSlot";
-import type {RankInfo} from "../../lib/types/rank";
 import type {UserSession} from "../../lib/types/user";
 
 export default function HomePage() {
@@ -24,7 +23,6 @@ export default function HomePage() {
   const [user] = useState<UserSession | null>(
     () => loadSessionUser()
   );
-  const [rank, setRank] = useState<RankInfo | null>(null);
 
   const riotAccountId = useMemo(
     () => getRiotAccountId(user),
@@ -67,41 +65,14 @@ export default function HomePage() {
     !isLoading
   );
 
+  const {rankSubtitle} = useRank(riotAccountId ?? null, {refreshIndex});
+
   useEffect(() => {
     if (!user) {
       console.debug("[home] missing session, redirecting");
       router.push("/");
     }
   }, [router, user]);
-
-  // Fetch rank alongside matches (keyed on same triggers)
-  useEffect(() => {
-    if (!riotAccountId) return;
-    let isActive = true;
-
-    const loadRank = async () => {
-      console.debug("[home] fetching rank", {riotAccountId});
-      try {
-        const rankResponse = await apiGet<RankInfo>(
-          `/riot-accounts/${riotAccountId}/fetch_rank`,
-          {cacheTtlMs: 60_000}
-        );
-        if (!isActive) return;
-        setRank(rankResponse ?? null);
-      } catch (err) {
-        console.debug("[home] rank fetch failed", {err});
-      }
-    };
-
-    void loadRank();
-    return () => {
-      isActive = false;
-    };
-  }, [riotAccountId, refreshIndex]);
-
-  const rankSubtitle = rank
-    ? `${rank.queueType ?? "Ranked"} · ${rank.tier ?? "Unranked"} ${rank.rank ?? ""} · ${rank.leaguePoints ?? 0} LP`
-    : "Rank data unavailable";
 
   if (!user) {
     return <div className={styles.loading}>Redirecting...</div>;

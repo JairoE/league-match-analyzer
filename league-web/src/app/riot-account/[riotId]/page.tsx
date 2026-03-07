@@ -12,6 +12,7 @@ import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
 import {useLiveGameWhenReady} from "../../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../../lib/hooks/useMatchList";
+import {useRank} from "../../../lib/hooks/useRank";
 import {LiveGameSlot} from "../../../components/LiveGameSlot";
 import type {RiotAccountData} from "../../../lib/types/user";
 
@@ -96,6 +97,8 @@ export default function RiotAccountPage() {
     !isLoading
   );
 
+  const {rankSubtitle} = useRank(account?.id ?? null, {refreshIndex});
+
   // Check session (optional for search)
   useEffect(() => {
     const session = loadSessionUser();
@@ -173,6 +176,7 @@ export default function RiotAccountPage() {
         <SubHeader
           kicker="Viewing matches for"
           title={displayLabel}
+          subtitle={rankSubtitle}
           actions={
             <>
               <button
