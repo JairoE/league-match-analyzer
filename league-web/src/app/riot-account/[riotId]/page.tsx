@@ -73,12 +73,15 @@ export default function RiotAccountPage() {
     matches,
     matchDetails,
     isLoading,
+    isLoadingMore,
+    canLoadMore,
     paginationMeta,
     errorMessage,
     clearError,
     reportError,
     handlePageChange,
     handleRefresh,
+    loadMoreMatches,
     refreshIndex,
   } = useMatchList({
     matchesUrl,
@@ -204,6 +207,9 @@ export default function RiotAccountPage() {
         isSearchView
         targetPuuid={accountPuuid}
         isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        canLoadMore={canLoadMore}
+        onLoadMore={loadMoreMatches}
         paginationMeta={paginationMeta}
         onPageChange={handlePageChange}
       />

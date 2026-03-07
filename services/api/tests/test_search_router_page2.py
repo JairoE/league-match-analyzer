@@ -14,7 +14,6 @@ from fastapi import BackgroundTasks, HTTPException
 from app.api.routers import search
 from app.services.riot_api_client import RiotRequestError
 
-
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
@@ -65,6 +64,7 @@ async def test_search_page2_skips_riot_api_and_queries_db(
         riot_account_id: object,
         page: int,
         limit: int,
+        **kwargs: object,
     ) -> tuple[list[object], int]:
         list_calls.append((page, limit))
         return [], 40
@@ -78,6 +78,7 @@ async def test_search_page2_skips_riot_api_and_queries_db(
         background_tasks=background_tasks,
         page=2,
         limit=20,
+        after=0,
         session=session,  # type: ignore[arg-type]
     )
 
@@ -102,7 +103,7 @@ async def test_search_page3_returns_correct_meta(
         return riot_account
 
     async def _fake_list(
-        session: object, rid: object, page: int, limit: int
+        session: object, rid: object, page: int, limit: int, **kwargs: object
     ) -> tuple[list[object], int]:
         return [], 50
 
@@ -114,6 +115,7 @@ async def test_search_page3_returns_correct_meta(
         background_tasks=background_tasks,
         page=3,
         limit=10,
+        after=0,
         session=session,  # type: ignore[arg-type]
     )
 
@@ -142,6 +144,7 @@ async def test_search_page2_404_when_account_not_in_db(
             background_tasks=background_tasks,
             page=2,
             limit=20,
+            after=0,
             session=session,  # type: ignore[arg-type]
         )
 
@@ -183,6 +186,7 @@ async def test_search_page1_riot_404_maps_to_http_404(
             background_tasks=background_tasks,
             page=1,
             limit=20,
+            after=0,
             session=session,  # type: ignore[arg-type]
         )
 
@@ -206,6 +210,7 @@ async def test_search_page1_riot_429_maps_to_http_429(
             background_tasks=background_tasks,
             page=1,
             limit=20,
+            after=0,
             session=session,  # type: ignore[arg-type]
         )
 
@@ -229,6 +234,7 @@ async def test_search_page1_riot_500_maps_to_http_502(
             background_tasks=background_tasks,
             page=1,
             limit=20,
+            after=0,
             session=session,  # type: ignore[arg-type]
         )
 

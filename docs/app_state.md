@@ -1,8 +1,8 @@
 # App State
 
 **Last Updated:** 2026-03-06
-**Branch:** `llm-phase-0`
-**Status:** STABLE — 88/88 tests pass, lint clean; LLM pipeline Steps 1–2 wired into ingestion flow, Step 3 prep complete; background job rate-limit retry hardened
+**Branch:** `frontend-graceful-degradation`
+**Status:** STABLE — lint clean, build clean; "See more" load-more button added to match history table
 
 ## What's Built
 
@@ -839,6 +839,49 @@ Optional:
 - **Fix**: `setup_logging()` was not called in the ARQ worker process (`on_startup`), so worker logs used Python's default handler instead of the app's `DevFormatter` (colored, truncated). Now the worker calls `setup_logging()` on startup, making extraction job logs visible with the same formatting as the API.
 - **New make targets**: `make worker-dev-verbose` (runs worker with `LOG_LEVEL=DEBUG`), `make backfill-extraction-dry` (dry-run preview of backfill).
 - **Files changed**: `services/api/app/services/background_jobs.py`, `Makefile`.
+
+---
+
+## Recent Changes (2026-03-06, session 21)
+
+### "See More" load-more button for match history (`frontend-graceful-degradation`)
+
+**Why**: The existing Previous/Next pagination forces users to navigate away from
+their current matches to see older ones. A load-more pattern lets users
+accumulate matches inline without losing context.
+
+**What changed:**
+
+- **`useMatchList.ts`** — three new state variables (`isLoadingMore`,
+  `nextLoadMorePage`, `yearBoundaryReached`) + two new return fields:
+  - `canLoadMore: boolean` — `true` when `paginationMeta.page === paginationMeta.last_page`
+    and no stop condition is active. Checked against `last_page` (not
+    `nextLoadMorePage`) so it only appears on the final page, not all pages.
+  - `isLoadingMore: boolean` — `true` while a load-more request is in flight.
+  - `loadMoreMatches(): Promise<void>` — fetches `nextLoadMorePage`, filters
+    out matches before Jan 1 of current year, appends to existing `matches`
+    state. Sets `yearBoundaryReached = true` on empty page or year-boundary hit.
+    Resets on every main fetch (page nav / refresh).
+
+- **`MatchesTable.tsx`** — new optional props `canLoadMore`, `isLoadingMore`,
+  `onLoadMore`; renders a centred "See more" / "Loading..." button between
+  the table rows and the `<Pagination>` control.
+
+- **`MatchesTable.module.css`** — `.loadMore`, `.loadMoreBtn`, `:disabled` rules.
+
+- **`home/page.tsx`** + **`riot-account/[riotId]/page.tsx`** — destructure and
+  pass all three new props to `MatchesTable`.
+
+**Bug fixes applied mid-session:**
+- Button was visible on ALL pages (not just the last) — root cause:
+  `nextLoadMorePage <= last_page` is `true` whenever `page < last_page`.
+  Fixed by switching to `paginationMeta.page === paginationMeta.last_page`.
+- Button was invisible for single-page summoners (page 1 of 1) — same root
+  cause; same fix resolves it (page 1 of 1 satisfies `page === last_page`).
+- Button didn't disappear after exhausting data — added
+  `newMatches.length === 0` check that sets `yearBoundaryReached = true`.
+
+**Verification:** `npm run lint` — pass (1 pre-existing warning). `npm run build` — clean.
 
 ---
 

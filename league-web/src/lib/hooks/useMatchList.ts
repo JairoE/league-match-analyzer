@@ -34,6 +34,8 @@ type UseMatchListReturn = {
   matches: MatchSummary[];
   matchDetails: Record<string, MatchDetail>;
   isLoading: boolean;
+  isLoadingMore: boolean;
+  canLoadMore: boolean;
   paginationMeta: PaginationMeta | null;
   page: number;
   errorMessage: string | null;
@@ -41,6 +43,7 @@ type UseMatchListReturn = {
   clearError: () => void;
   handlePageChange: (newPage: number) => void;
   handleRefresh: () => void;
+  loadMoreMatches: () => Promise<void>;
   refreshIndex: number;
 };
 
@@ -64,6 +67,15 @@ export function useMatchList({
     useState<PaginationMeta | null>(null);
   const {errorMessage, reportError, clearError} =
     useAppError(errorScope);
+
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Tracks total matches currently loaded — used as the `after` offset for
+  // the next load-more request.
+  const [loadMoreOffset, setLoadMoreOffset] = useState(0);
+  const [yearBoundaryReached, setYearBoundaryReached] = useState(false);
+  // True after loadMoreMatches has appended at least one batch. Prevents the
+  // polling effect from overwriting the accumulated matches array.
+  const hasLoadedMore = useRef(false);
 
   const cacheOptionsRef = useRef(cacheOptions);
   cacheOptionsRef.current = cacheOptions;
@@ -101,10 +113,12 @@ export function useMatchList({
           cacheOptionsRef.current ?? {useCache: false}
         );
         if (!isActive) return;
-        setMatches(
-          Array.isArray(res?.data) ? res.data : []
-        );
+        const fetched = Array.isArray(res?.data) ? res.data : [];
+        setMatches(fetched);
         setPaginationMeta(res?.meta ?? null);
+        setLoadMoreOffset(0);
+        setYearBoundaryReached(false);
+        hasLoadedMore.current = false;
         console.debug(`[${tag}] matches loaded`, {
           count: res?.data?.length ?? 0,
         });
@@ -150,9 +164,12 @@ export function useMatchList({
     pollCountRef.current = 0;
   }, [refreshIndex, page]);
 
-  // Poll until all game_info fields are populated
+  // Poll until all game_info fields are populated.
+  // Skip polling once load-more has appended extra pages — polling fetches a
+  // single page and would overwrite the accumulated matches array.
   useEffect(() => {
     if (!enabled || !hasMatches || isLoading) return;
+    if (hasLoadedMore.current) return;
     const tag = logTagRef.current;
     if (missingDetailCount === 0) {
       console.debug(
@@ -231,6 +248,64 @@ export function useMatchList({
     isLoading,
   ]);
 
+  // Show "See more" only when the user is on the last page (earliest matches
+  // are visible) and no hard stop has been hit (year boundary or empty page).
+  const canLoadMore = useMemo(() => {
+    if (!paginationMeta || isLoadingMore || yearBoundaryReached) return false;
+    return paginationMeta.page === paginationMeta.last_page;
+  }, [paginationMeta, isLoadingMore, yearBoundaryReached]);
+
+  const loadMoreMatches = useCallback(async () => {
+    if (!canLoadMore) return;
+    setIsLoadingMore(true);
+
+    // Tell the backend how many matches we already have so it can skip
+    // them and return the next batch (fetching from Riot if the DB is
+    // exhausted).
+    const offset = loadMoreOffset || matches.length;
+    const baseUrl = matchesUrl(page);
+    const sep = baseUrl.includes("?") ? "&" : "?";
+    const url = `${baseUrl}${sep}after=${offset}`;
+    try {
+      const res = await apiGet<PaginatedMatchList>(url, {
+        useCache: false,
+      });
+      const newMatches = Array.isArray(res?.data) ? res.data : [];
+
+      // Filter matches from before the current calendar year
+      const currentYearStart = new Date(
+        new Date().getFullYear(),
+        0,
+        1
+      ).getTime();
+      const filtered = newMatches.filter(
+        (m) =>
+          (m.game_start_timestamp ?? m.gameCreation ?? Date.now()) >=
+          currentYearStart
+      );
+
+      // No data returned or year boundary crossed — stop showing button
+      if (
+        newMatches.length === 0 ||
+        filtered.length < newMatches.length
+      ) {
+        setYearBoundaryReached(true);
+      }
+
+      if (filtered.length > 0) {
+        setMatches((prev) => [...prev, ...filtered]);
+        setLoadMoreOffset(offset + filtered.length);
+        hasLoadedMore.current = true;
+      }
+      // Do NOT update paginationMeta — keep showing the original page's
+      // meta so the Pagination component displays the correct page/total.
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [canLoadMore, matchesUrl, page, loadMoreOffset, matches.length, reportError]);
+
   const handlePageChange = useCallback((newPage: number) => {
     setPage(newPage);
     setMatchDetails({});
@@ -248,6 +323,8 @@ export function useMatchList({
     matches,
     matchDetails,
     isLoading,
+    isLoadingMore,
+    canLoadMore,
     paginationMeta,
     page,
     errorMessage,
@@ -255,6 +332,7 @@ export function useMatchList({
     clearError,
     handlePageChange,
     handleRefresh,
+    loadMoreMatches,
     refreshIndex,
   };
 }

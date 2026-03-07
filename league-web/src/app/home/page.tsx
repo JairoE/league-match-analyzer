@@ -47,10 +47,13 @@ export default function HomePage() {
     matches,
     matchDetails,
     isLoading,
+    isLoadingMore,
+    canLoadMore,
     paginationMeta,
     errorMessage,
     handlePageChange,
     handleRefresh,
+    loadMoreMatches,
     refreshIndex,
   } = useMatchList({
     matchesUrl,
@@ -133,6 +136,9 @@ export default function HomePage() {
         user={user}
         targetPuuid={userPuuid}
         isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        canLoadMore={canLoadMore}
+        onLoadMore={loadMoreMatches}
         paginationMeta={paginationMeta}
         onPageChange={handlePageChange}
       />

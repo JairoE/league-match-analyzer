@@ -30,6 +30,11 @@ async def search_riot_account_matches(
     background_tasks: BackgroundTasks,
     page: int = Query(default=1, ge=1, description="Page number (1-based)"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
+    after: int = Query(
+        default=0,
+        ge=0,
+        description="Load-more offset: number of matches already loaded by the client.",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> PaginatedMatchList:
     """Search for a riot account by Riot ID and return their matches.
@@ -43,6 +48,9 @@ async def search_riot_account_matches(
         background_tasks: FastAPI background task runner.
         page: Page number (1-based).
         limit: Items per page (max 100).
+        after: Load-more offset. When >0, used as the DB offset (page is
+            ignored) and the backend fetches from Riot if the DB has no
+            more rows at that offset.
         session: Async database session for queries.
 
     Returns:
@@ -57,8 +65,9 @@ async def search_riot_account_matches(
         logger.info("search_matches_invalid_riot_id", extra={"riot_id": riot_id})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_riot_id")
 
-    # Only sync with Riot API on page 1; page 2+ just queries DB
-    if page == 1:
+    # Only sync with Riot API on page 1 (and not during load-more).
+    # Page 2+ just queries DB.
+    if page == 1 and after == 0:
         try:
             async with RiotApiClient() as client:
                 account_info = await client.fetch_account_by_riot_id(
@@ -119,18 +128,54 @@ async def search_riot_account_matches(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Riot account not found"
             )
 
-    # Return the paginated match list
-    matches, total = await list_matches_for_riot_account(session, riot_account.id, page, limit)
+    # Query DB — use offset_override for load-more, normal page offset otherwise.
+    offset_override = after if after > 0 else None
+    matches, total = await list_matches_for_riot_account(
+        session, riot_account.id, page, limit, offset_override=offset_override
+    )
 
-    # Safety-net backfill: should be a no-op after the pre-query step on page 1.
-    # If this triggers, something unexpected happened (partial failure, race, page 2+).
+    # Load-more: if DB returned nothing, try fetching more match IDs from Riot.
+    if after > 0 and len(matches) == 0 and riot_account.puuid:
+        logger.info(
+            "search_matches_load_more_riot",
+            extra={"riot_id": riot_id, "after": after},
+        )
+        try:
+            async with RiotApiClient() as client:
+                new_ids = await client.fetch_match_ids_by_puuid(
+                    riot_account.puuid, start=after, count=limit
+                )
+            if new_ids:
+                await upsert_matches_for_riot_account(session, riot_account.id, new_ids)
+                await backfill_match_details_by_game_ids(session, new_ids, max_fetch=limit)
+                background_tasks.add_task(enqueue_missing_timeline_jobs, new_ids)
+                # Re-query now that new matches are in the DB.
+                matches, total = await list_matches_for_riot_account(
+                    session, riot_account.id, page, limit, offset_override=after
+                )
+        except RiotRequestError as exc:
+            logger.warning(
+                "search_matches_load_more_riot_error",
+                extra={
+                    "riot_id": riot_id,
+                    "status": exc.status,
+                    "error_message": exc.message,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "search_matches_load_more_error",
+                extra={"riot_id": riot_id, "after": after},
+            )
+
+    # Backfill missing game_info for any page / load-more batch.
     missing_count = sum(1 for m in matches if not m.game_info)
     if missing_count:
-        logger.warning(
-            "search_matches_backfill_fallback",
-            extra={"riot_id": riot_id, "missing": missing_count},
+        logger.info(
+            "search_matches_backfill",
+            extra={"riot_id": riot_id, "missing": missing_count, "page": page},
         )
-        await backfill_match_details_inline(session, matches)
+        await backfill_match_details_inline(session, matches, max_fetch=limit)
 
     logger.info(
         "search_matches_done",

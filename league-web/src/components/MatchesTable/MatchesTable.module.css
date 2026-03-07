@@ -158,3 +158,28 @@
     opacity: 0.4;
   }
 }
+
+.loadMore {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.loadMoreBtn {
+  padding: 8px 24px;
+  background: var(--color-primary, #5865f2);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.loadMoreBtn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.loadMoreBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

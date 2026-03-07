@@ -35,6 +35,9 @@ type MatchesTableProps = {
   isSearchView?: boolean;
   targetPuuid?: string | null;
   isLoading?: boolean;
+  isLoadingMore?: boolean;
+  canLoadMore?: boolean;
+  onLoadMore?: () => void;
   paginationMeta?: PaginationMeta | null;
   onPageChange?: (page: number) => void;
 };
@@ -46,6 +49,9 @@ export default function MatchesTable({
   isSearchView = false,
   targetPuuid = null,
   isLoading = false,
+  isLoadingMore = false,
+  canLoadMore = false,
+  onLoadMore,
   paginationMeta = null,
   onPageChange,
 }: MatchesTableProps) {
@@ -397,6 +403,18 @@ export default function MatchesTable({
           </tbody>
         </table>
       </div>
+      {canLoadMore && onLoadMore && (
+        <div className={styles.loadMore}>
+          <button
+            type="button"
+            className={styles.loadMoreBtn}
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? "Loading..." : "See more"}
+          </button>
+        </div>
+      )}
       <div>
         {paginationMeta && onPageChange && (
           <Pagination meta={paginationMeta} onPageChange={onPageChange} />
