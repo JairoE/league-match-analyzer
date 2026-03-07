@@ -35,6 +35,9 @@ type MatchesTableProps = {
   isSearchView?: boolean;
   targetPuuid?: string | null;
   isLoading?: boolean;
+  isLoadingMore?: boolean;
+  canLoadMore?: boolean;
+  onLoadMore?: () => void;
   paginationMeta?: PaginationMeta | null;
   onPageChange?: (page: number) => void;
 };
@@ -46,6 +49,9 @@ export default function MatchesTable({
   isSearchView = false,
   targetPuuid = null,
   isLoading = false,
+  isLoadingMore = false,
+  canLoadMore = false,
+  onLoadMore,
   paginationMeta = null,
   onPageChange,
 }: MatchesTableProps) {
@@ -347,17 +353,24 @@ export default function MatchesTable({
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            key={
+              isLoading
+                ? "skeleton"
+                : `page-${paginationMeta?.page ?? 0}-${filteredMatches.length}`
+            }
+          >
             {isLoading ? (
               <SkeletonRows count={8} colCount={COLUMNS.length} />
-            ) : filteredMatches.length === 0 ? (
+            ) : filteredMatches.length === 0 && !isLoadingMore ? (
               <tr>
                 <td colSpan={COLUMNS.length} className={styles.empty}>
                   No matches found.
                 </td>
               </tr>
             ) : (
-              filteredMatches.map((match, index) => {
+              <>
+                {filteredMatches.map((match, index) => {
                 const matchId = getMatchId(match);
                 const detail = matchId ? (matchDetails[matchId] ?? null) : null;
                 const isExpanded = matchId ? selectedMatchId === matchId : false;
@@ -392,12 +405,28 @@ export default function MatchesTable({
                     onClose={() => matchId && closeMatch(matchId)}
                   />
                 );
-              })
+              })}
+                {isLoadingMore && (
+                  <SkeletonRows count={5} colCount={COLUMNS.length} />
+                )}
+              </>
             )}
           </tbody>
         </table>
       </div>
-      <div>
+      {canLoadMore && onLoadMore && (
+        <div className={styles.loadMore}>
+          <button
+            type="button"
+            className={styles.loadMoreBtn}
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? "Loading..." : "See more"}
+          </button>
+        </div>
+      )}
+      <div key={paginationMeta?.last_page ?? 1}>
         {paginationMeta && onPageChange && (
           <Pagination meta={paginationMeta} onPageChange={onPageChange} />
         )}

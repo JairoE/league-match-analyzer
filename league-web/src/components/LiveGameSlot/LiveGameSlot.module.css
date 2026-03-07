@@ -1,0 +1,29 @@
+.box {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message {
+  font-size: 14px;
+  color: var(--color-text-secondary, currentColor);
+}
+
+.button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  align-self: flex-start;
+}
+
+.button:hover {
+  opacity: 0.9;
+}

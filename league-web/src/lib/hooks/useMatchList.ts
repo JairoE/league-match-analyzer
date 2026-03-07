@@ -12,6 +12,7 @@ import type {
   PaginationMeta,
 } from "../types/match";
 
+const LIMIT = 20;
 const MAX_POLLS = 20;
 const POLL_INTERVAL_MS = 3_000;
 
@@ -21,12 +22,7 @@ type UseMatchListOptions = {
   enabled?: boolean;
   cacheOptions?: {cacheTtlMs?: number; useCache?: boolean};
   logTag?: string;
-  /**
-   * When provided, called instead of the default `reportError`.
-   * Return `true` to suppress the default error handling.
-   */
   onFetchError?: (err: unknown) => boolean;
-  /** When this value changes, page resets to 1 (e.g. riotId). */
   resetKey?: string;
 };
 
@@ -34,6 +30,8 @@ type UseMatchListReturn = {
   matches: MatchSummary[];
   matchDetails: Record<string, MatchDetail>;
   isLoading: boolean;
+  isLoadingMore: boolean;
+  canLoadMore: boolean;
   paginationMeta: PaginationMeta | null;
   page: number;
   errorMessage: string | null;
@@ -41,8 +39,23 @@ type UseMatchListReturn = {
   clearError: () => void;
   handlePageChange: (newPage: number) => void;
   handleRefresh: () => void;
+  loadMoreMatches: () => Promise<void>;
   refreshIndex: number;
 };
+
+function buildPaginationMeta(
+  page: number,
+  total: number,
+  limit: number
+): PaginationMeta {
+  const last_page = Math.max(1, Math.ceil(total / limit));
+  return {
+    page,
+    limit,
+    total,
+    last_page,
+  };
+}
 
 export function useMatchList({
   matchesUrl,
@@ -53,15 +66,17 @@ export function useMatchList({
   onFetchError,
   resetKey,
 }: UseMatchListOptions): UseMatchListReturn {
-  const [matches, setMatches] = useState<MatchSummary[]>([]);
+  const [allMatches, setAllMatches] = useState<MatchSummary[]>([]);
   const [matchDetails, setMatchDetails] = useState<
     Record<string, MatchDetail>
   >({});
   const [isLoading, setIsLoading] = useState(false);
   const [refreshIndex, setRefreshIndex] = useState(0);
   const [page, setPage] = useState(1);
-  const [paginationMeta, setPaginationMeta] =
-    useState<PaginationMeta | null>(null);
+  const [totalFromApi, setTotalFromApi] = useState<number | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [yearBoundaryReached, setYearBoundaryReached] = useState(false);
+
   const {errorMessage, reportError, clearError} =
     useAppError(errorScope);
 
@@ -72,21 +87,43 @@ export function useMatchList({
   const logTagRef = useRef(logTag);
   logTagRef.current = logTag;
 
-  // Reset page when the identity key changes (e.g. new riotId)
-  useEffect(() => {
-    setPage(1);
-  }, [resetKey]);
+  const limit = LIMIT;
+  const total = Math.max(totalFromApi ?? 0, allMatches.length);
+  const paginationMeta = useMemo(
+    () => buildPaginationMeta(page, total, limit),
+    [page, total, limit]
+  );
 
-  const pollCountRef = useRef(0);
-  const hasMatches = matches.length > 0;
+  // Slice for current page — this is what the table displays
+  const matches = useMemo(
+    () =>
+      allMatches.slice((page - 1) * limit, page * limit),
+    [allMatches, page, limit]
+  );
+
+  const hasMatches = allMatches.length > 0;
   const missingDetailCount = useMemo(
     () => matches.filter((m) => !m.game_info?.info).length,
     [matches]
   );
 
-  // Fetch matches
+  // Reset when identity changes (e.g. new riotId)
+  useEffect(() => {
+    setPage(1);
+    setAllMatches([]);
+    setTotalFromApi(null);
+    setMatchDetails({});
+    setYearBoundaryReached(false);
+  }, [resetKey]);
+
+  // Fetch a page when we don't have enough data for the current page.
+  // Accumulates: page 1 replaces, page 2+ appends.
   useEffect(() => {
     if (!enabled) return;
+    const needCount = page * limit;
+    if (allMatches.length >= needCount) {
+      return;
+    }
     let isActive = true;
     const tag = logTagRef.current;
 
@@ -101,17 +138,22 @@ export function useMatchList({
           cacheOptionsRef.current ?? {useCache: false}
         );
         if (!isActive) return;
-        setMatches(
-          Array.isArray(res?.data) ? res.data : []
-        );
-        setPaginationMeta(res?.meta ?? null);
+        const fetched = Array.isArray(res?.data) ? res.data : [];
+        const meta = res?.meta ?? null;
+        if (meta?.total != null) setTotalFromApi(meta.total);
+
+        setAllMatches((prev) => {
+          if (page === 1 && prev.length === 0) return fetched;
+          const start = (page - 1) * limit;
+          return [...prev.slice(0, start), ...fetched];
+        });
         console.debug(`[${tag}] matches loaded`, {
-          count: res?.data?.length ?? 0,
+          page,
+          count: fetched.length,
+          totalFromApi: meta?.total,
         });
       } catch (err) {
-        console.debug(`[${tag}] matches fetch failed`, {
-          err,
-        });
+        console.debug(`[${tag}] matches fetch failed`, {err});
         if (isActive) {
           const handled = onFetchErrorRef.current?.(err);
           if (!handled) reportError(err);
@@ -125,16 +167,25 @@ export function useMatchList({
     return () => {
       isActive = false;
     };
-  }, [enabled, matchesUrl, page, refreshIndex, clearError, reportError]);
+  }, [
+    enabled,
+    matchesUrl,
+    page,
+    refreshIndex,
+    allMatches.length,
+    clearError,
+    reportError,
+    limit,
+  ]);
 
-  // Seed matchDetails from game_info in the list response
+  // Seed matchDetails from game_info (merge, never clear on page change)
   useEffect(() => {
-    if (!matches.length) {
+    if (!allMatches.length) {
       setMatchDetails({});
       return;
     }
     const seeded: Record<string, MatchDetail> = {};
-    for (const match of matches) {
+    for (const match of allMatches) {
       const matchId = getMatchId(match);
       if (matchId && match.game_info?.info) {
         seeded[matchId] = match.game_info;
@@ -143,77 +194,45 @@ export function useMatchList({
     if (Object.keys(seeded).length > 0) {
       setMatchDetails((prev) => ({...prev, ...seeded}));
     }
-  }, [matches]);
+  }, [allMatches]);
 
-  // Reset poll counter on refresh or page change
-  useEffect(() => {
-    pollCountRef.current = 0;
-  }, [refreshIndex, page]);
+  const pollCountRef = useRef(0);
 
-  // Poll until all game_info fields are populated
+  // Poll to fill game_info for the current page only; merge into allMatches
   useEffect(() => {
     if (!enabled || !hasMatches || isLoading) return;
-    const tag = logTagRef.current;
-    if (missingDetailCount === 0) {
-      console.debug(
-        `[${tag}] all match details present, no polling needed`
-      );
-      return;
-    }
+    if (missingDetailCount === 0) return;
 
     let isActive = true;
+    const tag = logTagRef.current;
     const url = matchesUrl(page);
-
-    console.debug(`[${tag}] starting detail polling`, {
-      missing: missingDetailCount,
-    });
 
     const poll = setInterval(async () => {
       if (!isActive) return;
       pollCountRef.current++;
-
       if (pollCountRef.current >= MAX_POLLS) {
-        console.debug(
-          `[${tag}] polling max reached, stopping`
-        );
         clearInterval(poll);
         return;
       }
-
       try {
         const fresh = await apiGet<PaginatedMatchList>(url, {
           useCache: false,
         });
         if (!isActive) return;
+        const freshArray = Array.isArray(fresh?.data) ? fresh.data : [];
+        const stillMissing = freshArray.some((m) => !m.game_info?.info);
 
-        const freshArray = Array.isArray(fresh?.data)
-          ? fresh.data
-          : [];
-        const stillMissing = freshArray.some(
-          (m) => !m.game_info?.info
-        );
-
-        setMatches(freshArray);
-        setPaginationMeta(fresh?.meta ?? null);
-
-        if (!stillMissing) {
-          console.debug(
-            `[${tag}] all details populated, stopping poll`
-          );
-          clearInterval(poll);
-        } else {
-          console.debug(`[${tag}] poll incomplete`, {
-            poll: pollCountRef.current,
-            stillMissing: freshArray.filter(
-              (m) => !m.game_info?.info
-            ).length,
-          });
-        }
-      } catch (err) {
-        console.debug(`[${tag}] poll error`, {
-          err,
-          poll: pollCountRef.current,
+        setAllMatches((prev) => {
+          const start = (page - 1) * limit;
+          return [
+            ...prev.slice(0, start),
+            ...freshArray,
+            ...prev.slice(start + freshArray.length),
+          ];
         });
+        if (!stillMissing) clearInterval(poll);
+      } catch (err) {
+        console.debug(`[${tag}] poll error`, {err});
       }
     }, POLL_INTERVAL_MS);
 
@@ -229,11 +248,79 @@ export function useMatchList({
     hasMatches,
     missingDetailCount,
     isLoading,
+    limit,
+  ]);
+
+  // Reset poll counter when page or refresh changes
+  useEffect(() => {
+    pollCountRef.current = 0;
+  }, [refreshIndex, page]);
+
+  const canLoadMore = useMemo(() => {
+    if (isLoadingMore || yearBoundaryReached) return false;
+    return paginationMeta != null && page === paginationMeta.last_page;
+  }, [paginationMeta, page, isLoadingMore, yearBoundaryReached]);
+
+  const loadMoreMatches = useCallback(async () => {
+    if (!canLoadMore) return;
+    setIsLoadingMore(true);
+    const offset = allMatches.length;
+    const baseUrl = matchesUrl(page);
+    const sep = baseUrl.includes("?") ? "&" : "?";
+    const url = `${baseUrl}${sep}after=${offset}`;
+    const tag = logTagRef.current;
+    try {
+      const res = await apiGet<PaginatedMatchList>(url, {useCache: false});
+      const newMatches = Array.isArray(res?.data) ? res.data : [];
+
+      const currentYearStart = new Date(
+        new Date().getFullYear(),
+        0,
+        1
+      ).getTime();
+      const filtered = newMatches.filter(
+        (m) =>
+          (m.game_start_timestamp ?? m.gameCreation ?? Date.now()) >=
+          currentYearStart
+      );
+
+      if (
+        newMatches.length === 0 ||
+        filtered.length < newMatches.length
+      ) {
+        setYearBoundaryReached(true);
+      }
+
+      console.debug(`[${tag}] loadMore result`, {
+        offset,
+        raw: newMatches.length,
+        filtered: filtered.length,
+      });
+
+      if (filtered.length > 0) {
+        const newTotal = offset + filtered.length;
+        setAllMatches((prev) => [...prev, ...filtered]);
+        setTotalFromApi(newTotal);
+        const pageWithFirstNew = Math.floor(offset / limit) + 1;
+        setPage(pageWithFirstNew);
+        window.scrollTo(0, 0);
+      }
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [
+    canLoadMore,
+    matchesUrl,
+    page,
+    allMatches.length,
+    limit,
+    reportError,
   ]);
 
   const handlePageChange = useCallback((newPage: number) => {
     setPage(newPage);
-    setMatchDetails({});
     window.scrollTo(0, 0);
   }, []);
 
@@ -241,6 +328,10 @@ export function useMatchList({
     console.debug(`[${logTagRef.current}] manual refresh`);
     clearCache();
     setPage(1);
+    setAllMatches([]);
+    setTotalFromApi(null);
+    setMatchDetails({});
+    setYearBoundaryReached(false);
     setRefreshIndex((prev) => prev + 1);
   }, []);
 
@@ -248,6 +339,8 @@ export function useMatchList({
     matches,
     matchDetails,
     isLoading,
+    isLoadingMore,
+    canLoadMore,
     paginationMeta,
     page,
     errorMessage,
@@ -255,6 +348,7 @@ export function useMatchList({
     clearError,
     handlePageChange,
     handleRefresh,
+    loadMoreMatches,
     refreshIndex,
   };
 }

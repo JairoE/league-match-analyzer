@@ -1,8 +1,8 @@
 # App State
 
 **Last Updated:** 2026-03-06
-**Branch:** `llm-phase-0`
-**Status:** STABLE — 88/88 tests pass, lint clean; LLM pipeline Steps 1–2 wired into ingestion flow, Step 3 prep complete; background job rate-limit retry hardened
+**Branch:** `frontend-graceful-degradation`
+**Status:** STABLE — lint clean, build clean; match list pagination rewritten (accumulate + slice), See more appends and Previous keeps match info
 
 ## What's Built
 
@@ -30,6 +30,7 @@
   - Queue type modeling is centralized in `src/lib/types/queue.ts` with coarse tab grouping (`GameQueueGroup`) and granular row labels (`GameQueueMode`).
 - **Match card**: `MatchCard` is decomposed into `ItemSlot`, `Teams`, `ChampionKdaChart`, `match-card.utils.ts`, and `types.ts` within `MatchCard/`. The main file is a ~200-line orchestrator, `memo`-wrapped at export.
 - **Pagination**: Reusable `Pagination` component with Previous/Next buttons, "Page X of Y", total count. Hidden when single page. Wired into `MatchesTable` via optional `paginationMeta`/`onPageChange` props.
+- **Rank in header**: `useRank(riotAccountId, { refreshIndex })` in `src/lib/hooks/useRank.ts` fetches `GET /riot-accounts/{id}/fetch_rank` and returns `{ rank, rankSubtitle }`. Used on `/home` and `/riot-account/[riotId]` so both show rank subtitle in `SubHeader`; refresh on either page refetches rank via `refreshIndex`.
 - **Error handling** (`src/lib/errors/`):
   - `ApiError` class with `status`, `detail`, `riotStatus` fields.
   - `buildApiErrorFromResponse` / `toApiError` for normalising HTTP and plain errors.
@@ -56,6 +57,27 @@
 ---
 
 ## Recent Changes (2026-03-06)
+
+### Rank data shared across home and riot-account pages
+
+- **useRank hook** (`league-web/src/lib/hooks/useRank.ts`): Fetches `GET /riot-accounts/{id}/fetch_rank` when `riotAccountId` is set; re-runs on `riotAccountId` or `refreshIndex` change. Returns `{ rank, rankSubtitle }` with subtitle formatted as "Queue · Tier Rank · N LP" or "Rank data unavailable". Debug logging: `[useRank] fetch start/done/fail`.
+- **Home** (`league-web/src/app/home/page.tsx`): Removed local `rank` state and rank `useEffect`; uses `useRank(riotAccountId ?? null, { refreshIndex })` and passes `rankSubtitle` to `SubHeader` as before.
+- **Riot-account** (`league-web/src/app/riot-account/[riotId]/page.tsx`): Uses `useRank(account?.id ?? null, { refreshIndex })` and passes `subtitle={rankSubtitle}` to `SubHeader` so the search result view shows rank under the title.
+
+### Live game: gate on matches ready, single attempt, status UI
+
+- **useLiveGameWhenReady(puuid, matchesReady)**: New composed hook in `league-web/src/lib/hooks/useLiveGameWhenReady.ts`. Calls `useLiveGame` only when `matchesReady` is true (e.g. `!isLoading` from `useMatchList`), so live-game fetch runs after match list is loaded. MatchPageShell stays presentational (no hooks).
+- **useLiveGame** (single attempt): Removed auto-retries. Connects once; on first `live_game` / `not_in_game` / `error` or connection failure, sets status and closes the EventSource. Returns `{ liveGame, isLive, status, retry }` with `status`: `'idle' | 'connecting' | 'live' | 'not_in_game' | 'error'`. `retry()` increments an attempt key to trigger one new connection.
+- **LiveGameSlot** (`league-web/src/components/LiveGameSlot/`): Presentational component for the live-game slot. Renders `LiveGameCard` when live; "No live game." + "Fetch live game" button when `not_in_game`; "Please try again." + "Fetch live game" button when `error`; "Checking for live game…" when `connecting`. Used by home and riot-account pages so message/button copy lives in one place.
+- **Pages**: Home and `/riot-account/[riotId]` now use `useLiveGameWhenReady(puuid, !isLoading)` and pass `<LiveGameSlot status={...} liveGame={...} targetPuuid={...} onRetry={retry} />` to MatchPageShell.
+
+### Match list pagination rewrite (`useMatchList`)
+
+- **Accumulate-then-slice**: Matches are stored in one list (`allMatches`). The table always shows a slice for the current page: `matches = allMatches.slice((page-1)*limit, page*limit)`. Pagination meta is derived from `total = max(totalFromApi, allMatches.length)` and `last_page = ceil(total/limit)`.
+- **Fetch behavior**: Initial load fetches page 1 and sets the list. Navigating to page N fetches only when `allMatches.length < page*limit` and merges (replaces that page’s segment). So Next accumulates pages; Previous just changes `page` and uses existing data — no refetch, no clearing `matchDetails`.
+- **See more**: Fetches with `after=allMatches.length`, appends the new batch to `allMatches`, then sets `page` to the page that contains the first new item (`floor(offset/limit)+1`). So e.g. 73 matches + 20 new → stay on page 4 (20 rows: 13 old + 7 new); 20 + 20 → go to page 2 (20 new rows). Total and last_page update from the new length.
+- **Previous bug fixed**: We no longer clear `matchDetails` on page change or refetch when going back; the slice comes from accumulated matches and details stay in sync.
+- **Removed**: Virtual page / `hasLoadedMore` / `realLastPageRef` / `loadMorePage`; polling now merges into the current page’s segment of `allMatches`.
 
 ### Background job rate-limit retry hardening (`llm-phase-0`, session 2)
 
@@ -839,6 +861,49 @@ Optional:
 - **Fix**: `setup_logging()` was not called in the ARQ worker process (`on_startup`), so worker logs used Python's default handler instead of the app's `DevFormatter` (colored, truncated). Now the worker calls `setup_logging()` on startup, making extraction job logs visible with the same formatting as the API.
 - **New make targets**: `make worker-dev-verbose` (runs worker with `LOG_LEVEL=DEBUG`), `make backfill-extraction-dry` (dry-run preview of backfill).
 - **Files changed**: `services/api/app/services/background_jobs.py`, `Makefile`.
+
+---
+
+## Recent Changes (2026-03-06, session 21)
+
+### "See More" load-more button for match history (`frontend-graceful-degradation`)
+
+**Why**: The existing Previous/Next pagination forces users to navigate away from
+their current matches to see older ones. A load-more pattern lets users
+accumulate matches inline without losing context.
+
+**What changed:**
+
+- **`useMatchList.ts`** — three new state variables (`isLoadingMore`,
+  `nextLoadMorePage`, `yearBoundaryReached`) + two new return fields:
+  - `canLoadMore: boolean` — `true` when `paginationMeta.page === paginationMeta.last_page`
+    and no stop condition is active. Checked against `last_page` (not
+    `nextLoadMorePage`) so it only appears on the final page, not all pages.
+  - `isLoadingMore: boolean` — `true` while a load-more request is in flight.
+  - `loadMoreMatches(): Promise<void>` — fetches `nextLoadMorePage`, filters
+    out matches before Jan 1 of current year, appends to existing `matches`
+    state. Sets `yearBoundaryReached = true` on empty page or year-boundary hit.
+    Resets on every main fetch (page nav / refresh).
+
+- **`MatchesTable.tsx`** — new optional props `canLoadMore`, `isLoadingMore`,
+  `onLoadMore`; renders a centred "See more" / "Loading..." button between
+  the table rows and the `<Pagination>` control.
+
+- **`MatchesTable.module.css`** — `.loadMore`, `.loadMoreBtn`, `:disabled` rules.
+
+- **`home/page.tsx`** + **`riot-account/[riotId]/page.tsx`** — destructure and
+  pass all three new props to `MatchesTable`.
+
+**Bug fixes applied mid-session:**
+- Button was visible on ALL pages (not just the last) — root cause:
+  `nextLoadMorePage <= last_page` is `true` whenever `page < last_page`.
+  Fixed by switching to `paginationMeta.page === paginationMeta.last_page`.
+- Button was invisible for single-page summoners (page 1 of 1) — same root
+  cause; same fix resolves it (page 1 of 1 satisfies `page === last_page`).
+- Button didn't disappear after exhausting data — added
+  `newMatches.length === 0` check that sets `yearBoundaryReached = true`.
+
+**Verification:** `npm run lint` — pass (1 pre-existing warning). `npm run build` — clean.
 
 ---
 

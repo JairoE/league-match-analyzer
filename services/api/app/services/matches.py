@@ -33,6 +33,7 @@ async def list_matches_for_riot_account(
     riot_account_id: UUID,
     page: int = 1,
     limit: int = 20,
+    offset_override: int | None = None,
 ) -> tuple[list[Match], int]:
     """List matches for a given riot account with pagination.
 
@@ -41,6 +42,9 @@ async def list_matches_for_riot_account(
         riot_account_id: UUID of the riot account.
         page: Page number (1-based).
         limit: Items per page.
+        offset_override: When set, used instead of ``(page-1)*limit``.
+            Used by load-more to skip an arbitrary number of already-loaded
+            matches.
 
     Returns:
         Tuple of (matches, total_count). Matches are sorted by
@@ -59,7 +63,7 @@ async def list_matches_for_riot_account(
     count_result = await session.execute(select(func.count()).select_from(base_filter.subquery()))
     total = count_result.scalar_one()
 
-    offset = (page - 1) * limit
+    offset = offset_override if offset_override is not None else (page - 1) * limit
     result = await session.execute(
         base_filter.order_by(Match.game_start_timestamp.desc().nulls_last())
         .offset(offset)

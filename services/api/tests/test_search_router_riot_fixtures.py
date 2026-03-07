@@ -102,6 +102,7 @@ async def test_search_matches_page1_uses_captured_riot_payload_chain(
         riot_account_id: object,
         page: int,
         limit: int,
+        **kwargs: object,
     ) -> tuple[list[object], int]:
         list_calls.append((db_session, riot_account_id, page, limit))
         return [], 0
@@ -117,6 +118,7 @@ async def test_search_matches_page1_uses_captured_riot_payload_chain(
         background_tasks=background_tasks,
         page=1,
         limit=5,
+        after=0,
         session=session,  # type: ignore[arg-type]
     )
 

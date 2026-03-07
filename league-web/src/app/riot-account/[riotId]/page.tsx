@@ -10,9 +10,10 @@ import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";
 import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
-import {useLiveGame} from "../../../lib/hooks/useLiveGame";
+import {useLiveGameWhenReady} from "../../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../../lib/hooks/useMatchList";
-import {LiveGameCard} from "../../../components/LiveGameCard";
+import {useRank} from "../../../lib/hooks/useRank";
+import {LiveGameSlot} from "../../../components/LiveGameSlot";
 import type {RiotAccountData} from "../../../lib/types/user";
 
 export default function RiotAccountPage() {
@@ -41,7 +42,6 @@ export default function RiotAccountPage() {
   const [hasSession, setHasSession] = useState(false);
 
   const accountPuuid = account?.puuid ?? null;
-  const {liveGame} = useLiveGame(accountPuuid);
   const displayLabel = account?.riot_id ?? riotId;
 
   const matchesUrl = useCallback(
@@ -73,12 +73,15 @@ export default function RiotAccountPage() {
     matches,
     matchDetails,
     isLoading,
+    isLoadingMore,
+    canLoadMore,
     paginationMeta,
     errorMessage,
     clearError,
     reportError,
     handlePageChange,
     handleRefresh,
+    loadMoreMatches,
     refreshIndex,
   } = useMatchList({
     matchesUrl,
@@ -88,6 +91,13 @@ export default function RiotAccountPage() {
     onFetchError: handleMatchFetchError,
     resetKey: riotId,
   });
+
+  const {liveGame, status, retry} = useLiveGameWhenReady(
+    accountPuuid,
+    !isLoading
+  );
+
+  const {rankSubtitle} = useRank(account?.id ?? null, {refreshIndex});
 
   // Check session (optional for search)
   useEffect(() => {
@@ -166,6 +176,7 @@ export default function RiotAccountPage() {
         <SubHeader
           kicker="Viewing matches for"
           title={displayLabel}
+          subtitle={rankSubtitle}
           actions={
             <>
               <button
@@ -188,12 +199,12 @@ export default function RiotAccountPage() {
         />
       }
       liveGame={
-        liveGame && accountPuuid ? (
-          <LiveGameCard
-            game={liveGame}
-            targetPuuid={accountPuuid}
-          />
-        ) : null
+        <LiveGameSlot
+          status={status}
+          liveGame={liveGame}
+          targetPuuid={accountPuuid}
+          onRetry={retry}
+        />
       }
       error={error}
     >
@@ -204,6 +215,9 @@ export default function RiotAccountPage() {
         isSearchView
         targetPuuid={accountPuuid}
         isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        canLoadMore={canLoadMore}
+        onLoadMore={loadMoreMatches}
         paginationMeta={paginationMeta}
         onPageChange={handlePageChange}
       />
