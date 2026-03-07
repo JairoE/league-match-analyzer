@@ -1,100 +1,114 @@
 "use client";
 
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useState} from "react";
 import type {LiveGameData} from "../types/live-game";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 5_000;
 
-type LiveGameState = {
+export type LiveGameStatus =
+  | "idle"
+  | "connecting"
+  | "live"
+  | "not_in_game"
+  | "error";
+
+export type LiveGameState = {
   liveGame: LiveGameData | null;
   isLive: boolean;
+  status: LiveGameStatus;
+  retry: () => void;
 };
 
-export function useLiveGame(
-  puuid: string | null
-): LiveGameState {
-  const [liveGame, setLiveGame] = useState<LiveGameData | null>(
-    null
-  );
-  const retriesRef = useRef(0);
+export function useLiveGame(puuid: string | null): LiveGameState {
+  const [liveGame, setLiveGame] = useState<LiveGameData | null>(null);
+  const [status, setStatus] = useState<LiveGameStatus>("idle");
+  const [attemptKey, setAttemptKey] = useState(0);
+
+  const retry = useCallback(() => {
+    setAttemptKey((k) => k + 1);
+  }, []);
 
   useEffect(() => {
     if (!puuid) return;
 
     let es: EventSource | null = null;
-    let retryTimeout: ReturnType<typeof setTimeout> | null =
-      null;
     let cancelled = false;
 
-    function connect() {
-      if (cancelled) return;
-
-      const base = API_BASE_URL.endsWith("/")
-        ? API_BASE_URL.slice(0, -1)
-        : API_BASE_URL;
-      const url = `${base}/live-game/${puuid}/stream`;
-
-      console.debug("[useLiveGame] connecting", {puuid});
-      es = new EventSource(url);
-
-      es.addEventListener("live_game", (event) => {
-        retriesRef.current = 0;
-        try {
-          const data = JSON.parse(
-            event.data
-          ) as LiveGameData;
-          setLiveGame(data);
-        } catch (err) {
-          console.debug("[useLiveGame] parse error", {err});
-        }
-      });
-
-      es.addEventListener("not_in_game", () => {
-        retriesRef.current = 0;
+    const tid = setTimeout(() => {
+      if (!cancelled) {
+        setStatus("connecting");
         setLiveGame(null);
-      });
+      }
+    }, 0);
 
-      es.addEventListener("error", () => {
-        console.debug("[useLiveGame] error event", {puuid});
-      });
+    const base = API_BASE_URL.endsWith("/")
+      ? API_BASE_URL.slice(0, -1)
+      : API_BASE_URL;
+    const url = `${base}/live-game/${puuid}/stream`;
 
-      es.onerror = () => {
-        if (cancelled) return;
-        es?.close();
-        es = null;
+    console.debug("[useLiveGame] connecting", {puuid, attemptKey});
+    es = new EventSource(url);
 
-        if (retriesRef.current < MAX_RETRIES) {
-          retriesRef.current += 1;
-          console.debug("[useLiveGame] reconnecting", {
-            attempt: retriesRef.current,
-          });
-          retryTimeout = setTimeout(connect, RETRY_DELAY_MS);
-        } else {
-          console.debug("[useLiveGame] max retries reached");
-          setLiveGame(null);
-        }
-      };
+    function closeAndDone(newStatus: LiveGameStatus) {
+      if (cancelled) return;
+      es?.close();
+      es = null;
+      setStatus(newStatus);
+      if (newStatus !== "live") setLiveGame(null);
+      console.debug("[useLiveGame] closed", {puuid, newStatus});
     }
 
-    connect();
+    es.addEventListener("live_game", (event) => {
+      try {
+        const data = JSON.parse(event.data) as LiveGameData;
+        setLiveGame(data);
+        closeAndDone("live");
+      } catch (err) {
+        console.debug("[useLiveGame] parse error", {err});
+        closeAndDone("error");
+      }
+    });
+
+    es.addEventListener("not_in_game", () => {
+      closeAndDone("not_in_game");
+    });
+
+    es.addEventListener("error", () => {
+      console.debug("[useLiveGame] error event", {puuid});
+      closeAndDone("error");
+    });
+
+    es.onerror = () => {
+      if (cancelled) return;
+      console.debug("[useLiveGame] connection error", {puuid});
+      closeAndDone("error");
+    };
 
     return () => {
       cancelled = true;
+      clearTimeout(tid);
       es?.close();
-      if (retryTimeout) clearTimeout(retryTimeout);
-      retriesRef.current = 0;
+      es = null;
       setLiveGame(null);
+      setStatus("idle");
     };
-  }, [puuid]);
+  }, [puuid, attemptKey]);
 
-  // When puuid is null, always report not live regardless of
-  // stale state that may linger until the cleanup runs.
   const result = useMemo<LiveGameState>(() => {
-    if (!puuid) return {liveGame: null, isLive: false};
-    return {liveGame, isLive: liveGame !== null};
-  }, [puuid, liveGame]);
+    if (!puuid)
+      return {
+        liveGame: null,
+        isLive: false,
+        status: "idle",
+        retry,
+      };
+    return {
+      liveGame,
+      isLive: status === "live" && liveGame !== null,
+      status,
+      retry,
+    };
+  }, [puuid, liveGame, status, retry]);
 
   return result;
 }

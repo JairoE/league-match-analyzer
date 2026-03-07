@@ -426,7 +426,7 @@ export default function MatchesTable({
           </button>
         </div>
       )}
-      <div>
+      <div key={paginationMeta?.last_page ?? 1}>
         {paginationMeta && onPageChange && (
           <Pagination meta={paginationMeta} onPageChange={onPageChange} />
         )}

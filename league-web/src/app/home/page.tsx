@@ -13,9 +13,9 @@ import {
   getRiotAccountId,
   getUserPuuid,
 } from "../../lib/user-utils";
-import {useLiveGame} from "../../lib/hooks/useLiveGame";
+import {useLiveGameWhenReady} from "../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../lib/hooks/useMatchList";
-import {LiveGameCard} from "../../components/LiveGameCard";
+import {LiveGameSlot} from "../../components/LiveGameSlot";
 import type {RankInfo} from "../../lib/types/rank";
 import type {UserSession} from "../../lib/types/user";
 
@@ -35,7 +35,6 @@ export default function HomePage() {
     [user]
   );
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
-  const {liveGame} = useLiveGame(userPuuid);
 
   const matchesUrl = useCallback(
     (page: number) =>
@@ -62,6 +61,11 @@ export default function HomePage() {
     cacheOptions: {cacheTtlMs: 60_000},
     logTag: "home",
   });
+
+  const {liveGame, status, retry} = useLiveGameWhenReady(
+    userPuuid,
+    !isLoading
+  );
 
   useEffect(() => {
     if (!user) {
@@ -121,12 +125,12 @@ export default function HomePage() {
         />
       }
       liveGame={
-        liveGame && userPuuid ? (
-          <LiveGameCard
-            game={liveGame}
-            targetPuuid={userPuuid}
-          />
-        ) : null
+        <LiveGameSlot
+          status={status}
+          liveGame={liveGame}
+          targetPuuid={userPuuid}
+          onRetry={retry}
+        />
       }
       error={errorMessage}
     >

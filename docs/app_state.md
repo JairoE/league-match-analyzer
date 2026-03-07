@@ -57,6 +57,13 @@
 
 ## Recent Changes (2026-03-06)
 
+### Live game: gate on matches ready, single attempt, status UI
+
+- **useLiveGameWhenReady(puuid, matchesReady)**: New composed hook in `league-web/src/lib/hooks/useLiveGameWhenReady.ts`. Calls `useLiveGame` only when `matchesReady` is true (e.g. `!isLoading` from `useMatchList`), so live-game fetch runs after match list is loaded. MatchPageShell stays presentational (no hooks).
+- **useLiveGame** (single attempt): Removed auto-retries. Connects once; on first `live_game` / `not_in_game` / `error` or connection failure, sets status and closes the EventSource. Returns `{ liveGame, isLive, status, retry }` with `status`: `'idle' | 'connecting' | 'live' | 'not_in_game' | 'error'`. `retry()` increments an attempt key to trigger one new connection.
+- **LiveGameSlot** (`league-web/src/components/LiveGameSlot/`): Presentational component for the live-game slot. Renders `LiveGameCard` when live; "No live game." + "Fetch live game" button when `not_in_game`; "Please try again." + "Fetch live game" button when `error`; "Checking for live game…" when `connecting`. Used by home and riot-account pages so message/button copy lives in one place.
+- **Pages**: Home and `/riot-account/[riotId]` now use `useLiveGameWhenReady(puuid, !isLoading)` and pass `<LiveGameSlot status={...} liveGame={...} targetPuuid={...} onRetry={retry} />` to MatchPageShell.
+
 ### Match list pagination rewrite (`useMatchList`)
 
 - **Accumulate-then-slice**: Matches are stored in one list (`allMatches`). The table always shows a slice for the current page: `matches = allMatches.slice((page-1)*limit, page*limit)`. Pagination meta is derived from `total = max(totalFromApi, allMatches.length)` and `last_page = ceil(total/limit)`.

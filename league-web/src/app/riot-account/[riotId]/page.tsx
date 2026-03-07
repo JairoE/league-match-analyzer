@@ -10,9 +10,9 @@ import CompareButton from "./CompareButton";
 import {apiGet} from "../../../lib/api";
 import {isApiError} from "../../../lib/errors/types";
 import {loadSessionUser} from "../../../lib/session";
-import {useLiveGame} from "../../../lib/hooks/useLiveGame";
+import {useLiveGameWhenReady} from "../../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../../lib/hooks/useMatchList";
-import {LiveGameCard} from "../../../components/LiveGameCard";
+import {LiveGameSlot} from "../../../components/LiveGameSlot";
 import type {RiotAccountData} from "../../../lib/types/user";
 
 export default function RiotAccountPage() {
@@ -41,7 +41,6 @@ export default function RiotAccountPage() {
   const [hasSession, setHasSession] = useState(false);
 
   const accountPuuid = account?.puuid ?? null;
-  const {liveGame} = useLiveGame(accountPuuid);
   const displayLabel = account?.riot_id ?? riotId;
 
   const matchesUrl = useCallback(
@@ -91,6 +90,11 @@ export default function RiotAccountPage() {
     onFetchError: handleMatchFetchError,
     resetKey: riotId,
   });
+
+  const {liveGame, status, retry} = useLiveGameWhenReady(
+    accountPuuid,
+    !isLoading
+  );
 
   // Check session (optional for search)
   useEffect(() => {
@@ -191,12 +195,12 @@ export default function RiotAccountPage() {
         />
       }
       liveGame={
-        liveGame && accountPuuid ? (
-          <LiveGameCard
-            game={liveGame}
-            targetPuuid={accountPuuid}
-          />
-        ) : null
+        <LiveGameSlot
+          status={status}
+          liveGame={liveGame}
+          targetPuuid={accountPuuid}
+          onRetry={retry}
+        />
       }
       error={error}
     >

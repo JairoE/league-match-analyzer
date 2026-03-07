@@ -298,10 +298,10 @@ export function useMatchList({
       });
 
       if (filtered.length > 0) {
+        const newTotal = offset + filtered.length;
         setAllMatches((prev) => [...prev, ...filtered]);
-        setTotalFromApi((prev) => (prev ?? 0) + filtered.length);
-        const firstNewIndex = offset;
-        const pageWithFirstNew = Math.floor(firstNewIndex / limit) + 1;
+        setTotalFromApi(newTotal);
+        const pageWithFirstNew = Math.floor(offset / limit) + 1;
         setPage(pageWithFirstNew);
         window.scrollTo(0, 0);
       }
