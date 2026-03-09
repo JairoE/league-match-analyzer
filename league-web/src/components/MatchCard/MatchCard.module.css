@@ -15,6 +15,24 @@
   color: #9ca3af;
   font-size: 12px;
   margin-bottom: 8px;
+  @media (max-width: 992px) {
+    flex-wrap: nowrap;
+    flex-direction: column;
+  }
+  
+}
+
+.cardMain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  flex: 3 1 260px;
+}
+
+.cardChart {
+  display: flex;
+  align-items: stretch;
+  flex: 2 1 260px;
 }
 
 .card:hover {
@@ -372,6 +390,10 @@
   .card {
     gap: 12px;
   }
+  .cardMain,
+  .cardChart {
+    flex: 1 1 100%;
+  }
   .teamsColumn {
     width: 100%;
     flex: 1 1 100%;
@@ -384,8 +406,8 @@
   flex: 0 0 100%;
   width: 100%;
   padding: 4px 8px 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
   order: 99;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .kdaChartLabel {

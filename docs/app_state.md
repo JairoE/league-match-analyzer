@@ -58,7 +58,25 @@
 
 ---
 
-## Recent Changes (2026-03-08)
+## Recent Changes (2026-03-09)
+
+### Match card layout tweak
+
+- **Change**: Updated `MatchCard` layout so the main match summary columns and the champion KDA chart sit side by side on desktop, while remaining stacked on mobile/tablet via responsive flex styles.
+
+### Match list: backend year filter for current-season views
+
+- **Change**: Both match-list endpoints now support an optional `year` query parameter:
+  - `GET /search/{riot_id}/matches?...&year=2026`
+  - `GET /riot-accounts/{id}/matches?...&year=2026`
+- **Backend behaviour**:
+  - `list_matches_for_riot_account()` accepts a `since_ts` filter; when set, it limits both `data` and `total` to matches with `game_start_timestamp >= since_ts` (calendar year start in ms), excluding null timestamps.
+  - `search.py` and `matches.py` compute `since_ts` from `year` using `datetime(..., tzinfo=UTC)`; direct function calls in tests still work because the routers treat non-int defaults (FastAPI `Query` objects) as `None`.
+  - All existing 429 / stale-meta semantics are unchanged; year filtering only affects which rows are considered and counted.
+- **Frontend wiring**:
+  - `/home`: `matchesUrl` now calls `/riot-accounts/{riotAccountId}/matches?page=X&limit=20&year=<currentYear>` so the authenticated dashboard shows a consistent \"this season\" view.
+  - `/riot-account/[riotId]`: `matchesUrl` now calls `/search/{riotId}/matches?page=X&limit=20&year=<currentYear>` so searching another account also shows only current-year matches.
+  - `useMatchList.loadMoreMatches` still has a defensive current-year filter, but the authoritative boundary is now enforced on the backend; refreshes no longer reveal older-year matches or bump totals unexpectedly after a load-more that crossed the year boundary.
 
 ### Live-game stream logging crash fix
 

@@ -126,194 +126,202 @@ export default memo(function MatchCard({
 
   return (
     <article className={`${styles.card} ${outcomeClass}`}>
-      {/* ── Column 1: Game Info ── */}
-      <div className={styles.gameInfo}>
-        <div className={`${styles.queueType} ${textQueueClass}`}>{queueModeLabel}</div>
-        <div className={styles.textGray}>{relativeTime}</div>
-        <div className={styles.outcomeLine}>{outcomeLabel}</div>
-        <div className={styles.textGray}>{durationStr}</div>
-      </div>
+      <div className={styles.cardMain}>
+        {/* ── Column 1: Game Info ── */}
+        <div className={styles.gameInfo}>
+          <div className={`${styles.queueType} ${textQueueClass}`}>{queueModeLabel}</div>
+          <div className={styles.textGray}>{relativeTime}</div>
+          <div className={styles.outcomeLine}>{outcomeLabel}</div>
+          <div className={styles.textGray}>{durationStr}</div>
+        </div>
 
-      {/* ── Column 2: Player Info (Champ, Spells, KDA, Items) ── */}
-      <div className={styles.playerInfo}>
-        <div className={styles.playerInfoTop}>
-          <div className={styles.championPortrait}>
-            {imageUrl ? (
-              <Image
-                className={styles.championImage}
-                src={imageUrl}
-                alt={`${championName} level ${champLevel ?? ""}`}
-                width={48}
-                height={48}
-                unoptimized
-              />
-            ) : (
-              <div className={styles.championFallback}>?</div>
-            )}
-            {champLevel != null && (
-              <span className={styles.champLevel}>{champLevel}</span>
-            )}
-          </div>
-
-          <div className={styles.spellCol}>
-            <img
-              src={getSpellImageUrl(spell1Id, version)}
-              alt={getSpellLabel(spell1Id)}
-              className={styles.spellSlot}
-              width={20}
-              height={20}
-              loading="lazy"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
-            {hasKeystone ? (
-              <img
-                src={getKeystoneImageUrl(keystonePerkId, keystoneStyleId)}
-                alt="Keystone rune"
-                className={styles.keystoneSlot}
-                width={20}
-                height={20}
-                loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
-            ) : (
-              <div className={styles.keystoneEmpty} aria-hidden="true" />
-            )}
-            <img
-              src={getSpellImageUrl(spell2Id, version)}
-              alt={getSpellLabel(spell2Id)}
-              className={styles.spellSlot}
-              width={20}
-              height={20}
-              loading="lazy"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
-            {hasSubStyle ? (
-              <img
-                src={getRuneStyleIconUrl(subStyleId)}
-                alt="Secondary rune style"
-                className={styles.keystoneSlot}
-                width={20}
-                height={20}
-                loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
-            ) : (
-              <div className={styles.keystoneEmpty} aria-hidden="true" />
-            )}
-          </div>
-
-          <div className={styles.kdaBox}>
-            <div className={styles.kdaNumbers}>
-              <span className={styles.kills}>{participant?.kills ?? "-"}</span>
-              <span className={styles.slash}>/</span>
-              <span className={styles.deaths}>{participant?.deaths ?? "-"}</span>
-              <span className={styles.slash}>/</span>
-              <span className={styles.assists}>{participant?.assists ?? "-"}</span>
+        {/* ── Column 2: Player Info (Champ, Spells, KDA, Items) ── */}
+        <div className={styles.playerInfo}>
+          <div className={styles.playerInfoTop}>
+            <div className={styles.championPortrait}>
+              {imageUrl ? (
+                <Image
+                  className={styles.championImage}
+                  src={imageUrl}
+                  alt={`${championName} level ${champLevel ?? ""}`}
+                  width={48}
+                  height={48}
+                  unoptimized
+                />
+              ) : (
+                <div className={styles.championFallback}>?</div>
+              )}
+              {champLevel != null && (
+                <span className={styles.champLevel}>{champLevel}</span>
+              )}
             </div>
-            <div className={styles.kdaRatioText}>{kdaRatio.toFixed(2)}:1 KDA</div>
+
+            <div className={styles.spellCol}>
+              <img
+                src={getSpellImageUrl(spell1Id, version)}
+                alt={getSpellLabel(spell1Id)}
+                className={styles.spellSlot}
+                width={20}
+                height={20}
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+              {hasKeystone ? (
+                <img
+                  src={getKeystoneImageUrl(keystonePerkId, keystoneStyleId)}
+                  alt="Keystone rune"
+                  className={styles.keystoneSlot}
+                  width={20}
+                  height={20}
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : (
+                <div className={styles.keystoneEmpty} aria-hidden="true" />
+              )}
+              <img
+                src={getSpellImageUrl(spell2Id, version)}
+                alt={getSpellLabel(spell2Id)}
+                className={styles.spellSlot}
+                width={20}
+                height={20}
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+              {hasSubStyle ? (
+                <img
+                  src={getRuneStyleIconUrl(subStyleId)}
+                  alt="Secondary rune style"
+                  className={styles.keystoneSlot}
+                  width={20}
+                  height={20}
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : (
+                <div className={styles.keystoneEmpty} aria-hidden="true" />
+              )}
+            </div>
+
+            <div className={styles.kdaBox}>
+              <div className={styles.kdaNumbers}>
+                <span className={styles.kills}>{participant?.kills ?? "-"}</span>
+                <span className={styles.slash}>/</span>
+                <span className={styles.deaths}>{participant?.deaths ?? "-"}</span>
+                <span className={styles.slash}>/</span>
+                <span className={styles.assists}>{participant?.assists ?? "-"}</span>
+              </div>
+              <div className={styles.kdaRatioText}>{kdaRatio.toFixed(2)}:1 KDA</div>
+            </div>
+          </div>
+
+          <div className={styles.buildRow}>
+            {itemIds.slice(0, 6).map((id, i) => (
+              <ItemSlot key={i} itemId={id} version={version} />
+            ))}
+            <div className={styles.itemSpacer} />
+            <ItemSlot itemId={itemIds[6]} version={version} />
           </div>
         </div>
 
-        <div className={styles.buildRow}>
-          {itemIds.slice(0, 6).map((id, i) => (
-            <ItemSlot key={i} itemId={id} version={version} />
-          ))}
-          <div className={styles.itemSpacer} />
-          <ItemSlot itemId={itemIds[6]} version={version} />
-        </div>
-      </div>
+        {/* ── Column 3: Stats & Badges ── */}
+        <div className={styles.statsColumn}>
+          {killParticipation > 0 && (
+            <div className={styles.textGray}>P/Kill {killParticipation}%</div>
+          )}
+          <div className={styles.textGray}>CS {totalCs} ({csPerMin.toFixed(1)})</div>
 
-      {/* ── Column 3: Stats & Badges ── */}
-      <div className={styles.statsColumn}>
-        {killParticipation > 0 && (
-          <div className={styles.textGray}>P/Kill {killParticipation}%</div>
-        )}
-        <div className={styles.textGray}>CS {totalCs} ({csPerMin.toFixed(1)})</div>
+          {laneStats && (
+            <div className={styles.laningRow}>
+              {diffLabel(laneStats.cs_diff_at_10) != null && (
+                <span
+                  className={`${styles.laningStat} ${
+                    (laneStats.cs_diff_at_10 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
+                  }`}
+                >
+                  CS@10 {diffLabel(laneStats.cs_diff_at_10)}
+                </span>
+              )}
+              {diffLabel(laneStats.cs_diff_at_15) != null && (
+                <span
+                  className={`${styles.laningStat} ${
+                    (laneStats.cs_diff_at_15 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
+                  }`}
+                >
+                  CS@15 {diffLabel(laneStats.cs_diff_at_15)}
+                </span>
+              )}
+              {diffLabel(laneStats.gold_diff_at_10) != null && (
+                <span
+                  className={`${styles.laningStat} ${
+                    (laneStats.gold_diff_at_10 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
+                  }`}
+                >
+                  G@10 {diffLabel(laneStats.gold_diff_at_10)}
+                </span>
+              )}
+            </div>
+          )}
 
-        {laneStats && (
-          <div className={styles.laningRow}>
-            {diffLabel(laneStats.cs_diff_at_10) != null && (
+          <div className={styles.badgesRow}>
+            {multikills.map((mk) =>
+              Array.from({length: mk.count}).map((_, i) => (
+                <span
+                  key={`${mk.label}-${i}`}
+                  className={`${styles.badge} ${mk.penta ? styles.badgeGold : styles.badgeRed}`}
+                  aria-label={`Achieved ${mk.label}`}
+                >
+                  {mk.label}
+                </span>
+              ))
+            )}
+            {damageRank > 0 && participants.length > 0 && (
               <span
-                className={`${styles.laningStat} ${
-                  (laneStats.cs_diff_at_10 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
-                }`}
+                className={`${styles.badge} ${styles.badgeGray}`}
+                aria-label={`Damage rank ${ordinalSuffix(damageRank)} of all players`}
               >
-                CS@10 {diffLabel(laneStats.cs_diff_at_10)}
+                {ordinalSuffix(damageRank)}
               </span>
             )}
-            {diffLabel(laneStats.cs_diff_at_15) != null && (
-              <span
-                className={`${styles.laningStat} ${
-                  (laneStats.cs_diff_at_15 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
-                }`}
-              >
-                CS@15 {diffLabel(laneStats.cs_diff_at_15)}
-              </span>
+            {showVictor && (
+              <span className={`${styles.badge} ${styles.badgeGray}`}>Victor</span>
             )}
-            {diffLabel(laneStats.gold_diff_at_10) != null && (
-              <span
-                className={`${styles.laningStat} ${
-                  (laneStats.gold_diff_at_10 ?? 0) >= 0 ? styles.laningPos : styles.laningNeg
-                }`}
-              >
-                G@10 {diffLabel(laneStats.gold_diff_at_10)}
-              </span>
+            {showDownfall && (
+              <span className={`${styles.badge} ${styles.badgeGray}`}>Downfall</span>
             )}
           </div>
-        )}
-
-        <div className={styles.badgesRow}>
-          {multikills.map((mk) =>
-            Array.from({length: mk.count}).map((_, i) => (
-              <span
-                key={`${mk.label}-${i}`}
-                className={`${styles.badge} ${mk.penta ? styles.badgeGold : styles.badgeRed}`}
-                aria-label={`Achieved ${mk.label}`}
-              >
-                {mk.label}
-              </span>
-            ))
-          )}
-          {damageRank > 0 && participants.length > 0 && (
-            <span
-              className={`${styles.badge} ${styles.badgeGray}`}
-              aria-label={`Damage rank ${ordinalSuffix(damageRank)} of all players`}
-            >
-              {ordinalSuffix(damageRank)}
-            </span>
-          )}
-          {showVictor && (
-            <span className={`${styles.badge} ${styles.badgeGray}`}>Victor</span>
-          )}
-          {showDownfall && (
-            <span className={`${styles.badge} ${styles.badgeGray}`}>Downfall</span>
-          )}
         </div>
+
+        {/* ── Column 4: Teams ── */}
+        {participants.length > 0 && participant && (
+          <Teams
+            participants={participants}
+            current={participant}
+            currentPuuid={currentPuuid}
+            version={version}
+            rankByPuuid={rankByPuuid}
+          />
+        )}
       </div>
-
-      {/* ── Column 4: Teams ── */}
-      {participants.length > 0 && participant && (
-        <Teams
-          participants={participants}
-          current={participant}
-          currentPuuid={currentPuuid}
-          version={version}
-          rankByPuuid={rankByPuuid}
-        />
-      )}
-
-      {/* ── KDA History Chart (full-width row) ── */}
-      {championHistory.length >= 2 && (
-        <ChampionKdaChart history={championHistory} currentMatchId={currentMatchId} />
-      )}
+      <div className={styles.cardChart}>
+        {/* ── KDA History Chart (full-width row) ── */}
+        {championHistory.length >= 2 && (
+          <div className={styles.kdaChart}>
+            <ChampionKdaChart
+              history={championHistory}
+              currentMatchId={currentMatchId}
+            />
+          </div>
+        )}
+      </div>
     </article>
   );
 });
