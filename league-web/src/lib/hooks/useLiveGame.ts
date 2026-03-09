@@ -21,6 +21,21 @@ export type LiveGameState = {
   liveGameWarning: string | null;
 };
 
+type LiveGameErrorPayload = {
+  status?: number;
+  detail?: string;
+};
+
+function getLiveGameWarningForStatus(status: number | null): string | null {
+  if (status === 401) {
+    return getStaleMessage("riot_unavailable");
+  }
+  if (status === 502) {
+    return "Error: please try again in a few minutes.";
+  }
+  return getStaleMessage("riot_unavailable");
+}
+
 export function useLiveGame(puuid: string | null): LiveGameState {
   const [liveGame, setLiveGame] = useState<LiveGameData | null>(null);
   const [status, setStatus] = useState<LiveGameStatus>("idle");
@@ -59,12 +74,6 @@ export function useLiveGame(puuid: string | null): LiveGameState {
       es = null;
       setStatus(newStatus);
       if (newStatus !== "live") setLiveGame(null);
-      if (newStatus === "live" || newStatus === "not_in_game") {
-        setLiveGameWarning(null);
-      }
-      if (newStatus === "error") {
-        setLiveGameWarning(getStaleMessage("riot_unavailable"));
-      }
       console.debug("[useLiveGame] closed", {puuid, newStatus});
     }
 
@@ -72,6 +81,7 @@ export function useLiveGame(puuid: string | null): LiveGameState {
       try {
         const data = JSON.parse(event.data) as LiveGameData;
         setLiveGame(data);
+        setLiveGameWarning(null);
         closeAndDone("live");
       } catch (err) {
         console.debug("[useLiveGame] parse error", {err});
@@ -80,17 +90,31 @@ export function useLiveGame(puuid: string | null): LiveGameState {
     });
 
     es.addEventListener("not_in_game", () => {
+      setLiveGameWarning(null);
       closeAndDone("not_in_game");
     });
 
-    es.addEventListener("error", () => {
+    es.addEventListener("error", (event) => {
       console.debug("[useLiveGame] error event", {puuid});
+      try {
+        const msg = event as MessageEvent<string>;
+        const data = JSON.parse(msg.data) as LiveGameErrorPayload;
+        const rawStatus = data?.status;
+        const status =
+          typeof rawStatus === "number" && Number.isFinite(rawStatus) ? rawStatus : null;
+        const warning = getLiveGameWarningForStatus(status);
+        setLiveGameWarning(warning);
+      } catch (err) {
+        console.debug("[useLiveGame] error event parse failed", {err});
+        setLiveGameWarning(getLiveGameWarningForStatus(null));
+      }
       closeAndDone("error");
     });
 
     es.onerror = () => {
       if (cancelled) return;
       console.debug("[useLiveGame] connection error", {puuid});
+      setLiveGameWarning(getLiveGameWarningForStatus(null));
       closeAndDone("error");
     };
 
