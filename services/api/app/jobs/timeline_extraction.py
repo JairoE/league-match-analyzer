@@ -197,7 +197,7 @@ async def _fetch_timeline_cached(
     except RiotRequestError as exc:
         logger.error(
             "timeline_fetch_failed",
-            extra={"match_id": match_id, "status": exc.status, "message": exc.message},
+            extra={"match_id": match_id, "status": exc.status, "detail": exc.message},
         )
         await increment_metric_safe(
             "jobs.timeline_extraction.failed",

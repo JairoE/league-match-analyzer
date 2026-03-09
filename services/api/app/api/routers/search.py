@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -17,7 +18,7 @@ from app.services.riot_account_upsert import find_or_create_riot_account
 from app.services.riot_accounts import get_riot_account_by_riot_id
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_id_parser import ParsedRiotId, parse_riot_id
-from app.services.riot_sync import backfill_match_details_by_game_ids, backfill_match_details_inline
+from app.services.riot_sync import backfill_match_details_by_game_ids
 
 router = APIRouter(prefix="/search", tags=["search"])
 logger = get_logger("league_api.search")
@@ -165,6 +166,15 @@ async def search_riot_account_matches(
         ge=0,
         description="Load-more offset: number of matches already loaded by the client.",
     ),
+    year: int | None = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+        description=(
+            "Optional season year. When set, results and total are limited to "
+            "matches from this calendar year."
+        ),
+    ),
     refresh: bool = Query(
         default=False,
         description="When true (and page 1), fetch fresh match IDs from Riot.",
@@ -222,8 +232,20 @@ async def search_riot_account_matches(
         )
 
     offset_override = after if after > 0 else None
+
+    since_ts: int | None = None
+    year_value = year if isinstance(year, int) else None
+    if year_value is not None:
+        year_start = datetime(year=year_value, month=1, day=1, tzinfo=UTC)
+        since_ts = int(year_start.timestamp() * 1000)
+
     matches, total = await list_matches_for_riot_account(
-        session, riot_account.id, page, limit, offset_override=offset_override
+        session,
+        riot_account.id,
+        page,
+        limit,
+        offset_override=offset_override,
+        since_ts=since_ts,
     )
 
     if sync_skipped and total == 0:
@@ -231,15 +253,6 @@ async def search_riot_account_matches(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="riot_api_max_retries_exceeded",
         )
-
-    if not sync_skipped:
-        missing_count = sum(1 for m in matches if not m.game_info)
-        if missing_count:
-            logger.info(
-                "search_matches_backfill",
-                extra={"riot_id": riot_id, "missing": missing_count, "page": page},
-            )
-            await backfill_match_details_inline(session, matches, max_fetch=limit)
 
     logger.info(
         "search_matches_done",

@@ -2,6 +2,8 @@
 
 import {useEffect, useMemo, useState} from "react";
 import {apiGet} from "../api";
+import {isApiError} from "../errors/types";
+import {getStaleMessage} from "../stale-message";
 import type {RankInfo} from "../types/rank";
 
 const LOG_TAG = "useRank";
@@ -11,6 +13,14 @@ function formatRankSubtitle(rank: RankInfo | null): string {
   return `${rank.queueType ?? "Ranked"} · ${rank.tier ?? "Unranked"} ${rank.rank ?? ""} · ${rank.leaguePoints ?? 0} LP`;
 }
 
+function isRiotUnavailableStatus(err: unknown): boolean {
+  if (!isApiError(err)) return false;
+  const status = err.riotStatus ?? err.status;
+  if (status == null) return false;
+  if (status === 200 || status === 500) return false;
+  return status >= 400;
+}
+
 type UseRankOptions = {
   refreshIndex?: number;
 };
@@ -18,9 +28,10 @@ type UseRankOptions = {
 export function useRank(
   riotAccountId: string | null,
   options?: UseRankOptions
-): {rank: RankInfo | null; rankSubtitle: string} {
+): {rank: RankInfo | null; rankSubtitle: string; rankStaleMessage: string | null} {
   const {refreshIndex = 0} = options ?? {};
   const [rank, setRank] = useState<RankInfo | null>(null);
+  const [rankStaleReason, setRankStaleReason] = useState<string | null>(null);
 
   useEffect(() => {
     if (!riotAccountId) return;
@@ -35,11 +46,15 @@ export function useRank(
         );
         if (!isActive) return;
         setRank(rankResponse ?? null);
+        setRankStaleReason(null);
         console.debug(`[${LOG_TAG}] fetch done`, {riotAccountId});
       } catch (err) {
         console.debug(`[${LOG_TAG}] fetch failed`, {riotAccountId, err});
         if (!isActive) return;
         setRank(null);
+        setRankStaleReason(
+          isRiotUnavailableStatus(err) ? "riot_unavailable" : null
+        );
       }
     };
 
@@ -50,5 +65,9 @@ export function useRank(
   }, [riotAccountId, refreshIndex]);
 
   const rankSubtitle = useMemo(() => formatRankSubtitle(rank), [rank]);
-  return {rank, rankSubtitle};
+  const rankStaleMessage = useMemo(
+    () => getStaleMessage(rankStaleReason),
+    [rankStaleReason]
+  );
+  return {rank, rankSubtitle, rankStaleMessage};
 }

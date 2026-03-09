@@ -4,6 +4,7 @@ import {buildApiErrorFromResponse} from "./errors/parse-api-error";
 type ApiFetchOptions = {
   cacheTtlMs?: number;
   useCache?: boolean;
+  signal?: AbortSignal;
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -44,6 +45,7 @@ export async function apiFetch<T>(
   try {
     res = await fetch(url, {
       ...init,
+      signal: options.signal ?? init.signal,
       // When not using app cache, avoid browser cache so we get current meta (e.g. stale_reason)
       cache: useCache ? undefined : "no-store",
       headers: {
@@ -82,7 +84,7 @@ export async function apiGet<T>(
   path: string,
   options?: ApiFetchOptions
 ): Promise<T> {
-  return apiFetch<T>(path, {method: "GET"}, options);
+  return apiFetch<T>(path, {method: "GET"}, options ?? {});
 }
 
 export async function apiPost<TBody, TResponse>(

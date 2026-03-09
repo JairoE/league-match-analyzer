@@ -34,10 +34,14 @@ export default function HomePage() {
   );
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
 
+  const currentYear = new Date().getFullYear();
+
   const matchesUrl = useCallback(
     (page: number, opts?: {refresh?: boolean}) =>
-      `/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20${opts?.refresh ? "&refresh=true" : ""}`,
-    [riotAccountId]
+      `/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20&year=${currentYear}${
+        opts?.refresh ? "&refresh=true" : ""
+      }`,
+    [riotAccountId, currentYear]
   );
 
   const {
@@ -61,12 +65,14 @@ export default function HomePage() {
     logTag: "home",
   });
 
-  const {liveGame, status, retry} = useLiveGameWhenReady(
+  const {liveGame, status, retry, liveGameWarning} = useLiveGameWhenReady(
     userPuuid,
     !isLoading
   );
 
-  const {rankSubtitle} = useRank(riotAccountId ?? null, {refreshIndex});
+  const {rankSubtitle, rankStaleMessage} = useRank(riotAccountId ?? null, {
+    refreshIndex,
+  });
 
   useEffect(() => {
     if (!user) {
@@ -78,6 +84,9 @@ export default function HomePage() {
   if (!user) {
     return <div className={styles.loading}>Redirecting...</div>;
   }
+
+  const warning =
+    staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
 
   return (
     <MatchPageShell
@@ -105,7 +114,7 @@ export default function HomePage() {
         />
       }
       error={errorMessage}
-      warning={staleMessage}
+      warning={warning}
     >
       <MatchesTable
         matches={matches}

@@ -44,12 +44,16 @@ export default function RiotAccountPage() {
   const accountPuuid = account?.puuid ?? null;
   const displayLabel = account?.riot_id ?? riotId;
 
+  const currentYear = new Date().getFullYear();
+
   const matchesUrl = useCallback(
     (page: number, opts?: {refresh?: boolean}) => {
       const encoded = encodeURIComponent(riotId);
-      return `/search/${encoded}/matches?page=${page}&limit=20${opts?.refresh ? "&refresh=true" : ""}`;
+      return `/search/${encoded}/matches?page=${page}&limit=20&year=${currentYear}${
+        opts?.refresh ? "&refresh=true" : ""
+      }`;
     },
-    [riotId]
+    [riotId, currentYear]
   );
 
   const handleMatchFetchError = useCallback(
@@ -93,12 +97,14 @@ export default function RiotAccountPage() {
     resetKey: riotId,
   });
 
-  const {liveGame, status, retry} = useLiveGameWhenReady(
+  const {liveGame, status, retry, liveGameWarning} = useLiveGameWhenReady(
     accountPuuid,
     !isLoading
   );
 
-  const {rankSubtitle} = useRank(account?.id ?? null, {refreshIndex});
+  const {rankSubtitle, rankStaleMessage} = useRank(account?.id ?? null, {
+    refreshIndex,
+  });
 
   // Check session (optional for search)
   useEffect(() => {
@@ -170,6 +176,8 @@ export default function RiotAccountPage() {
   }, [riotId, decodeError, refreshIndex, clearError, reportError]);
 
   const error = pageError ?? errorMessage;
+  const warning =
+    staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
 
   return (
     <MatchPageShell
@@ -208,7 +216,7 @@ export default function RiotAccountPage() {
         />
       }
       error={error}
-      warning={staleMessage}
+      warning={warning}
     >
       <MatchesTable
         matches={matches}

@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-07
+**Last Updated:** 2026-03-08
 **Branch:** `frontend-api-db-cache-rework`
-**Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning). Stale message fix: browser cache bypass + meta.stale fallback so warning shows when navigating to another account after rate limit.
+**Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning). Live-game stream no longer crashes on Riot 401/errors (logging fix). Home initial load now requests latest matches and avoids duplicate matches API request.
 
 **Review:** See `docs/REVIEW_recent_changes.md`. Optional suggestions implemented: search handler extracted to `_first_sync_account_and_matches` / `_refresh_matches_if_requested`; matches 429 helper `_mark_rate_limited_or_reraise`; frontend `getStaleMessage()` + API meta merged into `paginationMeta` via `lastMetaFromApi`.
 
@@ -58,6 +58,50 @@
 
 ---
 
+## Recent Changes (2026-03-09)
+
+### Match card layout tweak
+
+- **Change**: Updated `MatchCard` layout so the main match summary columns and the champion KDA chart sit side by side on desktop, while remaining stacked on mobile/tablet via responsive flex styles.
+
+### Match list: backend year filter for current-season views
+
+- **Change**: Both match-list endpoints now support an optional `year` query parameter:
+  - `GET /search/{riot_id}/matches?...&year=2026`
+  - `GET /riot-accounts/{id}/matches?...&year=2026`
+- **Backend behaviour**:
+  - `list_matches_for_riot_account()` accepts a `since_ts` filter; when set, it limits both `data` and `total` to matches with `game_start_timestamp >= since_ts` (calendar year start in ms), excluding null timestamps.
+  - `search.py` and `matches.py` compute `since_ts` from `year` using `datetime(..., tzinfo=UTC)`; direct function calls in tests still work because the routers treat non-int defaults (FastAPI `Query` objects) as `None`.
+  - All existing 429 / stale-meta semantics are unchanged; year filtering only affects which rows are considered and counted.
+- **Frontend wiring**:
+  - `/home`: `matchesUrl` now calls `/riot-accounts/{riotAccountId}/matches?page=X&limit=20&year=<currentYear>` so the authenticated dashboard shows a consistent \"this season\" view.
+  - `/riot-account/[riotId]`: `matchesUrl` now calls `/search/{riotId}/matches?page=X&limit=20&year=<currentYear>` so searching another account also shows only current-year matches.
+  - `useMatchList.loadMoreMatches` still has a defensive current-year filter, but the authoritative boundary is now enforced on the backend; refreshes no longer reveal older-year matches or bump totals unexpectedly after a load-more that crossed the year boundary.
+
+### Live-game stream logging crash fix
+
+- **Issue**: When Riot returned 401 (or any `RiotRequestError`) on `GET /live-game/{puuid}/stream`, the handler logged with `extra={"message": exc.message}`. Python's `LogRecord` reserves the key `message`, causing `KeyError: "Attempt to overwrite 'message' in LogRecord"` and crashing the stream.
+- **Fix**: Replaced `"message"` with `"detail"` in logger `extra` in two places: **live_game.py** (`live_game_stream_error`) and **timeline_extraction.py** (`timeline_fetch_failed`). SSE payload and API contract unchanged.
+- **Clarification**: `staleMessage` on the frontend is only for match-list 429 fallback (from `PaginationMeta.stale` / `stale_reason`). The live-game stream is a separate SSE endpoint; it does not set pagination meta, so no stale message is expected when the stream fails. To show a user-visible warning on live-game errors (e.g. 401/429), the frontend would need to handle the stream's `error` events (optional enhancement).
+
+### Global warning for 401 and other Riot API failures
+
+- **Goal**: Show the same amber global warning when any Riot-backed request fails with 401 (or other non-200/500): fetch_rank, live-game stream, and match list.
+- **Frontend** (page-level aggregation, no context):
+  - **stale-message.ts**: Added reason `"riot_unavailable"` with message "Riot API is temporarily unavailable. Some data may be cached or missing."
+  - **useRank**: Added `rankStaleReason` state; on fetch failure with `isApiError` and status/riotStatus not 200 and not 500 (e.g. 401, 403, 429), set `"riot_unavailable"`. Return `rankStaleMessage = getStaleMessage(rankStaleReason)`.
+  - **useLiveGame**: Added `liveGameWarning` state; when stream emits `error` (or connection error), set to `getStaleMessage("riot_unavailable")`; clear on live/not_in_game or reconnect. Return `liveGameWarning` in hook result.
+  - **home/page.tsx** and **riot-account/[riotId]/page.tsx**: `warning = staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null`; pass to `MatchPageShell`. So 401 from fetch_rank or live-game stream now shows the amber banner.
+
+### Home initial load: latest matches + single request
+
+- **Issue 1 — Stale matches on first load:** Auth matches endpoint fetches fresh match IDs from Riot only when `?refresh=true` (page 1) or `after>0`. Initial /home load used `page=1&limit=20` with no refresh, so the API returned DB-only data (last synced on a previous Refresh or see-more). User had to click Refresh to see latest.
+- **Fix 1:** In **useMatchList**, the very first page-1 fetch (when `allMatches.length === 0`) now sends `refresh: true` via a ref `initialPage1FetchDoneRef`. So the first load of /home (or first load after switching account via `resetKey`) hits the backend with refresh and gets latest match IDs; no manual Refresh needed.
+- **Issue 2 — Two matches API requests on initial load:** In development, React 18 Strict Mode double-invokes effects (mount → effect → cleanup → remount → effect again). Both runs saw `allMatches.length === 0` and each started a fetch.
+- **Fix 2:** **useMatchList** uses an `AbortController` per effect run: the effect passes `controller.signal` to `apiGet` (via **api.ts** `ApiFetchOptions.signal`); on cleanup we call `controller.abort()`. The first run’s request is aborted when Strict Mode cleans up; the second run’s request completes and updates state. So only one response is applied and loading is cleared. Abort errors are ignored in the catch block so they are not reported to the user.
+
+---
+
 ## Recent Changes (2026-03-07)
 
 ### Riot API call gating (account once, fresh match IDs when appropriate)
@@ -72,15 +116,21 @@
 - **Goal**: When Riot API returns 429 on page-1 sync, return cached matches from DB with a `stale` signal instead of a blank error screen.
 - **Backend**:
   - `PaginationMeta` now has `stale: bool` and `stale_reason: str | None`; `PaginationMeta.build()` accepts and forwards them.
-  - **matches.py** (page 1): Page-1 block wrapped in `try/except RiotRequestError`. On `exc.status == 429` set `sync_skipped = True`, `sync_skip_reason = "rate_limited"`, log warning, fall through to `resolve_riot_account_identifier` and DB query. After query: if `sync_skipped and total == 0` → raise `HTTPException(429, detail="riot_api_max_retries_exceeded")`. Skip `backfill_match_details_inline` when `sync_skipped`. Pass `stale`/`stale_reason` to `PaginationMeta.build()`.
-  - **search.py** (page 1): On 429 in existing `except RiotRequestError`, set `sync_skipped`, resolve account via `get_riot_account_by_riot_id`; if no account or 0 matches → raise 429. Skip inline backfill when `sync_skipped`. Pass `stale`/`stale_reason` to meta.
-  - **Global backoff**: When the rate limiter is in global backoff (recent 429), **search.py** and **matches.py** mark DB-only responses as stale even when that request did not call Riot: before building `PaginationMeta`, if `not sync_skipped` and `await get_rate_limiter().is_globally_backing_off()`, set `stale=True` and `stale_reason="rate_limited"`. So navigating to another account (e.g. damanjr) after being rate limited still returns 200 with cached matches and `stale_reason`, and the frontend shows the amber warning. **Redis persistence**: Backoff is stored in Redis (`riot_rate_limited_until`) when a 429 is received (`set_retry_after` is now async and writes to Redis), and `is_globally_backing_off()` is async and checks both in-memory and Redis so all API workers see the same backoff (fixes stale message not showing when the next request hits a different worker).
+  - **matches.py** (page 1): Page-1 block wrapped in `try/except RiotRequestError`. On `exc.status == 429` set `sync_skipped = True`, `sync_skip_reason = "rate_limited"`, log warning, fall through to `resolve_riot_account_identifier` and DB query. After query: if `sync_skipped and total == 0` → raise `HTTPException(429, detail="riot_api_max_retries_exceeded")`. Pass `stale`/`stale_reason` to `PaginationMeta.build()`.
+  - **search.py** (page 1): On 429 in existing `except RiotRequestError`, set `sync_skipped`, resolve account via `get_riot_account_by_riot_id`; if no account or 0 matches → raise 429. Pass `stale`/`stale_reason` to meta.
+  - **Global backoff**: When the rate limiter is in global backoff, **search.py** and **matches.py** mark DB-only responses as stale: before building `PaginationMeta`, if `not sync_skipped` and `await get_rate_limiter().is_globally_backing_off()`, set `stale=True` and `stale_reason="rate_limited"`. Backoff is set in two cases: (1) **429 from Riot** — `set_retry_after(seconds, reason="429")` in the API client when Riot returns 429 with Retry-After. (2) **Proactive limiter** — when the app's sliding-window limiter blocks in `wait_if_needed` (e.g. app_long at 100/100), we call `set_retry_after(sleep_time, reason="proactive")` before sleeping so navigating to another account during the wait still returns 200 with `stale_reason` and the frontend shows the amber warning. **Redis persistence**: Backoff is stored in Redis (`riot_rate_limited_until`) by `set_retry_after`; `is_globally_backing_off()` checks in-memory then Redis so all workers see the same state.
   - **Tests**: `test_rate_limit_fallback.py` — 6 tests (matches 429+cached → 200+stale, matches 429+no data → 429, matches non-429 propagates; search 429+cached → 200+stale, search 429+no account → 429, search 429+0 matches → 429). Updated `test_search_router_page2.py::test_search_page1_riot_429_maps_to_http_429` to mock `get_riot_account_by_riot_id` returning None so 429 path is exercised without real DB.
 - **Frontend**:
   - `PaginationMeta` type in `match.ts`: added `stale?`, `stale_reason?`.
   - **useMatchList**: `staleReason` state set from `meta?.stale_reason ?? (meta?.stale ? "cached" : null)` on fetch success so the shell warning shows even when backend sends `stale: true` without `stale_reason`; reset in `handleRefresh` and `resetKey` effect. `staleMessage` from `getStaleMessage(staleReason)` (`league-web/src/lib/stale-message.ts`). **Stale message fix (navigate after rate limit)**: (1) `apiGet` uses `cache: 'no-store'` when `useCache: false` so the browser does not serve an old cached response that lacks `stale_reason`. (2) Main fetch, `loadMoreMatches`, and polling all set `staleReason` from `meta?.stale_reason` or fallback to `"cached"` when `meta?.stale === true`. Backend logs `search_matches_stale_global_backoff` / `list_matches_stale_global_backoff` when marking responses stale due to global backoff.
   - **MatchPageShell**: New optional `warning?: string | null` prop; rendered as `<p className={styles.warning}>` above error slot. `.warning` in CSS: amber color, light background, left border.
   - **home/page.tsx** and **riot-account/[riotId]/page.tsx**: Destructure `staleMessage` from `useMatchList`, pass as `warning` to `MatchPageShell`.
+
+### Safety-net inline backfill removed
+
+- **Removed** `backfill_match_details_inline` from `riot_sync.py` and from both match-list routers (search, matches). It was a post-query fallback that fetched Riot details inline when result rows had null `game_info` (rare: partial failures, races).
+- **Rationale**: Simplifies the model — only two paths now populate `game_info` (ARQ job and pre-query `backfill_match_details_by_game_ids`). Avoids request-path Riot calls and latency for an edge case; if a row is missing details, the worker will backfill later.
+- **Kept** `backfill_match_details_by_game_ids` (pre-query backfill before ordering) so new matches from first sync / refresh / see more still get timestamps and sort correctly on first request.
 
 ---
 

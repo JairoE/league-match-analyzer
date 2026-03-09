@@ -57,11 +57,12 @@ async def live_game_stream(puuid: str, request: Request) -> StreamingResponse:
                     extra={
                         "puuid": puuid,
                         "status": exc.status,
-                        "message": exc.message,
+                        "detail": exc.message,
                         "consecutive_errors": consecutive_errors,
                     },
                 )
-                yield f"event: error\ndata: {json.dumps({'detail': exc.message})}\n\n"
+                payload = {"status": exc.status, "detail": exc.message}
+                yield f"event: error\ndata: {json.dumps(payload)}\n\n"
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                     logger.warning(
                         "live_game_stream_max_errors",

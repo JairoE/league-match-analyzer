@@ -298,6 +298,9 @@ class RiotRateLimiter:
                     "sleep_seconds": sleep_time,
                 },
             )
+            # Persist global backoff so other requests (e.g. match list for
+            # another account) can be marked stale and show the warning.
+            await self.set_retry_after(sleep_time, reason="proactive")
 
             await asyncio.sleep(sleep_time)
             retries += 1
@@ -308,21 +311,27 @@ class RiotRateLimiter:
         )
         raise RuntimeError(f"Rate limit max retries exceeded for bucket: {bucket}")
 
-    async def set_retry_after(self, seconds: float) -> None:
-        """Set global retry-after from 429 response (in-memory and Redis).
+    async def set_retry_after(self, seconds: float, *, reason: str = "429") -> None:
+        """Set global retry-after (in-memory and Redis).
 
-        Called when Riot API returns 429 with Retry-After header.
-        Persists to Redis so all API workers see backoff and can mark
-        DB-only responses as stale.
+        Called when Riot API returns 429 with Retry-After header, or when
+        the app's proactive limiter blocks (reason='proactive'). Persists
+        to Redis so all API workers see backoff and can mark DB-only
+        responses as stale.
 
         Args:
             seconds: Seconds to wait before next request.
+            reason: '429' when Riot returned 429; 'proactive' when our
+                limiter is waiting to avoid exceeding limits.
         """
         until = time.time() + seconds
         self._retry_after = until
+        log_event = (
+            "rate_limit_429_received" if reason == "429" else "rate_limit_proactive_backoff"
+        )
         logger.warning(
-            "rate_limit_429_received",
-            extra={"retry_after_seconds": seconds},
+            log_event,
+            extra={"retry_after_seconds": seconds, "reason": reason},
         )
         try:
             r = await self._get_redis()

@@ -1,5 +1,8 @@
 .panel {
-  width: 360px;
+  width: 100%;
+  @media (max-width: 992px) {
+    width: 75%;
+  }
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
