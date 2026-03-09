@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -44,6 +45,15 @@ async def list_riot_account_matches(
         default=0,
         ge=0,
         description="Load-more offset; when >0 backend fetches fresh match IDs from Riot.",
+    ),
+    year: int | None = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+        description=(
+            "Optional season year. When set, results and total are limited to "
+            "matches from this calendar year."
+        ),
     ),
     refresh: bool = Query(
         default=False,
@@ -119,8 +129,20 @@ async def list_riot_account_matches(
             )
 
     offset_override = after if after > 0 else None
+
+    since_ts: int | None = None
+    year_value = year if isinstance(year, int) else None
+    if year_value is not None:
+        year_start = datetime(year=year_value, month=1, day=1, tzinfo=UTC)
+        since_ts = int(year_start.timestamp() * 1000)
+
     matches, total = await list_matches_for_riot_account(
-        session, riot_account.id, page, limit, offset_override=offset_override
+        session,
+        riot_account.id,
+        page,
+        limit,
+        offset_override=offset_override,
+        since_ts=since_ts,
     )
 
     if sync_skipped and total == 0:

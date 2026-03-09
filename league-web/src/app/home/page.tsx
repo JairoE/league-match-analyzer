@@ -34,10 +34,14 @@ export default function HomePage() {
   );
   const userPuuid = useMemo(() => getUserPuuid(user), [user]);
 
+  const currentYear = new Date().getFullYear();
+
   const matchesUrl = useCallback(
     (page: number, opts?: {refresh?: boolean}) =>
-      `/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20${opts?.refresh ? "&refresh=true" : ""}`,
-    [riotAccountId]
+      `/riot-accounts/${riotAccountId}/matches?page=${page}&limit=20&year=${currentYear}${
+        opts?.refresh ? "&refresh=true" : ""
+      }`,
+    [riotAccountId, currentYear]
   );
 
   const {

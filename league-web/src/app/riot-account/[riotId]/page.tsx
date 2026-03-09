@@ -44,12 +44,16 @@ export default function RiotAccountPage() {
   const accountPuuid = account?.puuid ?? null;
   const displayLabel = account?.riot_id ?? riotId;
 
+  const currentYear = new Date().getFullYear();
+
   const matchesUrl = useCallback(
     (page: number, opts?: {refresh?: boolean}) => {
       const encoded = encodeURIComponent(riotId);
-      return `/search/${encoded}/matches?page=${page}&limit=20${opts?.refresh ? "&refresh=true" : ""}`;
+      return `/search/${encoded}/matches?page=${page}&limit=20&year=${currentYear}${
+        opts?.refresh ? "&refresh=true" : ""
+      }`;
     },
-    [riotId]
+    [riotId, currentYear]
   );
 
   const handleMatchFetchError = useCallback(

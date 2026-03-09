@@ -84,6 +84,7 @@ export function useMatchList({
   const [lastMetaFromApi, setLastMetaFromApi] =
     useState<PaginationMeta | null>(null);
   const nextFetchIsRefreshRef = useRef(false);
+  const initialPage1FetchDoneRef = useRef(false);
 
   const {errorMessage, reportError, clearError} =
     useAppError(errorScope);
@@ -132,6 +133,7 @@ export function useMatchList({
     setYearBoundaryReached(false);
     setStaleReason(null);
     setLastMetaFromApi(null);
+    initialPage1FetchDoneRef.current = false;
   }, [resetKey]);
 
   // Fetch a page when we don't have enough data for the current page.
@@ -142,24 +144,30 @@ export function useMatchList({
     if (allMatches.length >= needCount) {
       return;
     }
+    const controller = new AbortController();
     let isActive = true;
     const tag = logTagRef.current;
 
     const load = async () => {
       setIsLoading(true);
       clearError();
-      const opts =
-        nextFetchIsRefreshRef.current
-          ? ({refresh: true} as MatchListUrlOptions)
-          : undefined;
-      if (opts) nextFetchIsRefreshRef.current = false;
+      const wantRefresh =
+        nextFetchIsRefreshRef.current ||
+        (page === 1 &&
+          allMatches.length === 0 &&
+          !initialPage1FetchDoneRef.current);
+      if (wantRefresh) initialPage1FetchDoneRef.current = true;
+      if (nextFetchIsRefreshRef.current) nextFetchIsRefreshRef.current = false;
+      const opts = wantRefresh
+        ? ({refresh: true} as MatchListUrlOptions)
+        : undefined;
       const url = matchesUrl(page, opts);
       console.debug(`[${tag}] fetching matches`, {url, page});
       try {
-        const res = await apiGet<PaginatedMatchList>(
-          url,
-          cacheOptionsRef.current ?? {useCache: false}
-        );
+        const res = await apiGet<PaginatedMatchList>(url, {
+          ...(cacheOptionsRef.current ?? {useCache: false}),
+          signal: controller.signal,
+        });
         if (!isActive) return;
         const fetched = Array.isArray(res?.data) ? res.data : [];
         const meta = res?.meta ?? null;
@@ -186,6 +194,7 @@ export function useMatchList({
           totalFromApi: meta?.total,
         });
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
         console.debug(`[${tag}] matches fetch failed`, {err});
         if (isActive) {
           const handled = onFetchErrorRef.current?.(err);
@@ -199,6 +208,7 @@ export function useMatchList({
     void load();
     return () => {
       isActive = false;
+      controller.abort();
     };
   }, [
     enabled,

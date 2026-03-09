@@ -34,6 +34,7 @@ async def list_matches_for_riot_account(
     page: int = 1,
     limit: int = 20,
     offset_override: int | None = None,
+    since_ts: int | None = None,
 ) -> tuple[list[Match], int]:
     """List matches for a given riot account with pagination.
 
@@ -59,6 +60,11 @@ async def list_matches_for_riot_account(
         .join(RiotAccountMatch, RiotAccountMatch.match_id == Match.id)
         .where(RiotAccountMatch.riot_account_id == riot_account_id)
     )
+
+    if since_ts is not None:
+        base_filter = base_filter.where(
+            Match.game_start_timestamp.is_not(None),
+        ).where(Match.game_start_timestamp >= since_ts)
 
     count_result = await session.execute(select(func.count()).select_from(base_filter.subquery()))
     total = count_result.scalar_one()
