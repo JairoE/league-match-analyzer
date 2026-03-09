@@ -222,50 +222,6 @@ async def _backfill_single_match(
         return False
 
 
-async def backfill_match_details_inline(
-    session: AsyncSession,
-    matches: list[Match],
-    max_fetch: int = 20,
-) -> int:
-    """Fetch missing game_info for matches inline (no ARQ worker needed).
-
-    Iterates over matches that lack game_info and fetches details from
-    the Riot API directly, persisting each payload to the DB.
-
-    Args:
-        session: Async database session for queries.
-        matches: List of Match records to check and backfill.
-        max_fetch: Maximum number of detail fetches per call.
-
-    Returns:
-        Number of matches that were backfilled.
-    """
-    missing = [m for m in matches if not m.game_info]
-    if not missing:
-        return 0
-
-    logger.info(
-        "backfill_match_details_inline_start",
-        extra={"missing": len(missing), "max_fetch": max_fetch},
-    )
-
-    to_process = missing[:max_fetch]
-    fetched = 0
-    async with RiotApiClient() as client:
-        for match in to_process:
-            if await _backfill_single_match(client, match):
-                fetched += 1
-
-    if fetched:
-        await session.commit()
-
-    logger.info(
-        "backfill_match_details_inline_done",
-        extra={"fetched": fetched, "total_missing": len(missing)},
-    )
-    return fetched
-
-
 async def backfill_match_details_by_game_ids(
     session: AsyncSession,
     game_ids: list[str],
@@ -273,10 +229,9 @@ async def backfill_match_details_by_game_ids(
 ) -> int:
     """Fetch missing game_info for matches identified by Riot game IDs.
 
-    Unlike ``backfill_match_details_inline`` (which operates on already-loaded
-    Match objects), this queries the DB for Match records whose ``game_id`` is in
-    ``game_ids`` and whose ``game_info`` is NULL, then fetches details from Riot.
-    Call this *before* the ordering query so new matches get timestamps and sort
+    Queries the DB for Match records whose ``game_id`` is in ``game_ids`` and
+    whose ``game_info`` is NULL, then fetches details from Riot. Call this
+    *before* the ordering query so new matches get timestamps and sort
     correctly on the first request.
 
     Args:

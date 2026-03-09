@@ -14,7 +14,6 @@ from app.services.riot_accounts import resolve_riot_account_identifier
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_sync import (
     backfill_match_details_by_game_ids,
-    backfill_match_details_inline,
     fetch_match_detail,
     fetch_timeline_stats,
 )
@@ -129,19 +128,6 @@ async def list_riot_account_matches(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="riot_api_max_retries_exceeded",
         )
-
-    if not sync_skipped:
-        missing_count = sum(1 for m in matches if not m.game_info)
-        if missing_count:
-            logger.info(
-                "list_riot_account_matches_backfill",
-                extra={
-                    "riot_account_id": riot_account_id,
-                    "missing": missing_count,
-                    "page": page,
-                },
-            )
-            await backfill_match_details_inline(session, matches, max_fetch=limit)
 
     logger.info(
         "list_riot_account_matches_done",
