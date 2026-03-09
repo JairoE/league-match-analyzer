@@ -93,12 +93,14 @@ export default function RiotAccountPage() {
     resetKey: riotId,
   });
 
-  const {liveGame, status, retry} = useLiveGameWhenReady(
+  const {liveGame, status, retry, liveGameWarning} = useLiveGameWhenReady(
     accountPuuid,
     !isLoading
   );
 
-  const {rankSubtitle} = useRank(account?.id ?? null, {refreshIndex});
+  const {rankSubtitle, rankStaleMessage} = useRank(account?.id ?? null, {
+    refreshIndex,
+  });
 
   // Check session (optional for search)
   useEffect(() => {
@@ -170,6 +172,8 @@ export default function RiotAccountPage() {
   }, [riotId, decodeError, refreshIndex, clearError, reportError]);
 
   const error = pageError ?? errorMessage;
+  const warning =
+    staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
 
   return (
     <MatchPageShell
@@ -208,7 +212,7 @@ export default function RiotAccountPage() {
         />
       }
       error={error}
-      warning={staleMessage}
+      warning={warning}
     >
       <MatchesTable
         matches={matches}

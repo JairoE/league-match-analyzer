@@ -1,6 +1,7 @@
 "use client";
 
 import {useCallback, useEffect, useMemo, useState} from "react";
+import {getStaleMessage} from "../stale-message";
 import type {LiveGameData} from "../types/live-game";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -17,12 +18,14 @@ export type LiveGameState = {
   isLive: boolean;
   status: LiveGameStatus;
   retry: () => void;
+  liveGameWarning: string | null;
 };
 
 export function useLiveGame(puuid: string | null): LiveGameState {
   const [liveGame, setLiveGame] = useState<LiveGameData | null>(null);
   const [status, setStatus] = useState<LiveGameStatus>("idle");
   const [attemptKey, setAttemptKey] = useState(0);
+  const [liveGameWarning, setLiveGameWarning] = useState<string | null>(null);
 
   const retry = useCallback(() => {
     setAttemptKey((k) => k + 1);
@@ -38,6 +41,7 @@ export function useLiveGame(puuid: string | null): LiveGameState {
       if (!cancelled) {
         setStatus("connecting");
         setLiveGame(null);
+        setLiveGameWarning(null);
       }
     }, 0);
 
@@ -55,6 +59,12 @@ export function useLiveGame(puuid: string | null): LiveGameState {
       es = null;
       setStatus(newStatus);
       if (newStatus !== "live") setLiveGame(null);
+      if (newStatus === "live" || newStatus === "not_in_game") {
+        setLiveGameWarning(null);
+      }
+      if (newStatus === "error") {
+        setLiveGameWarning(getStaleMessage("riot_unavailable"));
+      }
       console.debug("[useLiveGame] closed", {puuid, newStatus});
     }
 
@@ -91,6 +101,7 @@ export function useLiveGame(puuid: string | null): LiveGameState {
       es = null;
       setLiveGame(null);
       setStatus("idle");
+      setLiveGameWarning(null);
     };
   }, [puuid, attemptKey]);
 
@@ -101,14 +112,16 @@ export function useLiveGame(puuid: string | null): LiveGameState {
         isLive: false,
         status: "idle",
         retry,
+        liveGameWarning: null,
       };
     return {
       liveGame,
       isLive: status === "live" && liveGame !== null,
       status,
       retry,
+      liveGameWarning,
     };
-  }, [puuid, liveGame, status, retry]);
+  }, [puuid, liveGame, status, retry, liveGameWarning]);
 
   return result;
 }

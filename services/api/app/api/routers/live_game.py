@@ -57,7 +57,7 @@ async def live_game_stream(puuid: str, request: Request) -> StreamingResponse:
                     extra={
                         "puuid": puuid,
                         "status": exc.status,
-                        "message": exc.message,
+                        "detail": exc.message,
                         "consecutive_errors": consecutive_errors,
                     },
                 )
