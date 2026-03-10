@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import json
 import os
 import random
 import sys
@@ -65,6 +66,35 @@ def _build_csv_header() -> list[str]:
     cols.append("average_rank")
     cols.append("win")
     return cols
+
+
+def _normalize_game_info(raw: dict | str | None) -> dict | None:
+    """Ensure game_info is a dict. asyncpg may return JSONB as str in some setups."""
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _normalize_jsonb_dict(raw: dict | str | None) -> dict:
+    """Ensure a JSONB column value is a dict. asyncpg may return JSONB as str."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            out = json.loads(raw)
+            return out if isinstance(out, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 def _extract_team_wins(game_info: dict) -> dict[int, bool]:
@@ -161,7 +191,8 @@ async def _export(output_path: Path, sample_interval: int) -> None:
         writer.writeheader()
 
         for game_id, game_rows in by_game.items():
-            game_info = game_rows[0]["game_info"]
+            raw = game_rows[0]["game_info"]
+            game_info = _normalize_game_info(raw)
             if not game_info:
                 skipped_no_outcome += 1
                 continue
@@ -184,7 +215,7 @@ async def _export(output_path: Path, sample_interval: int) -> None:
                 if row is None:
                     continue
 
-                features = row["features"] or {}
+                features = _normalize_jsonb_dict(row["features"])
                 csv_row: dict = {
                     "match_id": str(row["match_id"]),
                     "game_id": game_id,

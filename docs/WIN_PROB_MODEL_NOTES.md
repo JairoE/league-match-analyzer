@@ -102,3 +102,92 @@ When we are ready to harden the baseline model:
     \(accuracy, ECE, reliability diagrams\) to validate that V1 hits the
     expected quality bar before investing in a DNN \(V2\).
 
+### ARQ job id strategy for scoring (score_actions_job)
+
+`score_actions_job` is enqueued with a custom `_job_id` to avoid duplicate
+work. That idempotency behaviour is powerful but has some sharp edges.
+
+#### Current pattern (one-shot, idempotent)
+
+- Helper script: `scripts/score_actions_for_match.py`
+- Job id: `_job_id = f"score-actions:{match_id}"`
+- Result key: `arq:result:score-actions:{match_id}`
+
+ARQ semantics:
+
+- If a job with a given `_job_id` has **ever completed** (success *or*
+  failure), subsequent `enqueue_job` calls with the same `_job_id`:
+  - **do not enqueue a new job**, and
+  - immediately return the existing result.
+- Practically: a past failure like “function 'score_actions_job' not found”
+  will block all future runs with that same `_job_id` unless the result
+  keys are cleaned up.
+
+This is desirable when we want “at most once per match per model version”,
+but surprising when trying to re-run after fixing code or changing the
+model.
+
+#### Future-friendly pattern: bake a version into `_job_id`
+
+To support re-running scoring after model or code changes without manual
+Redis cleanup:
+
+- Introduce a **scoring version string**, e.g. `SCORE_VERSION = "v1"`.
+- Build job ids as:
+
+  - `_job_id = f"score-actions:{SCORE_VERSION}:{match_id}"`
+  - Result keys become `arq:result:score-actions:v1:{match_id}`
+
+When we change scoring semantics (new model, feature set, or logic):
+
+- Bump `SCORE_VERSION` \(e.g. `"v2"`\).
+- Existing `v1` results remain in Redis; new jobs use `v2`:
+  - `score-actions:v1:NA1_...` and `score-actions:v2:NA1_...` are distinct.
+- Aggregation/analysis code can decide whether to:
+  - treat old and new versions separately, or
+  - re-score only a subset with the new version.
+
+This yields:
+
+- Idempotency **within** a given scoring version.
+- Safe re-running after upgrades by bumping the version, not by deleting
+  keys.
+
+#### Manual cleanup procedure (when a stale result is blocking re-runs)
+
+If we accidentally enqueue with a bad `_job_id` before the worker is
+ready, ARQ may store a failure like:
+
+> JobExecutionFailed … function 'score_actions_job' not found
+
+under `arq:result:score-actions:{match_id}`. To recover for that one
+match:
+
+1. Connect to the same Redis instance / DB the worker uses
+   (`REDIS_URL`, typically `redis://localhost:6379/0`).
+2. Inspect the result key:
+
+   ```bash
+   redis-cli GET arq:result:score-actions:NA1_...
+   ```
+
+3. If it contains a stale failure you no longer care about, delete both
+   the result and any associated job key:
+
+   ```bash
+   redis-cli DEL arq:result:score-actions:NA1_...
+   redis-cli DEL arq:job:score-actions:NA1_...   # only if it exists
+   ```
+
+4. Ensure the worker is running with the correct code (`make worker-dev`),
+   then re-enqueue:
+
+   ```bash
+   make score-actions MATCH_ID=NA1_...
+   ```
+
+Going forward, using a versioned `_job_id` reduces the need for manual
+cleanup; we only delete keys when we explicitly want to force a retry for
+the same version string.
+
+
