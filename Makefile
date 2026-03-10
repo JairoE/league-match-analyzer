@@ -76,5 +76,11 @@ score-actions:
 	fi
 	./.venv/bin/python scripts/score_actions_for_match.py --match-id "$$MATCH_ID"
 
+training-data-export:
+	./.venv/bin/python scripts/export_training_data.py --output data/training.csv --sample-interval 1
+
+win-prob-model-training:
+	./.venv/bin/python scripts/train_win_prob_model.py --input data/training.csv --output data/win_prob_model.joblib
+
 capture-riot-fixtures:
 	./.venv/bin/python scripts/capture_riot_test_fixtures.py --game-name damanjr --tag-line NA1 --count 40

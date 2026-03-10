@@ -115,7 +115,7 @@ work. That idempotency behaviour is powerful but has some sharp edges.
 
 ARQ semantics:
 
-- If a job with a given `_job_id` has **ever completed** (success *or*
+- If a job with a given `_job_id` has **ever completed** (success _or_
   failure), subsequent `enqueue_job` calls with the same `_job_id`:
   - **do not enqueue a new job**, and
   - immediately return the existing result.
@@ -134,7 +134,6 @@ Redis cleanup:
 
 - Introduce a **scoring version string**, e.g. `SCORE_VERSION = "v1"`.
 - Build job ids as:
-
   - `_job_id = f"score-actions:{SCORE_VERSION}:{match_id}"`
   - Result keys become `arq:result:score-actions:v1:{match_id}`
 
@@ -190,4 +189,32 @@ Going forward, using a versioned `_job_id` reduces the need for manual
 cleanup; we only delete keys when we explicitly want to force a retry for
 the same version string.
 
+### Data refresh and retraining cadence
 
+The current training dataset (`data/training.csv`) is a point-in-time export.
+New matches ingested after the last export will **not** be included in the
+model until we explicitly refresh the CSV and retrain.
+
+#### When to refresh
+
+Refresh when any of the following are true:
+
+- We have accumulated a meaningful number of new matches with state vectors
+  (e.g. +10–20% more `match_state_vector` rows).
+- We have made extraction changes that affect features or coverage.
+- We plan to rely on the model for more than wiring tests (e.g. real user
+  recommendations, ECE evaluation, or comparison against a DNN).
+
+#### Refresh procedure (manual, current state)
+
+1. **Ensure extraction has run for recent matches**
+   - `make db-up` (if needed)
+   - `make worker-dev` (ARQ worker)
+   - Optionally, run `make backfill-extraction` to enqueue extraction for any
+     matches that still lack state vectors.
+
+2. **Re-export training data**
+
+   ```bash
+   python scripts/export_training_data.py --output data/training.csv
+   ```
