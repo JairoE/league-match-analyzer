@@ -10,6 +10,7 @@ from app.jobs.match_ingestion import (
     fetch_timeline_cache_job,
 )
 from app.jobs.scheduled import sync_all_riot_accounts_matches
+from app.jobs.score_actions import score_actions_job
 from app.jobs.timeline_extraction import extract_match_timeline_job
 from app.services.riot_api_client import RiotApiClient
 
@@ -59,6 +60,7 @@ class WorkerSettings:
         fetch_match_details_job,
         fetch_timeline_cache_job,
         func(extract_match_timeline_job, max_tries=5),
+        score_actions_job,
     ]
 
     # Scheduled cron jobs

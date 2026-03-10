@@ -1,6 +1,6 @@
 # App State
 
-**Last Updated:** 2026-03-08
+**Last Updated:** 2026-03-09
 **Branch:** `frontend-api-db-cache-rework`
 **Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning). Live-game stream no longer crashes on Riot 401/errors (logging fix). Home initial load now requests latest matches and avoids duplicate matches API request.
 
@@ -50,15 +50,38 @@
 
 ## Open Tickets / Blockers
 
-| Ticket                                                                                                                                        | File                                                             | Status       |
-| --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------ |
+| Ticket                                                                                                                                        | File                                                                | Status       |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------ |
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
 
 ---
 
+## Recent Changes (2026-03-09, LLM pipeline step 4)
+
+### Step 4 — Scoring service + score_actions_job
+
+- **Scoring service**: `app/services/win_prob_scoring.py` — `load_model()` (from optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x) in [0, 1] or None when model not loaded. Feature order and rank encoding in `app/services/win_prob_features.py` (shared with training script).
+- **Training script**: `scripts/train_win_prob_model.py` — reads CSV from export, fits logistic regression, saves joblib (default `data/win_prob_model.joblib`). Run after exporting training data; set `WIN_PROB_MODEL_PATH` in API/worker env to enable scoring.
+- **score_actions_job**: `app/jobs/score_actions.py` — for a given match_id, loads state vectors and actions, scores pre/post states, persists `delta_w`, `pre_win_prob`, `post_win_prob` on each `match_action`. Idempotent; returns skipped when model not loaded. Registered in `WorkerSettings.functions`.
+- **Config**: `win_prob_model_path: str = ""` added to Settings; empty disables action scoring.
+- **Doc**: `docs/LLM_DATA_PIPELINE.md` updated — steps 3 and 4 marked Done; key files and next steps revised.
+- **Helper script**: `scripts/score_actions_for_match.py` + `make score-actions MATCH_ID=NA1_...` helper to enqueue `score_actions_job` for a single match via ARQ (requires `make worker-dev` and `WIN_PROB_MODEL_PATH` set in worker env).
+
+### Env loading for scoring helper (2026-03-10)
+
+- **Change**: `scripts/score_actions_for_match.py` now loads env vars from `services/api/.env` (if present) before resolving `REDIS_URL`, falling back to shell env and then the hardcoded default.
+- **Why**: Keeps the scoring helper consistent with API/worker configuration without requiring manual `export REDIS_URL=...` in the shell.
+
+---
+
 ## Recent Changes (2026-03-09)
+
+### Export training data: normalize JSONB from asyncpg
+
+- **Change**: `scripts/export_training_data.py` now normalizes JSONB column values to dicts before use. When using raw asyncpg (no ORM), JSONB can be returned as JSON strings; the script now uses `_normalize_game_info()` for `game_info` and `_normalize_jsonb_dict()` for `features`, so it works whether the driver returns dict or str.
+- **Why**: Avoids `AttributeError: 'str' object has no attribute 'get'` when running the export. Export run verified: 1586 rows from 245 matches written to CSV.
 
 ### Match card layout tweak
 
@@ -78,10 +101,10 @@
   - `/riot-account/[riotId]`: `matchesUrl` now calls `/search/{riotId}/matches?page=X&limit=20&year=<currentYear>` so searching another account also shows only current-year matches.
   - `useMatchList.loadMoreMatches` still has a defensive current-year filter, but the authoritative boundary is now enforced on the backend; refreshes no longer reveal older-year matches or bump totals unexpectedly after a load-more that crossed the year boundary.
 
-### Live-game stream logging crash fix
+### Live-game stream logging crash fix (+ ARQ jobs)
 
-- **Issue**: When Riot returned 401 (or any `RiotRequestError`) on `GET /live-game/{puuid}/stream`, the handler logged with `extra={"message": exc.message}`. Python's `LogRecord` reserves the key `message`, causing `KeyError: "Attempt to overwrite 'message' in LogRecord"` and crashing the stream.
-- **Fix**: Replaced `"message"` with `"detail"` in logger `extra` in two places: **live_game.py** (`live_game_stream_error`) and **timeline_extraction.py** (`timeline_fetch_failed`). SSE payload and API contract unchanged.
+- **Issue**: When Riot returned 401 (or any `RiotRequestError`), handlers that logged with `extra={"message": exc.message}` triggered Python's reserved `LogRecord.message`, causing `KeyError: "Attempt to overwrite 'message' in LogRecord"` and crashing the stream or ARQ worker.
+- **Fix**: Replaced `"message"` with a non-reserved key in logger `extra` and error payloads. All such keys are now **`error_message`** (live_game.py, timeline_extraction.py, match_ingestion.py). SSE live-game error payload uses `error_message`; frontend `LiveGameErrorPayload` type updated to match. Global HTTP exception handler in exceptions.py still returns `detail` in the response body for API compatibility.
 - **Clarification**: `staleMessage` on the frontend is only for match-list 429 fallback (from `PaginationMeta.stale` / `stale_reason`). The live-game stream is a separate SSE endpoint; it does not set pagination meta, so no stale message is expected when the stream fails. To show a user-visible warning on live-game errors (e.g. 401/429), the frontend would need to handle the stream's `error` events (optional enhancement).
 
 ### Global warning for 401 and other Riot API failures
@@ -365,6 +388,7 @@ Optional:
 - **ARQ job** (`services/api/app/jobs/timeline_extraction.py`): `extract_match_timeline_job` — fetches timeline (Redis-cached, 1h TTL), extracts vectors + actions, persists to DB. Idempotent (skips if vectors exist). Proper `RiotApiClient` lifecycle management.
 - **22 tests**: `test_state_vector.py` (10 tests) + `test_action_extraction.py` (12 tests) — comprehensive coverage of extraction logic, edge cases, clamping, team assignment, cumulative tracking.
 - **Uncommitted cleanup** (staged): explicit `Float` columns on scoring fields, `dataclasses.replace()` for TeamState snapshots, inlined helper, fixed `RiotApiClient` leak in `_fetch_timeline_cached`.
+
 ### Phase 3 Frontend Refactor — MatchRow table row + summary stats (`frontend-refactor-match-row-relationships`)
 
 **Branch:** `frontend-refactor-match-row-relationships`
@@ -400,8 +424,8 @@ Optional:
   - `riot_sync.py` — new `backfill_match_details_by_game_ids(session, game_ids)` queries Match records by game ID where `game_info IS NULL`, fetches details from Riot API, persists `game_info` + `game_start_timestamp`.
   - `matches.py` — calls `backfill_match_details_by_game_ids()` **before** the ordering query on page 1. Background task switched from detail enqueue to timeline pre-fetch.
   - `search.py` — same pre-query backfill + timeline enqueue swap.
-  - `enqueue_match_timelines.py` *(new)* — `enqueue_missing_timeline_jobs()` enqueues `fetch_timeline_cache_job` per batch with deterministic `_job_id`.
-  - `match_timeline_enqueue.py` *(new)* — fire-and-forget wrapper `enqueue_timelines_background()`.
+  - `enqueue_match_timelines.py` _(new)_ — `enqueue_missing_timeline_jobs()` enqueues `fetch_timeline_cache_job` per batch with deterministic `_job_id`.
+  - `match_timeline_enqueue.py` _(new)_ — fire-and-forget wrapper `enqueue_timelines_background()`.
   - `match_ingestion.py` — new `fetch_timeline_cache_job`: checks Redis (`timeline:{match_id}`), fetches from Riot if absent, caches indefinitely.
   - `background_jobs.py` — registered `fetch_timeline_cache_job` in `WorkerSettings.functions`.
   - `jobs/__init__.py` — exported `fetch_timeline_cache_job`.
@@ -543,7 +567,7 @@ Optional:
   - `make lint-new`
 - **Baseline snapshot**:
   - `scripts/ruff_baseline.json` currently tracks **63** known violations.
-- **Why**: allows lint to become a reliable blocking signal for *new* issues while existing noise is burned down incrementally.
+- **Why**: allows lint to become a reliable blocking signal for _new_ issues while existing noise is burned down incrementally.
 
 ### Verification
 
@@ -707,6 +731,7 @@ Optional:
     active tab yields zero results.
 
 **Verification**:
+
 - `make test` — pass (23/23).
 - `make lint` — pass.
 - `npm --prefix league-web run lint` — pass with 1 pre-existing warning.
@@ -721,41 +746,50 @@ Optional:
 **Status:** STABLE — all 8 follow-up items resolved; 28/28 tests pass, lint clean.
 
 #### #6 — Simplified timeline ARQ job IDs (`enqueue_match_timelines.py`)
+
 - Removed `hashlib` import and SHA-1-based `_job_id` construction.
 - Replaced with the same `batch[0]..batch[-1]:len` range pattern used in `enqueue_match_details.py`.
 - Less complexity, same ARQ dedup guarantees.
 
 #### #7 — Double Redis cache check (no change)
+
 - Reviewed both layers: MGET pre-filter at enqueue time (avoids creating unnecessary jobs) and GET per-job at execution time (race-condition dedup). Both serve distinct purposes; intentionally kept as-is.
 
 #### #8 — 429 rate-limit retry tests (`test_riot_api_client_retry.py`, `fake_riot_helpers.py`)
+
 - Added optional `headers` param to `error_response()` helper.
 - `test_riot_client_retries_429_then_succeeds`: verifies Retry-After sleep duration, metric tagged `"429"`, and `riot_request_429` log event.
 - `test_riot_client_429_max_retries_raises`: verifies repeated 429s exhaust `MAX_RETRIES` and raise `RiotRequestError(status=429)`.
 
 #### #9 — Fixture contract tests for participants and frames (`test_riot_payload_fixtures_contract.py`)
+
 - `test_riot_fixture_contract_match_detail_participants`: asserts exactly 10 participants with required keys (`participantId`, `puuid`, `championName`, `teamId`, `individualPosition`, `kills`, `deaths`, `assists`, `win`).
 - `test_riot_fixture_contract_timeline_frames`: asserts `frames` non-empty, `frameInterval` present, every frame has `participantFrames` with 10 entries.
 
 #### #10 — Backfill fake session respects WHERE clause (`test_riot_sync_backfill.py`)
+
 - `_FakeSession.execute()` now filters `[m for m in self._matches if not m.game_info]`, mirroring the real `game_info IS NULL` query.
 - Added `test_backfill_by_game_ids_skips_already_backfilled` with 2 pre-filled + 3 missing matches.
 
 #### #11 — Fixture loaders return deepcopy (`riot_payloads.py`)
+
 - Replaced per-call disk reads with `@functools.cache`-backed `_read_json_cached(path)`.
 - All mutable loaders (`load_account_info`, `load_summoner_info`, `load_match_detail`, `load_match_timeline`) now return `deepcopy(...)` to prevent cross-test mutation.
 
 #### #12 — Downgrade noisy `logger.exception` for expected Riot errors (`riot_sync.py`)
+
 - Added `RiotRequestError` to imports.
 - Split bare `except Exception` in `_backfill_single_match` and `fetch_timeline_stats` into:
   - `except RiotRequestError` → `logger.warning(...)` with `status` and `message` (no traceback for expected 404s etc.)
   - `except Exception` → `logger.exception(...)` (traceback preserved for unexpected failures)
 
 #### #13 — Prevent orphan Match records (`riot_sync.py`)
+
 - `fetch_match_detail` previously created `Match(game_id=...)` when no DB record existed, leaving an unlinked row with no `RiotAccountMatch`.
 - Fix: when no existing Match is found, return the fetched payload directly without touching the DB. Log event `riot_sync_fetch_match_detail_no_db_record` emitted instead.
 
 **Verification**:
+
 - `make test` — pass (28/28; was 23/23 before, +5 new tests).
 - `make lint` — pass (ruff clean).
 - `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
@@ -770,17 +804,20 @@ Optional:
 **Status:** STABLE — 41/41 tests pass, lint clean.
 
 #### #1 — `getParticipantForUser` no longer returns wrong participant (`match-utils.ts`)
+
 - **Before**: when neither puuid nor summoner name matched, fallback returned `participants[0]` — silently showing the wrong player's stats in the auth-based view.
 - **After**: returns `null`, letting the UI handle missing state explicitly.
 - **File**: `league-web/src/lib/match-utils.ts`
 
 #### #2 — Search routes convert `RiotRequestError` to proper HTTP status (`search.py`)
+
 - **Before**: `except RiotRequestError: raise` re-raised the raw error and relied on the global exception handler; also used `logger.exception` (full traceback) for expected Riot errors.
 - **After**: catches `RiotRequestError`, logs at `warning` level with structured fields, and raises `HTTPException` using `map_riot_status()` (404→404, 429→429, 5xx→502, etc.).
 - Renamed `_map_riot_status` → `map_riot_status` in `exceptions.py` (now a public API).
 - **Files**: `services/api/app/api/routers/search.py`, `services/api/app/core/exceptions.py`
 
 #### #3a — `fetch_timeline_stats` test coverage (`test_timeline_stats.py`)
+
 - **New file**: `services/api/tests/test_timeline_stats.py` — 6 tests:
   - Happy-path CS/gold diffs using real fixture (MissFortune pid=9 vs Twitch pid=4 at BOTTOM).
   - Cache hit path (Redis pre-populated, Riot API never called).
@@ -790,6 +827,7 @@ Optional:
   - Short game (11 frames) → produces `cs_diff_at_10` but not `cs_diff_at_15`.
 
 #### #3b — Search page-2+ and RiotRequestError mapping tests (`test_search_router_page2.py`)
+
 - **New file**: `services/api/tests/test_search_router_page2.py` — 7 tests:
   - Page 2 skips Riot API, resolves account from DB, no background tasks.
   - Page 3 returns correct pagination meta (page/limit/total/last_page).
@@ -800,10 +838,12 @@ Optional:
   - `RiotRequestError(status=401)` on `/account` → HTTP 401.
 
 #### Bonus — Fixed `"message"` LogRecord collision bug
+
 - `logger.warning(..., extra={"message": exc.message})` collided with Python's reserved `LogRecord.message` attribute, raising `KeyError` at runtime.
 - Renamed to `"error_message"` in `search.py` and `riot_sync.py`.
 
 **Verification**:
+
 - `pytest services/api/` — pass (41/41; was 28/28, +13 new tests).
 - `ruff check` — pass on all changed files.
 - `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
@@ -818,22 +858,27 @@ Optional:
 **Status:** STABLE — 41/41 tests pass, lint clean.
 
 #### #1 — Race condition eliminated (`match_sync.py`)
+
 - **Before**: `upsert_matches_for_riot_account` used select-then-insert for both `Match` and `RiotAccountMatch`. Concurrent requests for the same summoner could hit `IntegrityError`.
 - **After**: Uses `INSERT ... ON CONFLICT DO NOTHING` (PostgreSQL dialect) for both tables. Match rows inserted atomically by `game_id` unique constraint; link rows by `uq_riot_account_match` constraint. No more select-then-insert loop.
 
 #### #2 — Race condition eliminated (`riot_account_upsert.py`)
+
 - **Before**: `ensure_user_riot_account_link` used select-then-insert. `upsert_user_and_riot_account` created `User` via `get_user_by_email` + `session.add` — race-prone.
 - **After**: `ensure_user_riot_account_link` uses `INSERT ... ON CONFLICT DO NOTHING` on `uq_user_riot_account` constraint, then selects to return the record. New `_upsert_user_by_email` uses `INSERT ... ON CONFLICT DO NOTHING` on `email` unique index. `upsert_riot_account` retains its existing savepoint+retry pattern (already safe).
 
 #### #3 — Redis resilience in timeline enqueue (`enqueue_match_timelines.py`)
+
 - **Before**: `get_redis()` and `redis.mget()` were outside the try/except. If Redis was down, the background task crashed silently with no log.
 - **After**: Both calls wrapped in try/except. On Redis failure, logs `enqueue_missing_timelines_redis_unavailable` and falls back to enqueueing all match IDs (safe — the per-job Redis check is the second dedup layer).
 
 #### #4 — Mid-batch commit safety in `fetch_match_details_job` (`match_ingestion.py`)
+
 - **Before**: Single `session.commit()` after the loop. If match 6/10 raised an unexpected error, matches 1–5 were never committed.
 - **After**: Unexpected exceptions trigger an immediate commit of progress so far, then continue. `finally` block catches any remaining dirty state. `RiotRequestError` still skips commit (expected transient failure). Loop-end commit resets the `pending_commit` flag to prevent double-commit in `finally`.
 
 **Verification**:
+
 - `make test` — pass (41/41).
 - `ruff check` — pass on all changed files.
 
@@ -862,31 +907,37 @@ Optional:
 **Status:** STABLE — 42/42 tests pass, lint clean.
 
 #### Double account resolution eliminated (`riot_sync.py`, `matches.py`)
+
 - `fetch_match_list_for_riot_account` now returns `tuple[list[str], RiotAccount] | None`.
 - `list_riot_account_matches` router unpacks the tuple on page 1 — reuses the already-resolved account instead of calling `resolve_riot_account_identifier` a second time.
 - Page 2+ still calls `resolve_riot_account_identifier` once (single DB round-trip, unchanged).
 
 #### `React.memo` restored on `MatchRow` (`MatchesTable.tsx`)
+
 - `rankByPuuid` (full map) previously passed to all 20 rows; got a new object reference on every rank fetch, defeating memo on unselected rows.
 - Fix: pass `rankByPuuid={isExpanded ? rankByPuuid : undefined}` — only the one expanded row receives the map.
 - `championHistory` similarly changed to use a module-level `EMPTY_HISTORY` constant for non-expanded rows, preventing new-array references on every render.
 
 #### `matchSummaryStats` no longer recomputes on every 3-second polling tick (`MatchesTable.tsx`)
+
 - Old deps: `[filteredMatches, matchDetails, getParticipantForMatch]` — `matchDetails` gets a new reference every polling tick, triggering the 80-line computation.
 - Fix: added `loadedDetailCount` (derived stable number — count of matches with non-null details) as the gate dep. `matchDetails` is accessed via `matchDetailsRef.current` so the memo only re-runs when the count grows (genuine new detail arrived), not on reference-only changes.
 - Inline participant lookup (`getParticipantByPuuid` / `getParticipantForUser`) replaces the `getParticipantForMatch` callback dep, removing one layer of instability.
 
 #### `_FakeSession` now enforces `game_id IN (...)` filter (`test_riot_sync_backfill.py`)
+
 - `_FakeSession.__init__` accepts `game_ids: list[str] | None`; `execute` filters by game_id set in addition to `game_info IS NULL`.
 - All three existing tests updated to pass `game_ids=game_ids`.
 - New test `test_backfill_by_game_ids_ignores_matches_outside_requested_set`: creates 8 matches in session, requests only 5, verifies the 3 extras are never backfilled.
 
 #### `fixture_meta()` returns deepcopy (`riot_payloads.py`)
+
 - Previously returned the raw cached dict from `_read_json_cached`; one mutation would corrupt all downstream test calls.
 - One-line fix: return `deepcopy(_read_json_cached(MANIFEST_PATH))`.
 - Removed now-unused `lru_cache` import (caching no longer needed since caller always gets a fresh copy).
 
 **Verification**:
+
 - `make test` — pass (42/42; was 41/41, +1 new test).
 - `make lint` — pass.
 - `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
@@ -901,19 +952,23 @@ Optional:
 **Status:** STABLE — 42/42 tests pass, lint clean.
 
 #### Inlined `_commit_backfilled` (`riot_sync.py`)
+
 - Removed the 3-line helper. Both call sites (`backfill_match_details_inline`, `backfill_match_details_by_game_ids`) now do `if fetched: await session.commit()` directly.
 - **Why**: only 2 call sites; indirection wasn't worth a named function.
 
 #### `participant_id` bounds validation (`matches.py`)
+
 - Added `ge=1, le=10` to the `Query()` on the `/matches/{match_id}/timeline-stats` endpoint.
 - **Why**: out-of-range IDs (0, 11, etc.) previously fell through to `fetch_timeline_stats`, which returned `None` → misleading 404. Now returns a proper 422 validation error.
 
 #### Fixed `ordinalSuffix` for n > 13 (`match-utils.ts`)
+
 - Before: `ordinalSuffix(21)` → `"21th"`.
 - After: uses `n % 100` to handle teens (11th, 12th, 13th) and `n % 10` for the rest (21st, 22nd, 23rd, etc.).
 - **Why**: latent bug — only called with 1–10 today but would surface with any future use beyond 13.
 
 **Verification**:
+
 - `make test` — pass (42/42).
 - `ruff check` — pass on changed files.
 - `npm --prefix league-web run lint` — pass (1 pre-existing AuthForm warning unchanged).
@@ -941,6 +996,14 @@ Optional:
 - **Files changed**: `services/api/app/services/background_jobs.py`, `Makefile`.
 
 ---
+
+## Recent Changes (2026-03-09, session 22)
+
+### Development environment — `make install` virtualenv bootstrap
+
+- **Change**: Updated `Makefile` `install` target to create a local `.venv` (if missing) and run all installs via `./.venv/bin/python -m pip` instead of a bare `pip`.
+- **Why**: Some environments no longer expose `pip` on `PATH`, causing `make install` to fail with `pip: No such file or directory`. Using the project-local virtualenv Python makes the install command consistent and self-contained.
+- **Status**: STABLE — no runtime behavior changes; only the developer setup flow is affected.
 
 ## Recent Changes (2026-03-06, session 21)
 
@@ -973,6 +1036,7 @@ accumulate matches inline without losing context.
   pass all three new props to `MatchesTable`.
 
 **Bug fixes applied mid-session:**
+
 - Button was visible on ALL pages (not just the last) — root cause:
   `nextLoadMorePage <= last_page` is `true` whenever `page < last_page`.
   Fixed by switching to `paginationMeta.page === paginationMeta.last_page`.
@@ -996,14 +1060,12 @@ accumulate matches inline without losing context.
   - `league-web/src/lib/types/match.ts`
   - `league-web/src/components/MatchCard/MatchCard.tsx`
   - `league-web/src/lib/constants/ddragon.ts`
-  - `docs/MATCHCARD_REDESIGN.md`
   - `docs/app_state.md`
 
-1. **LLM Pipeline Step 3 — Win Probability Model**: Train logistic regression on extracted state vectors. Start with stored `match_state_vector` features + match outcomes.
-2. **LLM Pipeline Step 4–6 — ΔW Scoring + Aggregation**: Score actions via the trained model, compute per-action ΔW, aggregate by (champion, action, rank) with K≥50 threshold.
-3. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
-4. **Wire `extract_match_timeline_job` into existing match ingestion flow** — enqueue after `fetch_match_details_job` completes.
-5. ~~**Fix race condition**~~ — **DONE** (session 15).
-6. **Live Game integration** — requires polling architecture + `LiveGameCard` component.
-7. **Consider server-side queue filtering** — current tab filtering is client-side.
-8. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
+1. **LLM Pipeline Step 5–6 — Aggregation + Compare**: Build aggregation queries and comparison logic (K≥50, population fallback).
+2. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
+3. ~~**Wire `extract_match_timeline_job` into existing match ingestion flow**~~ — **DONE** (enqueued after `fetch_match_details_job`).
+4. ~~**Fix race condition**~~ — **DONE** (session 15).
+5. **Live Game integration** — requires polling architecture + `LiveGameCard` component.
+6. **Consider server-side queue filtering** — current tab filtering is client-side.
+7. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
