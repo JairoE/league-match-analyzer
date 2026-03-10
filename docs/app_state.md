@@ -60,6 +60,11 @@
 
 ## Recent Changes (2026-03-09)
 
+### Export training data: normalize JSONB from asyncpg
+
+- **Change**: `scripts/export_training_data.py` now normalizes JSONB column values to dicts before use. When using raw asyncpg (no ORM), JSONB can be returned as JSON strings; the script now uses `_normalize_game_info()` for `game_info` and `_normalize_jsonb_dict()` for `features`, so it works whether the driver returns dict or str.
+- **Why**: Avoids `AttributeError: 'str' object has no attribute 'get'` when running the export. Export run verified: 1586 rows from 245 matches written to CSV.
+
 ### Match card layout tweak
 
 - **Change**: Updated `MatchCard` layout so the main match summary columns and the champion KDA chart sit side by side on desktop, while remaining stacked on mobile/tablet via responsive flex styles.
@@ -78,10 +83,10 @@
   - `/riot-account/[riotId]`: `matchesUrl` now calls `/search/{riotId}/matches?page=X&limit=20&year=<currentYear>` so searching another account also shows only current-year matches.
   - `useMatchList.loadMoreMatches` still has a defensive current-year filter, but the authoritative boundary is now enforced on the backend; refreshes no longer reveal older-year matches or bump totals unexpectedly after a load-more that crossed the year boundary.
 
-### Live-game stream logging crash fix
+### Live-game stream logging crash fix (+ ARQ jobs)
 
-- **Issue**: When Riot returned 401 (or any `RiotRequestError`) on `GET /live-game/{puuid}/stream`, the handler logged with `extra={"message": exc.message}`. Python's `LogRecord` reserves the key `message`, causing `KeyError: "Attempt to overwrite 'message' in LogRecord"` and crashing the stream.
-- **Fix**: Replaced `"message"` with `"detail"` in logger `extra` in two places: **live_game.py** (`live_game_stream_error`) and **timeline_extraction.py** (`timeline_fetch_failed`). SSE payload and API contract unchanged.
+- **Issue**: When Riot returned 401 (or any `RiotRequestError`), handlers that logged with `extra={"message": exc.message}` triggered Python's reserved `LogRecord.message`, causing `KeyError: "Attempt to overwrite 'message' in LogRecord"` and crashing the stream or ARQ worker.
+- **Fix**: Replaced `"message"` with a non-reserved key in logger `extra` and error payloads. All such keys are now **`error_message`** (live_game.py, timeline_extraction.py, match_ingestion.py). SSE live-game error payload uses `error_message`; frontend `LiveGameErrorPayload` type updated to match. Global HTTP exception handler in exceptions.py still returns `detail` in the response body for API compatibility.
 - **Clarification**: `staleMessage` on the frontend is only for match-list 429 fallback (from `PaginationMeta.stale` / `stale_reason`). The live-game stream is a separate SSE endpoint; it does not set pagination meta, so no stale message is expected when the stream fails. To show a user-visible warning on live-game errors (e.g. 401/429), the frontend would need to handle the stream's `error` events (optional enhancement).
 
 ### Global warning for 401 and other Riot API failures

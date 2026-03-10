@@ -23,7 +23,7 @@ export type LiveGameState = {
 
 type LiveGameErrorPayload = {
   status?: number;
-  detail?: string;
+  error_message?: string;
 };
 
 function getLiveGameWarningForStatus(status: number | null): string | null {

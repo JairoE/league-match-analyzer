@@ -234,7 +234,7 @@ async def fetch_timeline_cache_job(ctx: dict, match_ids: list[str]) -> dict:
                     extra={
                         "match_id": riot_match_id,
                         "status": exc.status,
-                        "message": exc.message,
+                        "error_message": exc.message,
                     },
                 )
                 errors.append({"match_id": riot_match_id, "error": exc.message})
@@ -326,7 +326,7 @@ async def fetch_match_details_job(ctx: dict, match_ids: list[str]) -> dict:
                         extra={
                             "match_id": match_id,
                             "status": exc.status,
-                            "message": exc.message,
+                            "error_message": exc.message,
                         },
                     )
                     errors.append({"match_id": match_id, "error": exc.message})
