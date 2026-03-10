@@ -24,9 +24,12 @@ class Settings(BaseSettings):
         arq_cron_run_at_startup: Whether ARQ cron jobs run immediately at worker
             startup. When None, derived from environment (True for development,
             False otherwise). Override via ARQ_CRON_RUN_AT_STARTUP env var.
+        win_prob_model_path: Path to joblib-serialized win probability model;
+            empty to disable action scoring.
     """
 
     environment: str = "development"
+    win_prob_model_path: str = ""
     database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
     redis_url: str = "redis://localhost:6379/0"
     riot_api_key: str = "replace-me"

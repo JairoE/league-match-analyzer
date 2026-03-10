@@ -114,8 +114,8 @@ The LLM is asked to:
 | 1. Ingest | **Done** | `extract_match_timeline_job` in `app/jobs/timeline_extraction.py`. Fetches timeline via `RiotApiClient.fetch_match_timeline()`, caches in Redis (`timeline:{matchId}`, 1h TTL). |
 | 2. Extract | **Done** | `extract_state_vectors()` in `app/services/state_vector.py` — per-minute `GameStateVector` with cumulative KDA/objective trackers. `extract_actions()` in `app/services/action_extraction.py` — legendary item purchases + objective kills with pre/post state linking. |
 | 1→2 Wiring | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered via `func(extract_match_timeline_job, max_tries=5)` in `WorkerSettings.functions`. Rate-limited jobs raise `arq.Retry(defer=120)` instead of failing permanently (up to 5 ARQ retries, ~10 min total). All existing matches backfilled via `scripts/backfill_extraction.py`. |
-| 3. Score | **Prep done** | `scikit-learn` and `numpy` added to `pyproject.toml`. `scripts/export_training_data.py` exports `match_state_vector` features + match outcomes as CSV with 5-min interval sampling. Model training not yet implemented. |
-| 4. Compute ΔW | Not started | `match_action` table has `delta_w`, `pre_win_prob`, `post_win_prob` columns ready (nullable). |
+| 3. Score | **Done** | `scripts/train_win_prob_model.py` trains logistic regression from exported CSV and saves joblib. Scoring service in `app/services/win_prob_scoring.py` loads model (optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x). |
+| 4. Compute ΔW | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded. |
 | 5. Aggregate | Not started | No aggregation service yet. |
 | 6. Compare | Not started | No comparison service yet. |
 | 7. Prompt LLM | Not started | `llm_analysis` table exists with `input_payload`, `output_payload`, `recommendations` columns. |
@@ -138,7 +138,11 @@ The LLM is asked to:
 - `services/api/app/models/match_action.py` — `MatchActionRecord` SQLModel
 - `services/api/app/models/llm_analysis.py` — `LLMAnalysis` SQLModel
 - `scripts/export_training_data.py` — standalone training data export (CSV, 5-min interval sampling per thesis)
+- `scripts/train_win_prob_model.py` — train V1 logistic regression from CSV, save joblib (default `data/win_prob_model.joblib`)
 - `scripts/backfill_extraction.py` — one-off script to enqueue extraction jobs for existing matches missing state vectors
+- `services/api/app/services/win_prob_features.py` — `FEATURE_ORDER`, `encode_rank()` (shared by train script and scoring)
+- `services/api/app/services/win_prob_scoring.py` — `load_model()`, `score_state(features)` → w(x) or None
+- `services/api/app/jobs/score_actions.py` — `score_actions_job(ctx, match_id)` populates ΔW columns on match_action
 - `services/api/tests/test_state_vector.py` — 10 tests
 - `services/api/tests/test_action_extraction.py` — 12 tests
 
@@ -147,8 +151,8 @@ The LLM is asked to:
 1. ~~Wire `extract_match_timeline_job` into the existing match ingestion flow~~ **Done**
 2. ~~Build a training data export~~ **Done** (`scripts/export_training_data.py`)
 3. ~~Accumulate training data by running the app with real matches + `make backfill-extraction` for existing matches~~ **Done** — all existing matches have state vectors
-4. Train V1 logistic regression on exported CSV and expose as a scoring service
-5. Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows
+4. ~~Train V1 logistic regression on exported CSV and expose as a scoring service~~ **Done** — `scripts/train_win_prob_model.py`, `win_prob_scoring.py`
+5. ~~Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows~~ **Done**
 6. Build aggregation queries and comparison logic
 7. Implement LLM prompt construction and `llm_analysis` persistence
 

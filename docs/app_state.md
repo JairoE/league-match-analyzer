@@ -1,6 +1,6 @@
 # App State
 
-**Last Updated:** 2026-03-08
+**Last Updated:** 2026-03-09
 **Branch:** `frontend-api-db-cache-rework`
 **Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning). Live-game stream no longer crashes on Riot 401/errors (logging fix). Home initial load now requests latest matches and avoids duplicate matches API request.
 
@@ -55,6 +55,18 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-09, LLM pipeline step 4)
+
+### Step 4 — Scoring service + score_actions_job
+
+- **Scoring service**: `app/services/win_prob_scoring.py` — `load_model()` (from optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x) in [0, 1] or None when model not loaded. Feature order and rank encoding in `app/services/win_prob_features.py` (shared with training script).
+- **Training script**: `scripts/train_win_prob_model.py` — reads CSV from export, fits logistic regression, saves joblib (default `data/win_prob_model.joblib`). Run after exporting training data; set `WIN_PROB_MODEL_PATH` in API/worker env to enable scoring.
+- **score_actions_job**: `app/jobs/score_actions.py` — for a given match_id, loads state vectors and actions, scores pre/post states, persists `delta_w`, `pre_win_prob`, `post_win_prob` on each `match_action`. Idempotent; returns skipped when model not loaded. Registered in `WorkerSettings.functions`.
+- **Config**: `win_prob_model_path: str = ""` added to Settings; empty disables action scoring.
+- **Doc**: `docs/LLM_DATA_PIPELINE.md` updated — steps 3 and 4 marked Done; key files and next steps revised.
 
 ---
 
@@ -947,6 +959,14 @@ Optional:
 
 ---
 
+## Recent Changes (2026-03-09, session 22)
+
+### Development environment — `make install` virtualenv bootstrap
+
+- **Change**: Updated `Makefile` `install` target to create a local `.venv` (if missing) and run all installs via `./.venv/bin/python -m pip` instead of a bare `pip`.
+- **Why**: Some environments no longer expose `pip` on `PATH`, causing `make install` to fail with `pip: No such file or directory`. Using the project-local virtualenv Python makes the install command consistent and self-contained.
+- **Status**: STABLE — no runtime behavior changes; only the developer setup flow is affected.
+
 ## Recent Changes (2026-03-06, session 21)
 
 ### "See More" load-more button for match history (`frontend-graceful-degradation`)
@@ -1004,11 +1024,10 @@ accumulate matches inline without losing context.
   - `docs/MATCHCARD_REDESIGN.md`
   - `docs/app_state.md`
 
-1. **LLM Pipeline Step 3 — Win Probability Model**: Train logistic regression on extracted state vectors. Start with stored `match_state_vector` features + match outcomes.
-2. **LLM Pipeline Step 4–6 — ΔW Scoring + Aggregation**: Score actions via the trained model, compute per-action ΔW, aggregate by (champion, action, rank) with K≥50 threshold.
-3. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
-4. **Wire `extract_match_timeline_job` into existing match ingestion flow** — enqueue after `fetch_match_details_job` completes.
-5. ~~**Fix race condition**~~ — **DONE** (session 15).
-6. **Live Game integration** — requires polling architecture + `LiveGameCard` component.
-7. **Consider server-side queue filtering** — current tab filtering is client-side.
-8. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
+1. **LLM Pipeline Step 5–6 — Aggregation + Compare**: Build aggregation queries and comparison logic (K≥50, population fallback).
+2. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
+3. ~~**Wire `extract_match_timeline_job` into existing match ingestion flow**~~ — **DONE** (enqueued after `fetch_match_details_job`).
+4. ~~**Fix race condition**~~ — **DONE** (session 15).
+5. **Live Game integration** — requires polling architecture + `LiveGameCard` component.
+6. **Consider server-side queue filtering** — current tab filtering is client-side.
+7. **Implement vector embeddings** — `pgvector` is enabled; wire up `sentence-transformers` worker job.
