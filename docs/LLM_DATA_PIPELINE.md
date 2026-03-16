@@ -74,6 +74,9 @@ make score-account-matches RIOT_ID="damanjr#NA1"
 
 # Dry run — just show how many matches would be scored, without enqueueing jobs
 make score-account-matches-dry RIOT_ID="damanjr#NA1"
+
+# Inspect how many matches have already been scored vs total, and how many remain:
+make account-match-stats RIOT_ID="damanjr#NA1"
 ```
 
 Under the hood this runs a Postgres query against the `match` and `riot_account_match` tables to find all matches for the account that do not yet have `delta_w` populated in `match_action`, then enqueues `score_actions_job` for each match via `make score-actions`. The `-dry` variant runs the same filter query but only prints the count.
