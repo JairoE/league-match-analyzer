@@ -18,6 +18,7 @@ from app.models.match_action import MatchActionRecord
 from app.models.match_state_vector import MatchStateVector
 from app.services.action_extraction import extract_actions
 from app.services.cache import get_redis
+from app.services.resolve_match_rank import resolve_average_rank
 from app.services.riot_api_client import RiotApiClient, RiotRequestError
 from app.services.riot_match_id import normalize_match_id
 from app.services.state_vector import extract_state_vectors
@@ -101,6 +102,11 @@ async def extract_match_timeline_job(
             raise
         if timeline is None:
             return {"match_id": match_id, "status": "error", "error": "timeline_fetch_failed"}
+
+        # Resolve average rank if not explicitly provided
+        if average_rank is None and match.game_info:
+            redis = get_redis()
+            average_rank = await resolve_average_rank(match.game_info, redis, session)
 
         # Extract state vectors
         state_vectors = extract_state_vectors(timeline, average_rank=average_rank)

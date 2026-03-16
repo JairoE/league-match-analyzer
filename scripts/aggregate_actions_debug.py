@@ -15,7 +15,9 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 
 _api_root = Path(__file__).resolve().parents[1] / "services" / "api"
@@ -23,6 +25,64 @@ sys.path.insert(0, str(_api_root))
 
 # Load env before importing app (database_url, etc.)
 load_dotenv(_api_root / ".env")
+
+
+def _fmt_stat(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:.4f}"
+
+
+async def _load_item_name_map() -> dict[str, str]:
+    """Fetch a mapping of item_id -> human-readable item name from Data Dragon.
+
+    Falls back to an empty dict on network failure so the script still works.
+    """
+    try:
+        from app.services.ddragon_client import DdragonClient
+
+        client = DdragonClient()
+        version = await client.fetch_latest_version()
+        url = f"{DdragonClient.CDN_BASE_URL}/{version}/data/en_US/item.json"
+        async with httpx.AsyncClient(timeout=20.0) as http_client:
+            response = await http_client.get(url)
+            response.raise_for_status()
+            payload: dict[str, Any] = response.json()
+        data = payload.get("data", {})
+        return {
+            item_id: (info.get("name") or str(item_id))
+            for item_id, info in data.items()
+            if isinstance(info, dict)
+        }
+    except Exception:
+        # Debug helper should never block on metadata; fall back gracefully.
+        return {}
+
+
+_OBJECTIVE_LABELS: dict[str, str] = {
+    "DRAGON": "Dragon",
+    "RIFTHERALD": "Rift Herald",
+    "BARON_NASHOR": "Baron Nashor",
+}
+
+
+def _format_action_label(
+    action_type: str,
+    action_key: str,
+    item_names: dict[str, str],
+) -> str:
+    """Return a human-readable label for the action key."""
+    if action_type == "ITEM_PURCHASE":
+        name = item_names.get(action_key)
+        if name:
+            return f"{name} ({action_key})"
+        return f"item_id={action_key}"
+
+    if action_type == "OBJECTIVE_KILL":
+        label = _OBJECTIVE_LABELS.get(action_key.upper(), action_key)
+        return f"{label} ({action_key})"
+
+    return action_key
 
 
 async def _run(
@@ -68,6 +128,10 @@ async def _run(
             rank_tier=rank_tier,
         )
 
+        # Load item metadata after querying aggregates so failures here don't
+        # affect the core stats path.
+        item_names = await _load_item_name_map()
+
     if not aggregates:
         print("No action aggregates (no scored actions for this account/filters).")
         return
@@ -78,21 +142,26 @@ async def _run(
         p = a.personal_stats
         pop = a.population_stats
         insuf = " [INSUFFICIENT PERSONAL]" if a.insufficient_personal_sample else ""
+        action_label = _format_action_label(
+            k.action_type,
+            k.action_key,
+            item_names,
+        )
         print(
             f"champion={k.champion_id} rank={k.rank_tier} "
-            f"action_type={k.action_type} action_key={k.action_key}{insuf}"
+            f"action_type={k.action_type} action_key={action_label}{insuf}"
         )
         print(
             f"  personal:   K={p.count} "
-            f"mean_ΔW={p.mean_delta_w:.4f if p.mean_delta_w is not None else 'N/A'} "
-            f"mean_W(x)={p.mean_pre_win_prob:.4f if p.mean_pre_win_prob is not None else 'N/A'} "
-            f"stddev_ΔW={p.stddev_delta_w:.4f if p.stddev_delta_w is not None else 'N/A'}"
+            f"mean_ΔW={_fmt_stat(p.mean_delta_w)} "
+            f"mean_W(x)={_fmt_stat(p.mean_pre_win_prob)} "
+            f"stddev_ΔW={_fmt_stat(p.stddev_delta_w)}"
         )
         print(
             f"  population: K={pop.count} "
-            f"mean_ΔW={pop.mean_delta_w:.4f if pop.mean_delta_w is not None else 'N/A'} "
-            f"mean_W(x)={pop.mean_pre_win_prob:.4f if pop.mean_pre_win_prob is not None else 'N/A'} "
-            f"stddev_ΔW={pop.stddev_delta_w:.4f if pop.stddev_delta_w is not None else 'N/A'}"
+            f"mean_ΔW={_fmt_stat(pop.mean_delta_w)} "
+            f"mean_W(x)={_fmt_stat(pop.mean_pre_win_prob)} "
+            f"stddev_ΔW={_fmt_stat(pop.stddev_delta_w)}"
         )
         print()
     print(f"Total groups: {len(aggregates)}")

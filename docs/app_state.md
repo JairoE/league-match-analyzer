@@ -77,6 +77,7 @@
 - **Make target**: Added `make score-account-matches RIOT_ACCOUNT_ID=<uuid>` (and `RIOT_ID=name#TAG` variant) to enqueue `score_actions_job` for all unscored matches tied to a given `riot_account` in the database.
 - **Dry run helper**: Added `make score-account-matches-dry` to print how many matches would be scored for an account without enqueueing any jobs.
 - **Stats helper**: Added `make account-match-stats RIOT_ACCOUNT_ID=<uuid>` / `RIOT_ID=name#TAG` to print `total_matches`, `scored_matches` (with `delta_w`), and `remaining_to_score` for an account.
+- **Debug output**: `scripts/aggregate_actions_debug.py` now decorates `action_key` with human-readable labels — item purchases show the Data Dragon item name plus item ID, and objective kills show friendly labels (e.g. "Dragon (DRAGON)", "Baron Nashor (BARON_NASHOR)").
 - **Docs**: `docs/LLM_DATA_PIPELINE.md` updated so Step 4 (Score Actions) references the new batch helper, dry-run variant, and stats helper instead of a raw `docker exec psql | xargs make score-actions` shell one-liner.
 
 ### Champion metadata helper

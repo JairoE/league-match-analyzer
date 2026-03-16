@@ -29,6 +29,7 @@ class RiotAccount(SQLModel, table=True):
     summoner_name: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     profile_icon_id: int | None = Field(default=None)
     summoner_level: int | None = Field(default=None)
+    rank_tier: str | None = Field(default=None, sa_column=Column(String, nullable=True))
 
     matches: list[Match] = Relationship(
         sa_relationship=relationship(

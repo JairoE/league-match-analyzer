@@ -8,8 +8,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from redis.asyncio import Redis
+from sqlmodel import update
 
 from app.core.logging import get_logger
+from app.db.session import async_session_factory
+from app.models.riot_account import RiotAccount
 from app.services.cache import get_redis
 from app.services.riot_api_client import RiotApiClient
 
@@ -55,6 +58,21 @@ async def _fetch_rank_cached(
     # Empty dict == unranked
     value = payload if payload else None
     await redis.set(key, json.dumps(value), ex=_RANK_TTL_SECONDS)
+
+    # Persist rank_tier on the riot_account record (fire-and-forget style)
+    tier = payload.get("tier") if payload else None
+    if tier:
+        try:
+            async with async_session_factory() as db:
+                await db.execute(
+                    update(RiotAccount)
+                    .where(RiotAccount.puuid == puuid)
+                    .values(rank_tier=tier)
+                )
+                await db.commit()
+        except Exception:
+            logger.exception("rank_batch_persist_tier_error", extra={"puuid": puuid})
+
     return value
 
 

@@ -138,6 +138,18 @@ async def fetch_rank_for_riot_account(
         return None
     async with RiotApiClient() as client:
         payload = await client.fetch_rank_by_puuid(riot_account.puuid)
+
+    # Persist rank_tier on the riot_account record for downstream use
+    tier = payload.get("tier") if payload else None
+    if tier and tier != riot_account.rank_tier:
+        riot_account.rank_tier = tier
+        session.add(riot_account)
+        await session.commit()
+        logger.info(
+            "riot_sync_rank_tier_persisted",
+            extra={"riot_account_id": riot_account_id, "rank_tier": tier},
+        )
+
     logger.info("riot_sync_fetch_rank_done", extra={"riot_account_id": riot_account_id})
     return payload
 
