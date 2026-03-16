@@ -76,7 +76,13 @@
 
 - **Make target**: Added `make score-account-matches RIOT_ACCOUNT_ID=<uuid>` (and `RIOT_ID=name#TAG` variant) to enqueue `score_actions_job` for all unscored matches tied to a given `riot_account` in the database.
 - **Dry run helper**: Added `make score-account-matches-dry` to print how many matches would be scored for an account without enqueueing any jobs.
-- **Docs**: `docs/LLM_DATA_PIPELINE.md` updated so Step 4 (Score Actions) references the new batch helper + dry-run variant instead of a raw `docker exec psql | xargs make score-actions` shell one-liner.
+- **Stats helper**: Added `make account-match-stats RIOT_ACCOUNT_ID=<uuid>` / `RIOT_ID=name#TAG` to print `total_matches`, `scored_matches` (with `delta_w`), and `remaining_to_score` for an account.
+- **Docs**: `docs/LLM_DATA_PIPELINE.md` updated so Step 4 (Score Actions) references the new batch helper, dry-run variant, and stats helper instead of a raw `docker exec psql | xargs make score-actions` shell one-liner.
+
+### Champion metadata helper
+
+- **Script**: `scripts/print_champion_ids.py` — fetches the latest Data Dragon champion catalog via `DdragonClient` and prints a JSON map of `champ_id -> name`.
+- **Make target**: `make print-champion-ids` — convenience wrapper around the script for quickly looking up Riot numeric champion IDs from the terminal.
 
 ---
 
