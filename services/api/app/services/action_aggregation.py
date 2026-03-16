@@ -62,30 +62,12 @@ class ActionAggregate:
     insufficient_personal_sample: bool
 
 
-def _row_to_aggregate_row(
-    count: int,
-    mean_delta_w: float | None,
-    mean_pre_win_prob: float | None,
-    stddev_delta_w: float | None,
-) -> AggregateRow:
-    """Build AggregateRow from raw SQL result (stddev can be None for single row)."""
-    return AggregateRow(
-        count=count or 0,
-        mean_delta_w=float(mean_delta_w) if mean_delta_w is not None else None,
-        mean_pre_win_prob=(
-            float(mean_pre_win_prob) if mean_pre_win_prob is not None else None
-        ),
-        stddev_delta_w=(
-            float(stddev_delta_w) if stddev_delta_w is not None else None
-        ),
-    )
+# ---------------------------------------------------------------------------
+# Shared SQL fragments
+# ---------------------------------------------------------------------------
 
-
-# CTE: this player's actions with derived dimensions (champion, rank, action_key).
-# Filters to scored rows (delta_w IS NOT NULL) and participant = account's puuid.
-_PERSONAL_CTE = """
-WITH player_actions AS (
-  SELECT
+# Derives champion_id, rank_tier, action_key from raw join of match_action + match.
+_ACTION_COLUMNS = """
     ma.action_type,
     ma.delta_w,
     ma.pre_win_prob,
@@ -103,9 +85,48 @@ WITH player_actions AS (
       WHEN 'OBJECTIVE_KILL' THEN ma.action_detail->>'monster_type'
       ELSE 'unknown'
     END AS action_key
+"""
+
+_AGG_COLUMNS = """
+    COALESCE(champion_id, '') AS champion_id,
+    COALESCE(rank_tier, '') AS rank_tier,
+    action_type,
+    COALESCE(action_key, '') AS action_key,
+    count(*) AS k,
+    avg(delta_w) AS mean_delta_w,
+    avg(pre_win_prob) AS mean_pre_win_prob,
+    stddev_samp(delta_w) AS stddev_delta_w
+"""
+
+
+def _build_query(
+    champion: str | None,
+    rank_tier: str | None,
+) -> tuple[str, dict[str, str]]:
+    """Build a single SQL statement with personal + population CTEs.
+
+    Returns the SQL string and a dict of extra bind params (champion/rank filters).
+    The caller must also bind :riot_account_id.
+    """
+    filters: list[str] = []
+    params: dict[str, str] = {}
+    if champion is not None:
+        filters.append("champion_id = :champion")
+        params["champion"] = champion
+    if rank_tier is not None:
+        filters.append("rank_tier = :rank_tier")
+        params["rank_tier"] = rank_tier
+
+    personal_extra = (" AND " + " AND ".join(filters)) if filters else ""
+
+    sql = f"""
+WITH player_actions AS (
+  SELECT
+    {_ACTION_COLUMNS}
   FROM match_action ma
   JOIN match m ON ma.match_id = m.id
-  JOIN riot_account_match ram ON ram.match_id = m.id AND ram.riot_account_id = :riot_account_id
+  JOIN riot_account_match ram
+    ON ram.match_id = m.id AND ram.riot_account_id = :riot_account_id
   JOIN riot_account ra ON ra.id = ram.riot_account_id
   WHERE m.game_info IS NOT NULL
     AND ma.delta_w IS NOT NULL
@@ -115,103 +136,58 @@ WITH player_actions AS (
       WHERE p2.elem->>'puuid' = ra.puuid
       LIMIT 1
     )
-)
-SELECT
-  COALESCE(champion_id, '') AS champion_id,
-  COALESCE(rank_tier, '') AS rank_tier,
-  action_type,
-  COALESCE(action_key, '') AS action_key,
-  count(*) AS k,
-  avg(delta_w) AS mean_delta_w,
-  avg(pre_win_prob) AS mean_pre_win_prob,
-  stddev_samp(delta_w) AS stddev_delta_w
-FROM player_actions
-WHERE champion_id IS NOT NULL AND champion_id != ''
-GROUP BY champion_id, rank_tier, action_type, action_key
-"""
-
-
-def _build_personal_sql(champion: str | None, rank_tier: str | None) -> tuple[str, dict]:
-    """Build personal aggregation SQL and params with optional filters."""
-    sql = _PERSONAL_CTE.rstrip()
-    extra_where: list[str] = []
-    params: dict = {}
-    if champion is not None:
-        extra_where.append("champion_id = :champion")
-        params["champion"] = champion
-    if rank_tier is not None:
-        extra_where.append("rank_tier = :rank_tier")
-        params["rank_tier"] = rank_tier
-    if extra_where:
-        sql = sql.replace(
-            "WHERE champion_id IS NOT NULL AND champion_id != ''\nGROUP BY",
-            "WHERE champion_id IS NOT NULL AND champion_id != '' AND "
-            + " AND ".join(extra_where)
-            + "\nGROUP BY",
-        )
-    return sql, params
-
-# Population: same dimensions but all participants (no riot_account filter).
-# Restricted to (champion_id, rank_tier) pairs from the player's data.
-# Placeholder: {champion_rank_in_clause} is replaced with expanded (c, r) IN ((:c0,:r0),...).
-_POPULATION_CTE_TEMPLATE = """
-WITH all_actions AS (
+),
+personal_agg AS (
   SELECT
-    ma.action_type,
-    ma.delta_w,
-    ma.pre_win_prob,
-    (SELECT p.elem->>'championId'
-     FROM jsonb_array_elements(m.game_info->'info'->'participants') AS p(elem)
-     WHERE (p.elem->>'participantId')::int = ma.participant_id
-     LIMIT 1) AS champion_id,
-    (SELECT msv.features->>'average_rank'
-     FROM match_state_vector msv
-     WHERE msv.match_id = m.id
-     ORDER BY msv.minute ASC
-     LIMIT 1) AS rank_tier,
-    CASE ma.action_type
-      WHEN 'ITEM_PURCHASE' THEN ma.action_detail->>'item_id'
-      WHEN 'OBJECTIVE_KILL' THEN ma.action_detail->>'monster_type'
-      ELSE 'unknown'
-    END AS action_key
+    {_AGG_COLUMNS}
+  FROM player_actions
+  WHERE champion_id IS NOT NULL AND champion_id != ''{personal_extra}
+  GROUP BY champion_id, rank_tier, action_type, action_key
+),
+all_actions AS (
+  SELECT
+    {_ACTION_COLUMNS}
   FROM match_action ma
   JOIN match m ON ma.match_id = m.id
   WHERE m.game_info IS NOT NULL
     AND ma.delta_w IS NOT NULL
+),
+population_agg AS (
+  SELECT
+    {_AGG_COLUMNS}
+  FROM all_actions
+  WHERE champion_id IS NOT NULL AND champion_id != ''
+    AND (champion_id, COALESCE(rank_tier, '')) IN (
+      SELECT DISTINCT champion_id, rank_tier FROM personal_agg
+    )
+  GROUP BY champion_id, rank_tier, action_type, action_key
 )
 SELECT
-  COALESCE(champion_id, '') AS champion_id,
-  COALESCE(rank_tier, '') AS rank_tier,
-  action_type,
-  COALESCE(action_key, '') AS action_key,
-  count(*) AS k,
-  avg(delta_w) AS mean_delta_w,
-  avg(pre_win_prob) AS mean_pre_win_prob,
-  stddev_samp(delta_w) AS stddev_delta_w
-FROM all_actions
-WHERE champion_id IS NOT NULL AND champion_id != ''
-  AND (champion_id, rank_tier) IN ({champion_rank_in_clause})
-GROUP BY champion_id, rank_tier, action_type, action_key
+  p.champion_id,
+  p.rank_tier,
+  p.action_type,
+  p.action_key,
+  p.k              AS personal_k,
+  p.mean_delta_w   AS personal_mean_delta_w,
+  p.mean_pre_win_prob AS personal_mean_pre_win_prob,
+  p.stddev_delta_w AS personal_stddev_delta_w,
+  COALESCE(pop.k, 0)        AS pop_k,
+  pop.mean_delta_w           AS pop_mean_delta_w,
+  pop.mean_pre_win_prob      AS pop_mean_pre_win_prob,
+  pop.stddev_delta_w         AS pop_stddev_delta_w
+FROM personal_agg p
+LEFT JOIN population_agg pop
+  ON  p.champion_id = pop.champion_id
+  AND p.rank_tier   = pop.rank_tier
+  AND p.action_type = pop.action_type
+  AND p.action_key  = pop.action_key
 """
-
-
-def _build_population_sql(
-    champion_rank_pairs: list[tuple[str, str]],
-) -> tuple[str, dict]:
-    """Build population SQL with expanded (champion_id, rank_tier) IN bind params."""
-    if not champion_rank_pairs:
-        return "", {}
-    placeholders = [
-        f"(:cr_c{i}, :cr_r{i})" for i in range(len(champion_rank_pairs))
-    ]
-    params = {}
-    for i, (c, r) in enumerate(champion_rank_pairs):
-        params[f"cr_c{i}"] = c
-        params[f"cr_r{i}"] = r
-    sql = _POPULATION_CTE_TEMPLATE.format(
-        champion_rank_in_clause=", ".join(placeholders)
-    )
     return sql, params
+
+
+def _to_float(val: object) -> float | None:
+    """Coerce a DB value (Decimal/float/None) to float or None."""
+    return float(val) if val is not None else None
 
 
 async def aggregate_action_stats_for_player(
@@ -222,10 +198,10 @@ async def aggregate_action_stats_for_player(
 ) -> list[ActionAggregate]:
     """Compute per-group action stats for a player with population fallback.
 
-    Runs read-only SQL: (1) personal aggregates for this riot_account,
-    (2) population aggregates for the same (champion, rank_tier) buckets.
-    For each group, if personal count < 50, marks insufficient_personal_sample
-    and relies on population_stats.
+    Runs a single read-only SQL statement with two CTEs: personal aggregates
+    for this riot_account, and population aggregates for the same
+    (champion, rank_tier) buckets.  For each group, if personal count < 50,
+    marks insufficient_personal_sample and relies on population_stats.
 
     Args:
         session: Async database session.
@@ -245,72 +221,37 @@ async def aggregate_action_stats_for_player(
         },
     )
 
-    params: dict = {"riot_account_id": str(riot_account_id)}
-    personal_sql, filter_params = _build_personal_sql(champion, rank_tier)
+    sql, filter_params = _build_query(champion, rank_tier)
+    params: dict[str, str] = {"riot_account_id": str(riot_account_id)}
     params.update(filter_params)
 
-    result = await session.execute(text(personal_sql), params)
-    personal_rows = result.mappings().all()
-
-    # Build list of (champion_id, rank_tier) for population query
-    champion_rank_pairs = list(
-        {(r["champion_id"], r["rank_tier"]) for r in personal_rows}
-    )
-    if not champion_rank_pairs:
-        logger.info(
-            "aggregate_action_stats_no_personal_data",
-            extra={"riot_account_id": str(riot_account_id)},
-        )
-        return []
-
-    # Population query with expanded (champion_id, rank_tier) IN bind params
-    pop_sql, pop_params = _build_population_sql(champion_rank_pairs)
-    if not pop_sql:
-        return []
-    pop_result = await session.execute(text(pop_sql), pop_params)
-    population_rows = {(
-        r["champion_id"],
-        r["rank_tier"],
-        r["action_type"],
-        r["action_key"],
-    ): r for r in pop_result.mappings().all()}
+    result = await session.execute(text(sql), params)
+    rows = result.mappings().all()
 
     aggregates: list[ActionAggregate] = []
-    for r in personal_rows:
-        key = GroupKey(
-            champion_id=r["champion_id"],
-            rank_tier=r["rank_tier"],
-            action_type=r["action_type"],
-            action_key=r["action_key"],
-            opponent_damage_bucket=OPPONENT_DAMAGE_BUCKET_V1,
-        )
-        k = r["k"]
-        personal_stats = _row_to_aggregate_row(
-            k,
-            r["mean_delta_w"],
-            r["mean_pre_win_prob"],
-            r["stddev_delta_w"],
-        )
-        insufficient = k < MIN_PERSONAL_SAMPLE_SIZE
-
-        pop_key = (key.champion_id, key.rank_tier, key.action_type, key.action_key)
-        pop_row = population_rows.get(pop_key)
-        population_stats = (
-            _row_to_aggregate_row(
-                pop_row["k"],
-                pop_row["mean_delta_w"],
-                pop_row["mean_pre_win_prob"],
-                pop_row["stddev_delta_w"],
-            )
-            if pop_row
-            else AggregateRow(0, None, None, None)
-        )
-
+    for r in rows:
+        k = r["personal_k"]
         aggregates.append(ActionAggregate(
-            group_key=key,
-            personal_stats=personal_stats,
-            population_stats=population_stats,
-            insufficient_personal_sample=insufficient,
+            group_key=GroupKey(
+                champion_id=r["champion_id"],
+                rank_tier=r["rank_tier"],
+                action_type=r["action_type"],
+                action_key=r["action_key"],
+                opponent_damage_bucket=OPPONENT_DAMAGE_BUCKET_V1,
+            ),
+            personal_stats=AggregateRow(
+                count=k or 0,
+                mean_delta_w=_to_float(r["personal_mean_delta_w"]),
+                mean_pre_win_prob=_to_float(r["personal_mean_pre_win_prob"]),
+                stddev_delta_w=_to_float(r["personal_stddev_delta_w"]),
+            ),
+            population_stats=AggregateRow(
+                count=r["pop_k"] or 0,
+                mean_delta_w=_to_float(r["pop_mean_delta_w"]),
+                mean_pre_win_prob=_to_float(r["pop_mean_pre_win_prob"]),
+                stddev_delta_w=_to_float(r["pop_stddev_delta_w"]),
+            ),
+            insufficient_personal_sample=k < MIN_PERSONAL_SAMPLE_SIZE,
         ))
 
     logger.info(

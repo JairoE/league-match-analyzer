@@ -13,18 +13,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Load env before importing app (database_url, etc.)
 _env_path = Path(__file__).resolve().parents[1] / "services" / "api" / ".env"
-if _env_path.exists():
-    with open(_env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+load_dotenv(_env_path)
 
 
 async def _run(

@@ -83,7 +83,6 @@ aggregate-actions-debug:
 		exit 1; \
 	fi
 	./.venv/bin/python scripts/aggregate_actions_debug.py $$([ -n "$$RIOT_ACCOUNT_ID" ] && echo "--riot-account-id $$RIOT_ACCOUNT_ID" || echo "--riot-id $$RIOT_ID")
-	./.venv/bin/python scripts/export_training_data.py --output data/training.csv --sample-interval 1
 
 win-prob-model-training:
 	./.venv/bin/python scripts/train_win_prob_model.py --input data/training.csv --output data/win_prob_model.joblib
