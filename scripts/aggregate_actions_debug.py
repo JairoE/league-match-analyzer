@@ -13,13 +13,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+_api_root = Path(__file__).resolve().parents[1] / "services" / "api"
+sys.path.insert(0, str(_api_root))
+
 # Load env before importing app (database_url, etc.)
-_env_path = Path(__file__).resolve().parents[1] / "services" / "api" / ".env"
-load_dotenv(_env_path)
+load_dotenv(_api_root / ".env")
 
 
 async def _run(

@@ -15,6 +15,85 @@ Ingest a summoner's match history, compute contextualized win probability statis
 7.  **Prompt LLM**: Send the gap analysis (summoner choices vs. optimal alternatives) with schema version. Request 3 ranked recommendations ordered by expected win probability impact.
 8.  **Store + Log**: Persist LLM output with match IDs, schema version, and basic request metadata (timestamp, model, token count).
 
+## Pipeline Runbook
+
+Steps 1-2 run automatically when matches are fetched through the API/worker. Steps 3-5 require manual invocation. Steps 6-8 are not yet implemented.
+
+**Prerequisites**: `make db-up`, `make db-migrate`, `make install`, and a valid `RIOT_API_KEY` in `services/api/.env`.
+
+### Step 1-2: Ingest + Extract (automatic)
+
+Triggered automatically when matches are fetched via the search endpoint or ARQ worker sync. To backfill extraction for existing matches that are missing state vectors:
+
+```bash
+# Dry run — see which matches would be enqueued
+make backfill-extraction-dry
+
+# Run backfill (requires ARQ worker running)
+make backfill-extraction
+```
+
+The ARQ worker must be running to process the enqueued jobs:
+
+```bash
+make worker-dev
+```
+
+### Step 3: Train Win Probability Model (manual)
+
+Export training data from extracted state vectors, then train the logistic regression model:
+
+```bash
+# Export CSV (samples one state per 5-min interval per match, per thesis)
+./.venv/bin/python scripts/export_training_data.py --output data/training.csv --sample-interval 1
+
+# Train model and save to joblib
+make win-prob-model-training
+# Output: data/win_prob_model.joblib
+```
+
+Set `WIN_PROB_MODEL_PATH=../../data/win_prob_model.joblib` in `services/api/.env` so the worker can load it.
+
+### Step 4: Score Actions (manual, per match)
+
+Enqueues `score_actions_job` via ARQ. Requires the worker to be running with the model loaded.
+
+```bash
+# Score a single match
+make score-actions MATCH_ID=NA1_1234567890
+```
+
+There is currently no batch "score all matches" command. To score all unscored matches for an account, you would need to query match IDs from the database and loop:
+
+```bash
+# Example: score all matches for an account (fish match IDs from DB first)
+docker exec league_postgres psql -U league -d league -t -c \
+  "SELECT m.game_id FROM match m
+   JOIN riot_account_match ram ON ram.match_id = m.id
+   WHERE ram.riot_account_id = '<UUID>'
+     AND m.id NOT IN (SELECT DISTINCT match_id FROM match_action WHERE delta_w IS NOT NULL)" \
+  | xargs -I{} make score-actions MATCH_ID={}
+```
+
+### Step 5: Aggregate (manual, read-only)
+
+Aggregation runs on-the-fly over scored actions — no persistence step needed.
+
+```bash
+# By Riot ID
+make aggregate-actions-debug RIOT_ID=damanjr#NA1
+
+# By account UUID (skip DB lookup)
+make aggregate-actions-debug RIOT_ACCOUNT_ID=<uuid>
+
+# With filters
+./.venv/bin/python scripts/aggregate_actions_debug.py --riot-id "damanjr#NA1" --champion 157 --rank-tier GOLD
+```
+
+If this returns "No action aggregates", it means step 4 has not been run for this account's matches (no `delta_w` values exist).
+
+### Steps 6-8: Not yet implemented
+
 ## Game State Vector ($X$)
 
 Extract per-minute state vectors from `participantFrames` and `events`. These align with Table 5 of the thesis (75.9% accuracy, 0.90% ECE):

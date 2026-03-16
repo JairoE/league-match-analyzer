@@ -1,6 +1,6 @@
 # Technical Architecture & Design Patterns
 
-**Last Updated:** March 7, 2026
+**Last Updated:** March 16, 2026
 **Scope:** Full codebase of `league-match-analyzer` (FastAPI + Next.js + Infrastructure + LLM Pipeline)
 
 ## Executive Summary
@@ -40,13 +40,13 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 
 ### 1.3 LLM Data Pipeline
 
-An 8-step pipeline (Steps 1–2 implemented) for win probability-based match analysis:
+An 8-step pipeline (Steps 1–5 implemented) for win probability-based match analysis:
 
 1. **Ingest**: Fetch timeline from Riot API with Redis caching (1h TTL).
 2. **Extract**: Pull per-minute state vectors and discrete action events from timeline data.
-3. **Score** (future): Apply win probability model $w(x)$ to pre/post-action states.
-4. **Compute ΔW** (future): $\Delta W(d) = w(z) - w(x)$ per action.
-5. **Aggregate** (future): Mean ΔW per action type with K≥50 sample threshold.
+3. **Score**: Logistic regression model trained from exported CSV; scoring service loads joblib at worker startup.
+4. **Compute ΔW**: `score_actions_job` persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action` rows.
+5. **Aggregate**: Read-only SQL aggregation with personal + population stats and K≥50 fallback.
 6. **Compare** (future): Rank summoner choices vs. population-optimal alternatives.
 7. **Prompt LLM** (future): Submit gap analysis to Claude for recommendations.
 8. **Store** (future): Persist output to `llm_analysis` table.
@@ -73,6 +73,7 @@ See `docs/LLM_DATA_PIPELINE.md` for the full specification.
   - `fetch_riot_account_matches_job`: Pagination-aware match ID fetching.
   - `fetch_match_details_job`: Batch fetching of match payloads.
   - `extract_match_timeline_job`: Timeline ingest, state vector + action extraction, DB persistence. Idempotent (skips if vectors already exist).
+  - `score_actions_job`: Scores pre/post states via win probability model, persists ΔW on `match_action` rows. Idempotent; skips when model not loaded.
   - `fetch_timeline_cache_job`: Timeline prefetch/caching for match detail expansion UX.
   - **Cron**: `sync_all_riot_accounts_matches` runs every 6 hours.
 
@@ -91,6 +92,9 @@ See `docs/LLM_DATA_PIPELINE.md` for the full specification.
 | `riot_account_upsert.py` | Riot account upsert logic |
 | `state_vector.py` | Game state vector extraction from timeline data |
 | `action_extraction.py` | Discrete action extraction (item purchases, objective kills) |
+| `action_aggregation.py` | Personal + population ΔW aggregation with K≥50 fallback |
+| `win_prob_features.py` | `FEATURE_ORDER`, `encode_rank()` shared by training and scoring |
+| `win_prob_scoring.py` | `load_model()`, `score_state(features)` → w(x) |
 | `live_game.py` | Live game spectator data with SSE streaming |
 | `champions.py` | Champion data management |
 | `champion_seed.py` | Auto-seed champions from Data Dragon on startup |
@@ -249,10 +253,8 @@ All components are folderized in `src/components/`, each with its own CSS module
 
 ### 4.3 Testing
 
-### 4.3 Testing
-
 - **Backend**: pytest with `asyncio_mode = "auto"` in `services/api/tests/`
-- **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests); 42/42 tests pass.
+- **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests), action aggregation (12 tests), background jobs, rate limiting, and more; 106 tests pass.
 - **No frontend test suite** currently.
 
 ## 5. Key Updates
@@ -278,7 +280,7 @@ All components are folderized in `src/components/`, each with its own CSS module
 
 ## 7. Roadmap
 
-- **LLM Pipeline Steps 3–7**: Win probability model → ΔW scoring → aggregation → LLM prompt → recommendation storage
-- **Wire timeline extraction**: Enqueue `extract_match_timeline_job` after `fetch_match_details_job` completes
+- **LLM Pipeline Steps 6–8**: Compare (ranking vs. optimal) → LLM prompt → recommendation storage
+- **Batch scoring**: Add a "score all unscored matches for account" command (step 4 is currently per-match)
 - **Server-side queue filtering**: Move tab filtering to the API for more accurate pagination counts
 - **Vector embeddings**: `pgvector` is enabled; wire up for semantic search capabilities
