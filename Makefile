@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches aggregate-actions-debug capture-riot-fixtures
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry aggregate-actions-debug capture-riot-fixtures
 
 help:
 	@echo "Available targets:"
@@ -14,7 +14,8 @@ help:
 	@echo "  lint         Run backend + frontend lint gates"
 	@echo "  test         Run pytest on all services"
 	@echo "  score-actions  Enqueue score_actions_job for a single match (MATCH_ID=...)"
-	@echo "  score-account-matches  Enqueue score_actions_job for all unscored matches for an account (RIOT_ACCOUNT_ID=...)"
+	@echo "  score-account-matches  Enqueue score_actions_job for all unscored matches for an account (RIOT_ACCOUNT_ID=... or RIOT_ID=name#NA1)"
+	@echo "  score-account-matches-dry  Print how many unscored matches would be scored for an account (RIOT_ACCOUNT_ID=... or RIOT_ID=name#NA1)"
 	@echo "  aggregate-actions-debug  Print action aggregates for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
 	@echo "  capture-riot-fixtures  Capture live Riot JSON fixtures for tests"
 
@@ -82,16 +83,56 @@ score-actions:
 	./.venv/bin/python scripts/score_actions_for_match.py --match-id "$$MATCH_ID"
 
 score-account-matches:
-	@if [ -z "$$RIOT_ACCOUNT_ID" ]; then \
-		echo "Usage: make score-account-matches RIOT_ACCOUNT_ID=<uuid>"; \
+	@if [ -z "$$RIOT_ACCOUNT_ID" ] && [ -z "$$RIOT_ID" ]; then \
+		echo "Usage: make score-account-matches RIOT_ACCOUNT_ID=<uuid> or RIOT_ID=name#NA1"; \
 		exit 1; \
-	fi
-	docker exec league_postgres psql -U league -d league -t -c \
-	  "SELECT m.game_id FROM match m \
+	fi; \
+	if [ -z "$$RIOT_ACCOUNT_ID" ]; then \
+		echo "Resolving riot account ID for $$RIOT_ID..."; \
+		RIOT_ACCOUNT_ID=$$(docker exec league_postgres psql -U league -d league -t -c "\
+		  SELECT id FROM riot_account \
+		  WHERE riot_id = '$$RIOT_ID' \
+		  LIMIT 1" | tr -d '[:space:]'); \
+		if [ -z "$$RIOT_ACCOUNT_ID" ]; then \
+			echo "No riot_account found for RIOT_ID=$$RIOT_ID"; \
+			exit 1; \
+		fi; \
+		echo "Resolved RIOT_ACCOUNT_ID=$$RIOT_ACCOUNT_ID"; \
+	else \
+		RIOT_ACCOUNT_ID="$$RIOT_ACCOUNT_ID"; \
+	fi; \
+	docker exec league_postgres psql -U league -d league -t -c "\
+	  SELECT m.game_id FROM match m \
 	   JOIN riot_account_match ram ON ram.match_id = m.id \
 	   WHERE ram.riot_account_id = '$$RIOT_ACCOUNT_ID' \
 	     AND m.id NOT IN (SELECT DISTINCT match_id FROM match_action WHERE delta_w IS NOT NULL)" \
 	  | xargs -I{} make score-actions MATCH_ID={}
+
+score-account-matches-dry:
+	@if [ -z "$$RIOT_ACCOUNT_ID" ] && [ -z "$$RIOT_ID" ]; then \
+		echo "Usage: make score-account-matches-dry RIOT_ACCOUNT_ID=<uuid> or RIOT_ID=name#NA1"; \
+		exit 1; \
+	fi; \
+	if [ -z "$$RIOT_ACCOUNT_ID" ]; then \
+		echo "Resolving riot account ID for $$RIOT_ID..."; \
+		RIOT_ACCOUNT_ID=$$(docker exec league_postgres psql -U league -d league -t -c "\
+		  SELECT id FROM riot_account \
+		  WHERE riot_id = '$$RIOT_ID' \
+		  LIMIT 1" | tr -d '[:space:]'); \
+		if [ -z "$$RIOT_ACCOUNT_ID" ]; then \
+			echo "No riot_account found for RIOT_ID=$$RIOT_ID"; \
+			exit 1; \
+		fi; \
+		echo "Resolved RIOT_ACCOUNT_ID=$$RIOT_ACCOUNT_ID"; \
+	else \
+		RIOT_ACCOUNT_ID="$$RIOT_ACCOUNT_ID"; \
+	fi; \
+	COUNT=$$(docker exec league_postgres psql -U league -d league -t -c "\
+	  SELECT COUNT(*) FROM match m \
+	   JOIN riot_account_match ram ON ram.match_id = m.id \
+	   WHERE ram.riot_account_id = '$$RIOT_ACCOUNT_ID' \
+	     AND m.id NOT IN (SELECT DISTINCT match_id FROM match_action WHERE delta_w IS NOT NULL)" | tr -d '[:space:]'); \
+	echo "$$COUNT matches would be scored for RIOT_ACCOUNT_ID=$$RIOT_ACCOUNT_ID"
 
 aggregate-actions-debug:
 	@if [ -z "$$RIOT_ACCOUNT_ID" ] && [ -z "$$RIOT_ID" ]; then \

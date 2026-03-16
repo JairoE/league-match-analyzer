@@ -74,8 +74,9 @@
 
 ### LLM pipeline tooling — batch scoring helper
 
-- **Make target**: Added `make score-account-matches RIOT_ACCOUNT_ID=<uuid>` to enqueue `score_actions_job` for all unscored matches tied to a given `riot_account` in the database.
-- **Docs**: `docs/LLM_DATA_PIPELINE.md` updated so Step 4 (Score Actions) references the new batch helper instead of a raw `docker exec psql | xargs make score-actions` shell one-liner.
+- **Make target**: Added `make score-account-matches RIOT_ACCOUNT_ID=<uuid>` (and `RIOT_ID=name#TAG` variant) to enqueue `score_actions_job` for all unscored matches tied to a given `riot_account` in the database.
+- **Dry run helper**: Added `make score-account-matches-dry` to print how many matches would be scored for an account without enqueueing any jobs.
+- **Docs**: `docs/LLM_DATA_PIPELINE.md` updated so Step 4 (Score Actions) references the new batch helper + dry-run variant instead of a raw `docker exec psql | xargs make score-actions` shell one-liner.
 
 ---
 
