@@ -1,8 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-09
+**Last Updated:** 2026-03-10
 **Branch:** `frontend-api-db-cache-rework`
-**Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning). Live-game stream no longer crashes on Riot 401/errors (logging fix). Home initial load now requests latest matches and avoids duplicate matches API request.
+**Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning). Live-game stream no longer crashes on Riot 401/errors (logging fix). Home initial load now requests latest matches and avoids duplicate matches API request. **LLM pipeline step 5 (Aggregate)** implemented: read-only action aggregation with K≥50 fallback.
 
 **Review:** See `docs/REVIEW_recent_changes.md`. Optional suggestions implemented: search handler extracted to `_first_sync_account_and_matches` / `_refresh_matches_if_requested`; matches 429 helper `_mark_rate_limited_or_reraise`; frontend `getStaleMessage()` + API meta merged into `paginationMeta` via `lastMetaFromApi`.
 
@@ -55,6 +55,19 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-10, LLM pipeline step 5 — Aggregate)
+
+### Step 5 — Action aggregation (read-only, V1)
+
+- **Service**: `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id (from game_info participants), rank_tier (from first `match_state_vector.features['average_rank']`), action_type, action_key (item_id or monster_type), opponent_damage_bucket (V1: "mixed").
+- **API**: `aggregate_action_stats_for_player(session, riot_account_id, champion=None, rank_tier=None)` returns `list[ActionAggregate]`. Each item has `group_key`, `personal_stats` (count, mean_delta_w, mean_pre_win_prob, stddev_delta_w), `population_stats` for same bucket, and `insufficient_personal_sample` when personal K < 50. Population query restricted to (champion_id, rank_tier) pairs from the player's data; IN clause expanded for asyncpg.
+- **Constants**: `MIN_PERSONAL_SAMPLE_SIZE = 50`, `OPPONENT_DAMAGE_BUCKET_V1 = "mixed"`.
+- **Debug script**: `scripts/aggregate_actions_debug.py` — accepts `--riot-account-id` or `--riot-id`, optional `--champion` / `--rank-tier`; prints aggregates. Make: `make aggregate-actions-debug RIOT_ACCOUNT_ID=<uuid>` or `RIOT_ID="name#NA1"`.
+- **Tests**: `services/api/tests/test_action_aggregation.py` — 12 tests (helpers, SQL builders, merge + K≥50 flag).
+- **Doc**: `docs/LLM_DATA_PIPELINE.md` updated — step 5 marked Done; key files and next steps revised.
 
 ---
 
@@ -1062,7 +1075,7 @@ accumulate matches inline without losing context.
   - `league-web/src/lib/constants/ddragon.ts`
   - `docs/app_state.md`
 
-1. **LLM Pipeline Step 5–6 — Aggregation + Compare**: Build aggregation queries and comparison logic (K≥50, population fallback).
+1. **LLM Pipeline Step 6 — Compare**: Build comparison logic (rank summoner choices vs optimal alternatives by ΔW).
 2. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
 3. ~~**Wire `extract_match_timeline_job` into existing match ingestion flow**~~ — **DONE** (enqueued after `fetch_match_details_job`).
 4. ~~**Fix race condition**~~ — **DONE** (session 15).

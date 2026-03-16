@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry score-actions capture-riot-fixtures
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry score-actions aggregate-actions-debug capture-riot-fixtures
 
 help:
 	@echo "Available targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  lint         Run backend + frontend lint gates"
 	@echo "  test         Run pytest on all services"
 	@echo "  score-actions  Enqueue score_actions_job for a single match (MATCH_ID=...)"
+	@echo "  aggregate-actions-debug  Print action aggregates for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
 	@echo "  capture-riot-fixtures  Capture live Riot JSON fixtures for tests"
 
 install:
@@ -76,7 +77,12 @@ score-actions:
 	fi
 	./.venv/bin/python scripts/score_actions_for_match.py --match-id "$$MATCH_ID"
 
-training-data-export:
+aggregate-actions-debug:
+	@if [ -z "$$RIOT_ACCOUNT_ID" ] && [ -z "$$RIOT_ID" ]; then \
+		echo "Usage: make aggregate-actions-debug RIOT_ACCOUNT_ID=<uuid> or RIOT_ID=name#NA1"; \
+		exit 1; \
+	fi
+	./.venv/bin/python scripts/aggregate_actions_debug.py $$([ -n "$$RIOT_ACCOUNT_ID" ] && echo "--riot-account-id $$RIOT_ACCOUNT_ID" || echo "--riot-id $$RIOT_ID")
 	./.venv/bin/python scripts/export_training_data.py --output data/training.csv --sample-interval 1
 
 win-prob-model-training:

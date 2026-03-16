@@ -116,7 +116,7 @@ The LLM is asked to:
 | 1→2 Wiring | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered via `func(extract_match_timeline_job, max_tries=5)` in `WorkerSettings.functions`. Rate-limited jobs raise `arq.Retry(defer=120)` instead of failing permanently (up to 5 ARQ retries, ~10 min total). All existing matches backfilled via `scripts/backfill_extraction.py`. |
 | 3. Score | **Done** | `scripts/train_win_prob_model.py` trains logistic regression from exported CSV and saves joblib. Scoring service in `app/services/win_prob_scoring.py` loads model (optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x). |
 | 4. Compute ΔW | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded. |
-| 5. Aggregate | Not started | No aggregation service yet. |
+| 5. Aggregate | **Done** | `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id, rank_tier, action_type, action_key, opponent_damage_bucket (V1: "mixed"). `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` returns list of `ActionAggregate` with personal_stats, population_stats, and `insufficient_personal_sample` when K < 50. Population restricted to same (champion, rank_tier) buckets. Optional dispersion: stddev(delta_w). Debug script: `scripts/aggregate_actions_debug.py` and `make aggregate-actions-debug RIOT_ACCOUNT_ID=...` or `RIOT_ID=...`. |
 | 6. Compare | Not started | No comparison service yet. |
 | 7. Prompt LLM | Not started | `llm_analysis` table exists with `input_payload`, `output_payload`, `recommendations` columns. |
 | 8. Store + Log | Not started | `LLMAnalysis` model ready with `schema_version`, `model_name`, token counts. |
@@ -143,6 +143,8 @@ The LLM is asked to:
 - `services/api/app/services/win_prob_features.py` — `FEATURE_ORDER`, `encode_rank()` (shared by train script and scoring)
 - `services/api/app/services/win_prob_scoring.py` — `load_model()`, `score_state(features)` → w(x) or None
 - `services/api/app/jobs/score_actions.py` — `score_actions_job(ctx, match_id)` populates ΔW columns on match_action
+- `services/api/app/services/action_aggregation.py` — `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` → list of `ActionAggregate` (personal + population stats, K≥50 fallback); `GroupKey`, `AggregateRow`, `ActionAggregate`; `_build_personal_sql`, `_build_population_sql` for optional filters and IN expansion
+- `services/api/tests/test_action_aggregation.py` — 12 tests
 - `services/api/tests/test_state_vector.py` — 10 tests
 - `services/api/tests/test_action_extraction.py` — 12 tests
 
@@ -153,7 +155,7 @@ The LLM is asked to:
 3. ~~Accumulate training data by running the app with real matches + `make backfill-extraction` for existing matches~~ **Done** — all existing matches have state vectors
 4. ~~Train V1 logistic regression on exported CSV and expose as a scoring service~~ **Done** — `scripts/train_win_prob_model.py`, `win_prob_scoring.py`
 5. ~~Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows~~ **Done**
-6. Build aggregation queries and comparison logic
+6. ~~Build aggregation queries~~ **Done** — `action_aggregation.py` with personal/population merge and K≥50 fallback. Build comparison logic (pipeline step 6) next.
 7. Implement LLM prompt construction and `llm_analysis` persistence
 
 ## Future Extensions
