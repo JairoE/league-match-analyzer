@@ -60,17 +60,22 @@
 
 ## Recent Changes (2026-03-16, code review + doc sync)
 
-### Aggregation refactor (from code review)
+### Aggregation refactor + debug script fix (from code review)
 
 - **Single-query consolidation**: `action_aggregation.py` rewritten from two separate queries (personal, then population with bind-parameter IN expansion) into a single SQL statement with `personal_agg` and `population_agg` CTEs. Population CTE now filters via subquery (`SELECT DISTINCT champion_id, rank_tier FROM personal_agg`) instead of expanding `(:cr_c0, :cr_r0), ...` pairs.
 - **Simplified query builder**: `_build_personal_sql` and `_build_population_sql` replaced with single `_build_query(champion, rank_tier)` that returns the full SQL + filter params.
-- **Debug script**: `scripts/aggregate_actions_debug.py` now uses `python-dotenv` for env loading; runs from project root (sys.path includes `services/api`).
+- **Debug script**: `scripts/aggregate_actions_debug.py` now uses `python-dotenv` for env loading; runs from project root (sys.path includes `services/api`) and formats stats via a helper so `mean_ΔW` / `mean_W(x)` / `stddev_ΔW` print as `N/A` instead of crashing when values are missing.
 - **Tests updated**: Reflect new single-query structure; population subquery assertion replaces bind-param assertions.
 
 ### Documentation sync
 
 - **`TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`**: Pipeline steps 3-5 updated from "(future)" to implemented status. Added `action_aggregation.py`, `win_prob_features.py`, `win_prob_scoring.py` to service table. Added `score_actions_job` to jobs list. Test count corrected (42 → 106). Roadmap updated (steps 6-8 remaining). Fixed duplicate `### 4.3` header.
 - **`WIN_PROB_MODEL_NOTES.md`**: Added "Aggregation stability" subsection on model versioning implications for step 5.
+
+### LLM pipeline tooling — batch scoring helper
+
+- **Make target**: Added `make score-account-matches RIOT_ACCOUNT_ID=<uuid>` to enqueue `score_actions_job` for all unscored matches tied to a given `riot_account` in the database.
+- **Docs**: `docs/LLM_DATA_PIPELINE.md` updated so Step 4 (Score Actions) references the new batch helper instead of a raw `docker exec psql | xargs make score-actions` shell one-liner.
 
 ---
 

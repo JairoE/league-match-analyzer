@@ -63,17 +63,13 @@ Enqueues `score_actions_job` via ARQ. Requires the worker to be running with the
 make score-actions MATCH_ID=NA1_1234567890
 ```
 
-There is currently no batch "score all matches" command. To score all unscored matches for an account, you would need to query match IDs from the database and loop:
+To score all unscored matches for an account, use:
 
 ```bash
-# Example: score all matches for an account (fish match IDs from DB first)
-docker exec league_postgres psql -U league -d league -t -c \
-  "SELECT m.game_id FROM match m
-   JOIN riot_account_match ram ON ram.match_id = m.id
-   WHERE ram.riot_account_id = '<UUID>'
-     AND m.id NOT IN (SELECT DISTINCT match_id FROM match_action WHERE delta_w IS NOT NULL)" \
-  | xargs -I{} make score-actions MATCH_ID={}
+make score-account-matches RIOT_ACCOUNT_ID=<uuid>
 ```
+
+Under the hood this runs a Postgres query against the `match` and `riot_account_match` tables to find all matches for the account that do not yet have `delta_w` populated in `match_action`, then enqueues `score_actions_job` for each match via `make score-actions`.
 
 ### Step 5: Aggregate (manual, read-only)
 
@@ -91,6 +87,30 @@ make aggregate-actions-debug RIOT_ACCOUNT_ID=<uuid>
 ```
 
 If this returns "No action aggregates", it means step 4 has not been run for this account's matches (no `delta_w` values exist).
+
+### Backfill average_rank on state vectors (optional, one-time)
+
+After rank data has accumulated (via the rank endpoint persisting `rank_tier` on `riot_account`), backfill `average_rank` into existing state vectors without re-running extraction:
+
+```bash
+# Dry run — see which matches would be updated
+./.venv/bin/python scripts/backfill_rank_on_vectors.py --dry-run
+
+# Run backfill (default: requires >= 3 known ranks per match)
+make backfill-rank
+
+# Lower threshold for V1 if most matches only have 1-2 known ranks
+./.venv/bin/python scripts/backfill_rank_on_vectors.py --min-known 1
+```
+
+New extractions resolve `average_rank` automatically (Redis + DB lookup in `extract_match_timeline_job`). This backfill is only needed for state vectors created before rank resolution was wired in.
+
+After backfilling, re-export training data and retrain to give the model a rank signal:
+
+```bash
+./.venv/bin/python scripts/export_training_data.py --output data/training.csv --sample-interval 1
+make win-prob-model-training
+```
 
 ### Steps 6-8: Not yet implemented
 
@@ -219,6 +239,8 @@ The LLM is asked to:
 - `scripts/export_training_data.py` — standalone training data export (CSV, 5-min interval sampling per thesis)
 - `scripts/train_win_prob_model.py` — train V1 logistic regression from CSV, save joblib (default `data/win_prob_model.joblib`)
 - `scripts/backfill_extraction.py` — one-off script to enqueue extraction jobs for existing matches missing state vectors
+- `scripts/backfill_rank_on_vectors.py` — targeted backfill of `average_rank` on existing state vectors (DB-only, no API calls)
+- `services/api/app/services/resolve_match_rank.py` — `resolve_average_rank()` — computes median rank from Redis cache + `riot_account.rank_tier` DB column
 - `services/api/app/services/win_prob_features.py` — `FEATURE_ORDER`, `encode_rank()` (shared by train script and scoring)
 - `services/api/app/services/win_prob_scoring.py` — `load_model()`, `score_state(features)` → w(x) or None
 - `services/api/app/jobs/score_actions.py` — `score_actions_job(ctx, match_id)` populates ΔW columns on match_action
