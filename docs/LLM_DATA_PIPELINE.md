@@ -15,6 +15,115 @@ Ingest a summoner's match history, compute contextualized win probability statis
 7.  **Prompt LLM**: Send the gap analysis (summoner choices vs. optimal alternatives) with schema version. Request 3 ranked recommendations ordered by expected win probability impact.
 8.  **Store + Log**: Persist LLM output with match IDs, schema version, and basic request metadata (timestamp, model, token count).
 
+## Pipeline Runbook
+
+Steps 1-2 run automatically when matches are fetched through the API/worker. Steps 3-5 require manual invocation. Steps 6-8 are not yet implemented.
+
+**Prerequisites**: `make db-up`, `make db-migrate`, `make install`, and a valid `RIOT_API_KEY` in `services/api/.env`.
+
+### Step 1-2: Ingest + Extract (automatic)
+
+Triggered automatically when matches are fetched via the search endpoint or ARQ worker sync. To backfill extraction for existing matches that are missing state vectors:
+
+```bash
+# Dry run — see which matches would be enqueued
+make backfill-extraction-dry
+
+# Run backfill (requires ARQ worker running)
+make backfill-extraction
+```
+
+The ARQ worker must be running to process the enqueued jobs:
+
+```bash
+make worker-dev
+```
+
+### Step 3: Train Win Probability Model (manual)
+
+Export training data from extracted state vectors, then train the logistic regression model:
+
+```bash
+# Export CSV (samples one state per 5-min interval per match, per thesis)
+./.venv/bin/python scripts/export_training_data.py --output data/training.csv --sample-interval 1
+
+# Train model and save to joblib
+make win-prob-model-training
+# Output: data/win_prob_model.joblib
+```
+
+Set `WIN_PROB_MODEL_PATH=../../data/win_prob_model.joblib` in `services/api/.env` so the worker can load it.
+
+### Step 4: Score Actions (manual, per match)
+
+Enqueues `score_actions_job` via ARQ. Requires the worker to be running with the model loaded.
+
+```bash
+# Score a single match
+make score-actions MATCH_ID=NA1_1234567890
+```
+
+To score all unscored matches for an account, use:
+
+```bash
+# By account UUID (preferred when you already have it)
+make score-account-matches RIOT_ACCOUNT_ID=<uuid>
+
+# Or by Riot ID (gameName#tagLine), the helper will resolve the account UUID from the DB:
+make score-account-matches RIOT_ID="damanjr#NA1"
+
+# Dry run — just show how many matches would be scored, without enqueueing jobs
+make score-account-matches-dry RIOT_ID="damanjr#NA1"
+
+# Inspect how many matches have already been scored vs total, and how many remain:
+make account-match-stats RIOT_ID="damanjr#NA1"
+```
+
+Under the hood this runs a Postgres query against the `match` and `riot_account_match` tables to find all matches for the account that do not yet have `delta_w` populated in `match_action`, then enqueues `score_actions_job` for each match via `make score-actions`. The `-dry` variant runs the same filter query but only prints the count.
+
+### Step 5: Aggregate (manual, read-only)
+
+Aggregation runs on-the-fly over scored actions — no persistence step needed.
+
+```bash
+# By Riot ID
+make aggregate-actions-debug RIOT_ID=damanjr#NA1
+
+# By account UUID (skip DB lookup)
+make aggregate-actions-debug RIOT_ACCOUNT_ID=<uuid>
+
+# With filters
+./.venv/bin/python scripts/aggregate_actions_debug.py --riot-id "damanjr#NA1" --champion 157 --rank-tier GOLD
+```
+
+If this returns "No action aggregates", it means step 4 has not been run for this account's matches (no `delta_w` values exist).
+
+### Backfill average_rank on state vectors (optional, one-time)
+
+After rank data has accumulated (via the rank endpoint persisting `rank_tier` on `riot_account`), backfill `average_rank` into existing state vectors without re-running extraction:
+
+```bash
+# Dry run — see which matches would be updated
+./.venv/bin/python scripts/backfill_rank_on_vectors.py --dry-run
+
+# Run backfill (default: requires >= 3 known ranks per match)
+make backfill-rank
+
+# Lower threshold for V1 if most matches only have 1-2 known ranks
+./.venv/bin/python scripts/backfill_rank_on_vectors.py --min-known 1
+```
+
+New extractions resolve `average_rank` automatically (Redis + DB lookup in `extract_match_timeline_job`). This backfill is only needed for state vectors created before rank resolution was wired in.
+
+After backfilling, re-export training data and retrain to give the model a rank signal:
+
+```bash
+./.venv/bin/python scripts/export_training_data.py --output data/training.csv --sample-interval 1
+make win-prob-model-training
+```
+
+### Steps 6-8: Not yet implemented
+
 ## Game State Vector ($X$)
 
 Extract per-minute state vectors from `participantFrames` and `events`. These align with Table 5 of the thesis (75.9% accuracy, 0.90% ECE):
@@ -116,7 +225,7 @@ The LLM is asked to:
 | 1→2 Wiring | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered via `func(extract_match_timeline_job, max_tries=5)` in `WorkerSettings.functions`. Rate-limited jobs raise `arq.Retry(defer=120)` instead of failing permanently (up to 5 ARQ retries, ~10 min total). All existing matches backfilled via `scripts/backfill_extraction.py`. |
 | 3. Score | **Done** | `scripts/train_win_prob_model.py` trains logistic regression from exported CSV and saves joblib. Scoring service in `app/services/win_prob_scoring.py` loads model (optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x). |
 | 4. Compute ΔW | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded. |
-| 5. Aggregate | Not started | No aggregation service yet. |
+| 5. Aggregate | **Done** | `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id, rank_tier, action_type, action_key, opponent_damage_bucket (V1: "mixed"). `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` returns list of `ActionAggregate` with personal_stats, population_stats, and `insufficient_personal_sample` when K < 50. Population restricted to same (champion, rank_tier) buckets. Optional dispersion: stddev(delta_w). Debug script: `scripts/aggregate_actions_debug.py` and `make aggregate-actions-debug RIOT_ACCOUNT_ID=...` or `RIOT_ID=...`. |
 | 6. Compare | Not started | No comparison service yet. |
 | 7. Prompt LLM | Not started | `llm_analysis` table exists with `input_payload`, `output_payload`, `recommendations` columns. |
 | 8. Store + Log | Not started | `LLMAnalysis` model ready with `schema_version`, `model_name`, token counts. |
@@ -140,9 +249,13 @@ The LLM is asked to:
 - `scripts/export_training_data.py` — standalone training data export (CSV, 5-min interval sampling per thesis)
 - `scripts/train_win_prob_model.py` — train V1 logistic regression from CSV, save joblib (default `data/win_prob_model.joblib`)
 - `scripts/backfill_extraction.py` — one-off script to enqueue extraction jobs for existing matches missing state vectors
+- `scripts/backfill_rank_on_vectors.py` — targeted backfill of `average_rank` on existing state vectors (DB-only, no API calls)
+- `services/api/app/services/resolve_match_rank.py` — `resolve_average_rank()` — computes median rank from Redis cache + `riot_account.rank_tier` DB column
 - `services/api/app/services/win_prob_features.py` — `FEATURE_ORDER`, `encode_rank()` (shared by train script and scoring)
 - `services/api/app/services/win_prob_scoring.py` — `load_model()`, `score_state(features)` → w(x) or None
 - `services/api/app/jobs/score_actions.py` — `score_actions_job(ctx, match_id)` populates ΔW columns on match_action
+- `services/api/app/services/action_aggregation.py` — `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` → list of `ActionAggregate` (personal + population stats, K≥50 fallback); `GroupKey`, `AggregateRow`, `ActionAggregate`; `_build_personal_sql`, `_build_population_sql` for optional filters and IN expansion
+- `services/api/tests/test_action_aggregation.py` — 12 tests
 - `services/api/tests/test_state_vector.py` — 10 tests
 - `services/api/tests/test_action_extraction.py` — 12 tests
 
@@ -153,7 +266,7 @@ The LLM is asked to:
 3. ~~Accumulate training data by running the app with real matches + `make backfill-extraction` for existing matches~~ **Done** — all existing matches have state vectors
 4. ~~Train V1 logistic regression on exported CSV and expose as a scoring service~~ **Done** — `scripts/train_win_prob_model.py`, `win_prob_scoring.py`
 5. ~~Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows~~ **Done**
-6. Build aggregation queries and comparison logic
+6. ~~Build aggregation queries~~ **Done** — `action_aggregation.py` with personal/population merge and K≥50 fallback. Build comparison logic (pipeline step 6) next.
 7. Implement LLM prompt construction and `llm_analysis` persistence
 
 ## Future Extensions

@@ -82,6 +82,18 @@ emits:
      - The prompt consumes `delta_w` and rankings, not the model itself.
      - If we later retrain, only the numbers change; prompt structure and
        semantics remain the same.
+5. **Aggregation stability (step 5 in production)**
+   - The action aggregation service (`action_aggregation.py`) now consumes
+     `delta_w` in production for \((\text{champion}, \text{rank}, \text{action\_type}, \text{action\_key})\)
+     buckets.
+   - Because aggregation only depends on the numerical `delta_w` values, any
+     model retrain (new coefficients) will change these aggregates without
+     requiring a schema change.
+   - Before treating aggregates as “stable insights” (e.g. long-lived
+     dashboards or cached reports), we should:
+     - either tag aggregates with an explicit `model_version`, or
+     - plan to re-run `score_actions_job` + aggregation whenever the model is
+       retrained.
 
 ### Recommended future improvements
 

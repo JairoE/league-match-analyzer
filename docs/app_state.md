@@ -1,10 +1,10 @@
 # App State
 
-**Last Updated:** 2026-03-09
-**Branch:** `frontend-api-db-cache-rework`
-**Status:** STABLE — lint clean, build clean; 429 rate-limit graceful degradation (cached matches + amber warning). Live-game stream no longer crashes on Riot 401/errors (logging fix). Home initial load now requests latest matches and avoids duplicate matches API request.
+**Last Updated:** 2026-03-16
+**Branch:** `llm-phase-5`
+**Status:** STABLE — lint clean, build clean. LLM pipeline steps 1–5 implemented (Ingest → Extract → Score → ΔW → Aggregate). Step 5 aggregation consolidated into single 2-CTE query. Documentation updated to reflect current state.
 
-**Review:** See `docs/REVIEW_recent_changes.md`. Optional suggestions implemented: search handler extracted to `_first_sync_account_and_matches` / `_refresh_matches_if_requested`; matches 429 helper `_mark_rate_limited_or_reraise`; frontend `getStaleMessage()` + API meta merged into `paginationMeta` via `lastMetaFromApi`.
+**Review:** See `docs/REVIEW_recent_changes.md`. Code review of step 5 completed: aggregation refactored from two-query to single-query approach, `_build_personal_sql`/`_build_population_sql` replaced with unified `_build_query`, population CTE uses subquery instead of bind-parameter expansion. Full branch review (correctness, over-engineering, perf, tests) completed 2026-03-16; same file.
 
 ## What's Built
 
@@ -55,6 +55,48 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-16, code review + doc sync)
+
+### Aggregation refactor + debug script fix (from code review)
+
+- **Single-query consolidation**: `action_aggregation.py` rewritten from two separate queries (personal, then population with bind-parameter IN expansion) into a single SQL statement with `personal_agg` and `population_agg` CTEs. Population CTE now filters via subquery (`SELECT DISTINCT champion_id, rank_tier FROM personal_agg`) instead of expanding `(:cr_c0, :cr_r0), ...` pairs.
+- **Simplified query builder**: `_build_personal_sql` and `_build_population_sql` replaced with single `_build_query(champion, rank_tier)` that returns the full SQL + filter params.
+- **Debug script**: `scripts/aggregate_actions_debug.py` now uses `python-dotenv` for env loading; runs from project root (sys.path includes `services/api`) and formats stats via a helper so `mean_ΔW` / `mean_W(x)` / `stddev_ΔW` print as `N/A` instead of crashing when values are missing.
+- **Tests updated**: Reflect new single-query structure; population subquery assertion replaces bind-param assertions.
+
+### Documentation sync
+
+- **`TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`**: Pipeline steps 3-5 updated from "(future)" to implemented status. Added `action_aggregation.py`, `win_prob_features.py`, `win_prob_scoring.py` to service table. Added `score_actions_job` to jobs list. Test count corrected (42 → 106). Roadmap updated (steps 6-8 remaining). Fixed duplicate `### 4.3` header.
+- **`WIN_PROB_MODEL_NOTES.md`**: Added "Aggregation stability" subsection on model versioning implications for step 5.
+
+### LLM pipeline tooling — batch scoring helper
+
+- **Make target**: Added `make score-account-matches RIOT_ACCOUNT_ID=<uuid>` (and `RIOT_ID=name#TAG` variant) to enqueue `score_actions_job` for all unscored matches tied to a given `riot_account` in the database.
+- **Dry run helper**: Added `make score-account-matches-dry` to print how many matches would be scored for an account without enqueueing any jobs.
+- **Stats helper**: Added `make account-match-stats RIOT_ACCOUNT_ID=<uuid>` / `RIOT_ID=name#TAG` to print `total_matches`, `scored_matches` (with `delta_w`), and `remaining_to_score` for an account.
+- **Debug output**: `scripts/aggregate_actions_debug.py` now decorates `action_key` with human-readable labels — item purchases show the Data Dragon item name plus item ID, and objective kills show friendly labels (e.g. "Dragon (DRAGON)", "Baron Nashor (BARON_NASHOR)").
+- **Docs**: `docs/LLM_DATA_PIPELINE.md` updated so Step 4 (Score Actions) references the new batch helper, dry-run variant, and stats helper instead of a raw `docker exec psql | xargs make score-actions` shell one-liner.
+
+### Champion metadata helper
+
+- **Script**: `scripts/print_champion_ids.py` — fetches the latest Data Dragon champion catalog via `DdragonClient` and prints a JSON map of `champ_id -> name`.
+- **Make target**: `make print-champion-ids` — convenience wrapper around the script for quickly looking up Riot numeric champion IDs from the terminal.
+
+---
+
+## Recent Changes (2026-03-10, LLM pipeline step 5 — Aggregate)
+
+### Step 5 — Action aggregation (read-only, V1)
+
+- **Service**: `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id (from game_info participants), rank_tier (from first `match_state_vector.features['average_rank']`), action_type, action_key (item_id or monster_type), opponent_damage_bucket (V1: "mixed").
+- **API**: `aggregate_action_stats_for_player(session, riot_account_id, champion=None, rank_tier=None)` returns `list[ActionAggregate]`. Each item has `group_key`, `personal_stats` (count, mean_delta_w, mean_pre_win_prob, stddev_delta_w), `population_stats` for same bucket, and `insufficient_personal_sample` when personal K < 50. Population query restricted to (champion_id, rank_tier) pairs from the player's data; IN clause expanded for asyncpg.
+- **Constants**: `MIN_PERSONAL_SAMPLE_SIZE = 50`, `OPPONENT_DAMAGE_BUCKET_V1 = "mixed"`.
+- **Debug script**: `scripts/aggregate_actions_debug.py` — accepts `--riot-account-id` or `--riot-id`, optional `--champion` / `--rank-tier`; prints aggregates. Make: `make aggregate-actions-debug RIOT_ACCOUNT_ID=<uuid>` or `RIOT_ID="name#NA1"`.
+- **Tests**: `services/api/tests/test_action_aggregation.py` — 12 tests (helpers, SQL builders, merge + K≥50 flag).
+- **Doc**: `docs/LLM_DATA_PIPELINE.md` updated — step 5 marked Done; key files and next steps revised.
 
 ---
 
@@ -1062,7 +1104,7 @@ accumulate matches inline without losing context.
   - `league-web/src/lib/constants/ddragon.ts`
   - `docs/app_state.md`
 
-1. **LLM Pipeline Step 5–6 — Aggregation + Compare**: Build aggregation queries and comparison logic (K≥50, population fallback).
+1. **LLM Pipeline Step 6 — Compare**: Build comparison logic (rank summoner choices vs optimal alternatives by ΔW).
 2. **LLM Pipeline Step 7 — LLM Prompt**: Build gap analysis payload and submit to Claude for recommendations. Populate `llm_analysis` table.
 3. ~~**Wire `extract_match_timeline_job` into existing match ingestion flow**~~ — **DONE** (enqueued after `fetch_match_details_job`).
 4. ~~**Fix race condition**~~ — **DONE** (session 15).
