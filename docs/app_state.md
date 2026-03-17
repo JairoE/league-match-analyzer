@@ -4,7 +4,7 @@
 **Branch:** `llm-phase-5`
 **Status:** STABLE — lint clean, build clean. LLM pipeline steps 1–5 implemented (Ingest → Extract → Score → ΔW → Aggregate). Step 5 aggregation consolidated into single 2-CTE query. Documentation updated to reflect current state.
 
-**Review:** See `docs/REVIEW_recent_changes.md`. Code review of step 5 completed: aggregation refactored from two-query to single-query approach, `_build_personal_sql`/`_build_population_sql` replaced with unified `_build_query`, population CTE uses subquery instead of bind-parameter expansion.
+**Review:** See `docs/REVIEW_recent_changes.md`. Code review of step 5 completed: aggregation refactored from two-query to single-query approach, `_build_personal_sql`/`_build_population_sql` replaced with unified `_build_query`, population CTE uses subquery instead of bind-parameter expansion. Full branch review (correctness, over-engineering, perf, tests) completed 2026-03-16; same file.
 
 ## What's Built
 
