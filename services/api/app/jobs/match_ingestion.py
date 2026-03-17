@@ -238,6 +238,12 @@ async def fetch_timeline_cache_job(ctx: dict, match_ids: list[str]) -> dict:
                     },
                 )
                 errors.append({"match_id": riot_match_id, "error": exc.message})
+            except Exception:
+                logger.exception(
+                    "fetch_timeline_cache_job_unexpected_error",
+                    extra={"match_id": riot_match_id},
+                )
+                errors.append({"match_id": riot_match_id, "error": "unexpected_error"})
     finally:
         if not shared_client:
             await client.close()
