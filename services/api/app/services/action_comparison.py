@@ -74,8 +74,6 @@ class ComparisonResult:
     """Full comparison output for one summoner, serializable to LLM input_payload."""
 
     schema_version: int
-    champion_id: str
-    rank_tier: str
     groups: list[ComparisonGroup]
     top_improvement_opportunities: list[ImprovementGap]
     top_selection_bias_flags: list[SelectionBiasFlag]
@@ -316,13 +314,8 @@ def compare_action_stats(
     ]
     top_bias = sorted(all_bias_flags, key=lambda f: f.effective_delta_w)
 
-    # Use first group's champion/rank for top-level context
-    first = groups[0]
-
     return ComparisonResult(
         schema_version=1,
-        champion_id=first.champion_id,
-        rank_tier=first.rank_tier,
         groups=groups,
         top_improvement_opportunities=top_gaps,
         top_selection_bias_flags=top_bias,

@@ -17,7 +17,7 @@ Ingest a summoner's match history, compute contextualized win probability statis
 
 ## Pipeline Runbook
 
-Steps 1-2 run automatically when matches are fetched through the API/worker. Steps 3-5 require manual invocation. Steps 6-8 are not yet implemented.
+Steps 1-2 run automatically when matches are fetched through the API/worker. Steps 3-6 require manual invocation. Steps 7-8 are not yet implemented.
 
 **Prerequisites**: `make db-up`, `make db-migrate`, `make install`, and a valid `RIOT_API_KEY` in `services/api/.env`.
 
@@ -243,7 +243,7 @@ The LLM is asked to:
 | 3. Score | **Done** | `scripts/train_win_prob_model.py` trains logistic regression from exported CSV and saves joblib. Scoring service in `app/services/win_prob_scoring.py` loads model (optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x). |
 | 4. Compute ΔW | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded. |
 | 5. Aggregate | **Done** | `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id, rank_tier, action_type, action_key, opponent_damage_bucket (V1: "mixed"). `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` returns list of `ActionAggregate` with personal_stats, population_stats, and `insufficient_personal_sample` when K < 50. Population restricted to same (champion, rank_tier) buckets. Optional dispersion: stddev(delta_w). Debug script: `scripts/aggregate_actions_debug.py` and `make aggregate-actions-debug RIOT_ACCOUNT_ID=...` or `RIOT_ID=...`. |
-| 6. Compare | **Done** | `compare_action_stats()` in `app/services/action_comparison.py` — pure sync function consuming step 5 `list[ActionAggregate]`. Groups by (champion, rank, action_type), ranks by effective ΔW (personal K≥50, else population), computes improvement gaps (summoner's top items vs. rank-1 alternative), detects selection bias (W(x) ≥ 0.55 + ΔW below group median). Output: `ComparisonResult` serializable to `LLMAnalysis.input_payload` via `dataclasses.asdict()`. Debug script: `scripts/compare_actions_debug.py` and `make compare-actions-debug`. |
+| 6. Compare | **Done** | `compare_action_stats()` in `app/services/action_comparison.py` — pure sync function consuming step 5 `list[ActionAggregate]`. Groups by (champion, rank, action_type), ranks by effective ΔW (personal K≥50, else population), computes improvement gaps (summoner's top items vs. rank-1 alternative), detects selection bias (W(x) ≥ 0.55 + ΔW below group median). Output: `ComparisonResult` (champion-agnostic top level; each `ComparisonGroup` carries champion/rank) serializable to `LLMAnalysis.input_payload` via `dataclasses.asdict()`. Supports multi-champion analysis. Debug script: `scripts/compare_actions_debug.py` and `make compare-actions-debug`. |
 | 7. Prompt LLM | Not started | `llm_analysis` table exists with `input_payload`, `output_payload`, `recommendations` columns. |
 | 8. Store + Log | Not started | `LLMAnalysis` model ready with `schema_version`, `model_name`, token counts. |
 
@@ -272,7 +272,7 @@ The LLM is asked to:
 - `services/api/app/services/win_prob_scoring.py` — `load_model()`, `score_state(features)` → w(x) or None
 - `services/api/app/jobs/score_actions.py` — `score_actions_job(ctx, match_id)` populates ΔW columns on match_action
 - `services/api/app/services/action_aggregation.py` — `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` → list of `ActionAggregate` (personal + population stats, K≥50 fallback); `GroupKey`, `AggregateRow`, `ActionAggregate`; `_build_personal_sql`, `_build_population_sql` for optional filters and IN expansion
-- `services/api/app/services/action_comparison.py` — `compare_action_stats(aggregates, item_names?, objective_names?)` → `ComparisonResult` with `ComparisonGroup`, `RankedAction`, `ImprovementGap`, `SelectionBiasFlag`; pure sync function
+- `services/api/app/services/action_comparison.py` — `compare_action_stats(aggregates, item_names?, objective_names?)` → `ComparisonResult` (champion-agnostic) with `ComparisonGroup`, `RankedAction`, `ImprovementGap`, `SelectionBiasFlag`; pure sync function, supports multi-champion input
 - `scripts/compare_actions_debug.py` — CLI debug script for step 6 comparison output
 - `services/api/tests/test_action_comparison.py` — 14 tests
 - `services/api/tests/test_action_aggregation.py` — 12 tests

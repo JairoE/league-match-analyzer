@@ -1,10 +1,10 @@
 # App State
 
-**Last Updated:** 2026-03-16
-**Branch:** `llm-phase-5`
-**Status:** STABLE — lint clean, build clean. LLM pipeline steps 1–5 implemented (Ingest → Extract → Score → ΔW → Aggregate). Step 5 aggregation consolidated into single 2-CTE query. Documentation updated to reflect current state.
+**Last Updated:** 2026-03-17
+**Branch:** `llm-phase-6`
+**Status:** STABLE — lint clean, tests pass (14/14 comparison tests). LLM pipeline steps 1–6 implemented (Ingest → Extract → Score → ΔW → Aggregate → Compare). Step 7 (Prompt LLM) is next.
 
-**Review:** See `docs/REVIEW_recent_changes.md`. Code review of step 5 completed: aggregation refactored from two-query to single-query approach, `_build_personal_sql`/`_build_population_sql` replaced with unified `_build_query`, population CTE uses subquery instead of bind-parameter expansion. Full branch review (correctness, over-engineering, perf, tests) completed 2026-03-16; same file.
+**Review:** Code review of step 6 completed 2026-03-17. Findings: (1) `opponent_damage_bucket` not in grouping key — safe under V1 "mixed" but must be added when V2 damage-type buckets land; (2) top-level `champion_id`/`rank_tier` on `ComparisonResult` were arbitrary (first group's values) and misleading for multi-champion analysis — **removed** so each `ComparisonGroup` is the sole source of champion/rank context.
 
 ## What's Built
 
@@ -55,6 +55,19 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-17, LLM pipeline step 6 — Compare)
+
+### Step 6 — Action comparison (pure sync, no DB)
+
+- **Service**: `app/services/action_comparison.py` — pure sync function consuming step 5 `list[ActionAggregate]`. Groups by (champion_id, rank_tier, action_type), ranks actions by effective ΔW (personal K≥50, else population fallback), computes improvement gaps (summoner's most-used items vs. rank-1 alternative), detects selection bias (W(x) ≥ 0.55 + ΔW below group median).
+- **Output**: `ComparisonResult` with `ComparisonGroup`, `RankedAction`, `ImprovementGap`, `SelectionBiasFlag`. Serializable to `LLMAnalysis.input_payload` via `dataclasses.asdict()`.
+- **Post-review fix**: Removed top-level `champion_id` and `rank_tier` from `ComparisonResult` — these were arbitrarily set from the first group and misleading for multi-champion analysis. Each `ComparisonGroup` carries its own champion/rank context.
+- **Debug script**: `scripts/compare_actions_debug.py` — accepts `--riot-account-id` or `--riot-id`, optional `--champion` / `--rank-tier`. Make: `make compare-actions-debug RIOT_ACCOUNT_ID=<uuid>` or `RIOT_ID="name#NA1"`.
+- **Tests**: `services/api/tests/test_action_comparison.py` — 14 tests (ranking, fallback, gaps, bias detection, serialization).
+- **Doc**: `docs/LLM_DATA_PIPELINE.md` updated — step 6 marked Done; steps 7-8 remain.
 
 ---
 
