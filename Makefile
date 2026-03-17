@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug capture-riot-fixtures print-champion-ids
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug capture-riot-fixtures print-champion-ids
 
 help:
 	@echo "Available targets:"
@@ -18,6 +18,7 @@ help:
 	@echo "  score-account-matches-dry  Print how many unscored matches would be scored for an account (RIOT_ACCOUNT_ID=... or RIOT_ID=name#NA1)"
 	@echo "  account-match-stats  Show total vs scored matches for an account (RIOT_ACCOUNT_ID=... or RIOT_ID=name#NA1)"
 	@echo "  aggregate-actions-debug  Print action aggregates for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
+	@echo "  compare-actions-debug  Print action comparison (gaps + bias) for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
 	@echo "  capture-riot-fixtures  Capture live Riot JSON fixtures for tests"
 	@echo "  print-champion-ids  Print Riot championId -> name mapping from Data Dragon"
 
@@ -174,6 +175,13 @@ aggregate-actions-debug:
 		exit 1; \
 	fi
 	./.venv/bin/python scripts/aggregate_actions_debug.py $$([ -n "$$RIOT_ACCOUNT_ID" ] && echo "--riot-account-id $$RIOT_ACCOUNT_ID" || echo "--riot-id $$RIOT_ID")
+
+compare-actions-debug:
+	@if [ -z "$$RIOT_ACCOUNT_ID" ] && [ -z "$$RIOT_ID" ]; then \
+		echo "Usage: make compare-actions-debug RIOT_ACCOUNT_ID=<uuid> or RIOT_ID=name#NA1"; \
+		exit 1; \
+	fi
+	./.venv/bin/python scripts/compare_actions_debug.py $$([ -n "$$RIOT_ACCOUNT_ID" ] && echo "--riot-account-id $$RIOT_ACCOUNT_ID" || echo "--riot-id $$RIOT_ID")
 
 win-prob-model-training:
 	./.venv/bin/python scripts/train_win_prob_model.py --input data/training.csv --output data/win_prob_model.joblib
