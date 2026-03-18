@@ -4,6 +4,7 @@ from arq.worker import func
 
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
+from app.jobs.llm_analysis import llm_analysis_job
 from app.jobs.match_ingestion import (
     fetch_match_details_job,
     fetch_riot_account_matches_job,
@@ -61,6 +62,7 @@ class WorkerSettings:
         fetch_timeline_cache_job,
         func(extract_match_timeline_job, max_tries=5),
         score_actions_job,
+        llm_analysis_job,
     ]
 
     # Scheduled cron jobs

@@ -139,7 +139,31 @@ make compare-actions-debug RIOT_ACCOUNT_ID=<uuid>
 
 If this returns "No comparison results", it means step 5 returned no aggregates (no scored actions for this account/filters).
 
-### Steps 7-8: Not yet implemented
+### Step 7-8: LLM Analysis (manual, per champion)
+
+Runs steps 5→6→7→8 end-to-end: aggregates actions, compares against population optimal, sends gap analysis to an LLM, and persists results to `llm_analysis`.
+
+**Prerequisites**: `OPENAI_API_KEY` set in `services/api/.env`. Scored matches for the target account (step 4 completed).
+
+```bash
+# Dry run — show the prompt without calling the LLM
+make llm-analysis-debug RIOT_ID="damanjr#NA1" CHAMPION=157 DRY_RUN=1
+
+# Full run — call LLM and persist results
+make llm-analysis-debug RIOT_ID="damanjr#NA1" CHAMPION=157
+
+# With rank filter
+make llm-analysis-debug RIOT_ID="damanjr#NA1" CHAMPION=157 RANK_TIER=GOLD
+
+# By account UUID
+make llm-analysis-debug RIOT_ACCOUNT_ID=<uuid> CHAMPION=157
+```
+
+The job can also be enqueued via ARQ (requires `make worker-dev` running):
+
+```python
+await arq_pool.enqueue_job("llm_analysis_job", riot_account_id, champion, rank_tier)
+```
 
 ## Game State Vector ($X$)
 
@@ -244,8 +268,8 @@ The LLM is asked to:
 | 4. Compute ΔW | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded. |
 | 5. Aggregate | **Done** | `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id, rank_tier, action_type, action_key, opponent_damage_bucket (V1: "mixed"). `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` returns list of `ActionAggregate` with personal_stats, population_stats, and `insufficient_personal_sample` when K < 50. Population restricted to same (champion, rank_tier) buckets. Optional dispersion: stddev(delta_w). Debug script: `scripts/aggregate_actions_debug.py` and `make aggregate-actions-debug RIOT_ACCOUNT_ID=...` or `RIOT_ID=...`. |
 | 6. Compare | **Done** | `compare_action_stats()` in `app/services/action_comparison.py` — pure sync function consuming step 5 `list[ActionAggregate]`. Groups by (champion, rank, action_type), ranks by effective ΔW (personal K≥50, else population), computes improvement gaps (summoner's top items vs. rank-1 alternative), detects selection bias (W(x) ≥ 0.55 + ΔW below group median). Output: `ComparisonResult` (champion-agnostic top level; each `ComparisonGroup` carries champion/rank) serializable to `LLMAnalysis.input_payload` via `dataclasses.asdict()`. Supports multi-champion analysis. Debug script: `scripts/compare_actions_debug.py` and `make compare-actions-debug`. |
-| 7. Prompt LLM | Not started | `llm_analysis` table exists with `input_payload`, `output_payload`, `recommendations` columns. |
-| 8. Store + Log | Not started | `LLMAnalysis` model ready with `schema_version`, `model_name`, token counts. |
+| 7. Prompt LLM | **Done** | `llm_analysis_job` in `app/jobs/llm_analysis.py` orchestrates steps 5→8. Provider abstraction in `app/services/llm_client.py` (`LLMClient` protocol + `OpenAIClient`). Prompt construction in `app/services/llm_prompt.py` (system + user prompt from `ComparisonResult`). Response schema in `app/services/llm_response_schema.py` (`LLMAnalysisResponse` with `Recommendation` Pydantic models). Sanitized: no summoner names, PUUIDs, or raw Riot data in prompts. |
+| 8. Store + Log | **Done** | `llm_analysis_job` persists `LLMAnalysis` row with `input_payload` (serialized `ComparisonResult`), `output_payload` (parsed LLM response), `recommendations` (list of dicts), `model_name`, `token_count_input/output`, `champion_name`, `rank_tier`, `match_ids`, `schema_version`. On parse failure, raw response stored in `output_payload` with empty `recommendations`. |
 
 ### DB tables (migration `20260305_0002`)
 
@@ -259,7 +283,7 @@ The LLM is asked to:
 - `services/api/app/services/action_extraction.py` — `MatchAction` dataclass, `ActionType` enum, `LEGENDARY_ITEM_IDS` set (82 items); `extract_actions()`
 - `services/api/app/jobs/timeline_extraction.py` — `extract_match_timeline_job` ARQ job (idempotent, Redis-cached timeline fetch)
 - `services/api/app/services/enqueue_timeline_extraction.py` — `enqueue_missing_extraction_jobs()` with DB idempotency check and deterministic `_job_id`
-- `services/api/app/services/background_jobs.py` — `WorkerSettings` with all 4 job functions registered
+- `services/api/app/services/background_jobs.py` — `WorkerSettings` with all job functions registered
 - `services/api/app/models/match_state_vector.py` — `MatchStateVector` SQLModel
 - `services/api/app/models/match_action.py` — `MatchActionRecord` SQLModel
 - `services/api/app/models/llm_analysis.py` — `LLMAnalysis` SQLModel
@@ -274,10 +298,19 @@ The LLM is asked to:
 - `services/api/app/services/action_aggregation.py` — `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` → list of `ActionAggregate` (personal + population stats, K≥50 fallback); `GroupKey`, `AggregateRow`, `ActionAggregate`; `_build_personal_sql`, `_build_population_sql` for optional filters and IN expansion
 - `services/api/app/services/action_comparison.py` — `compare_action_stats(aggregates, item_names?, objective_names?)` → `ComparisonResult` (champion-agnostic) with `ComparisonGroup`, `RankedAction`, `ImprovementGap`, `SelectionBiasFlag`; pure sync function, supports multi-champion input
 - `scripts/compare_actions_debug.py` — CLI debug script for step 6 comparison output
+- `services/api/app/services/llm_client.py` — `LLMClient` protocol + `OpenAIClient` (provider abstraction; swap to Anthropic by adding `AnthropicClient` here)
+- `services/api/app/services/llm_prompt.py` — `build_system_prompt()`, `build_user_prompt()` (sanitized prompt construction from `ComparisonResult`)
+- `services/api/app/services/llm_response_schema.py` — `LLMAnalysisResponse`, `Recommendation` (Pydantic models for structured LLM output)
+- `services/api/app/jobs/llm_analysis.py` — `llm_analysis_job(ctx, riot_account_id, champion, rank_tier?)` orchestrates steps 5→8
+- `scripts/llm_analysis_debug.py` — CLI debug/dry-run script for steps 5→8
 - `services/api/tests/test_action_comparison.py` — 14 tests
 - `services/api/tests/test_action_aggregation.py` — 12 tests
 - `services/api/tests/test_state_vector.py` — 10 tests
 - `services/api/tests/test_action_extraction.py` — 12 tests
+- `services/api/tests/test_llm_prompt.py` — 11 tests
+- `services/api/tests/test_llm_response_schema.py` — 12 tests
+- `services/api/tests/test_llm_client.py` — 6 tests
+- `services/api/tests/test_llm_analysis_job.py` — 6 tests
 
 ### Next steps to continue
 
@@ -288,7 +321,7 @@ The LLM is asked to:
 5. ~~Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows~~ **Done**
 6. ~~Build aggregation queries~~ **Done** — `action_aggregation.py` with personal/population merge and K≥50 fallback.
 7. ~~Build comparison logic~~ **Done** — `action_comparison.py` with ranking, improvement gaps, selection bias detection.
-8. Implement LLM prompt construction and `llm_analysis` persistence
+8. ~~Implement LLM prompt construction and `llm_analysis` persistence~~ **Done** — `llm_analysis_job` orchestrates steps 5→8 with OpenAI provider (swappable via `LLMClient` protocol).
 
 ## Future Extensions
 
