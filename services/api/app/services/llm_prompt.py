@@ -104,6 +104,7 @@ def _build_rankings_section(groups: list[dict[str, Any]]) -> str:
     for group in groups:
         action_type = group["action_type"]
         label = "Item Purchases" if action_type == "ITEM_PURCHASE" else "Objective Kills"
+        # Cap at 10 to keep prompt compact and within token budget
         ranked = group.get("ranked_actions", [])[:10]
 
         lines = [f"### {label}"]

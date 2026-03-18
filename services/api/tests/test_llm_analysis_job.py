@@ -135,7 +135,7 @@ class TestLLMAnalysisJob:
                 AsyncMock(return_value=[agg_with_none]),
             ),
             patch(
-                "app.jobs.llm_analysis._load_item_name_map",
+                "app.jobs.llm_analysis.load_item_name_map",
                 AsyncMock(return_value={}),
             ),
         ):
@@ -178,7 +178,7 @@ class TestLLMAnalysisJob:
                 AsyncMock(return_value=aggregates),
             ),
             patch(
-                "app.jobs.llm_analysis._load_item_name_map",
+                "app.jobs.llm_analysis.load_item_name_map",
                 AsyncMock(return_value={}),
             ),
             patch(
@@ -254,7 +254,7 @@ class TestLLMAnalysisJob:
                 AsyncMock(return_value=aggregates),
             ),
             patch(
-                "app.jobs.llm_analysis._load_item_name_map",
+                "app.jobs.llm_analysis.load_item_name_map",
                 AsyncMock(return_value={}),
             ),
             patch(
@@ -334,7 +334,7 @@ class TestLLMAnalysisJob:
                 AsyncMock(return_value=aggregates),
             ),
             patch(
-                "app.jobs.llm_analysis._load_item_name_map",
+                "app.jobs.llm_analysis.load_item_name_map",
                 AsyncMock(return_value={"3089": "Rabadon's Deathcap", "3031": "IE"}),
             ),
             patch(

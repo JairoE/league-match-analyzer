@@ -29,14 +29,14 @@ from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.jobs.llm_analysis")
 
-_OBJECTIVE_LABELS: dict[str, str] = {
+OBJECTIVE_LABELS: dict[str, str] = {
     "DRAGON": "Dragon",
     "RIFTHERALD": "Rift Herald",
     "BARON_NASHOR": "Baron Nashor",
 }
 
 
-async def _load_item_name_map() -> dict[str, str]:
+async def load_item_name_map() -> dict[str, str]:
     """Fetch item_id → name mapping from Data Dragon.
 
     Returns:
@@ -175,13 +175,13 @@ async def llm_analysis_job(
             return {"status": "no_data"}
 
         # Fetch item names for readable prompts
-        item_names = await _load_item_name_map()
+        item_names = await load_item_name_map()
 
         # Step 6: Compare
         comparison = compare_action_stats(
             aggregates,
             item_names=item_names,
-            objective_names=_OBJECTIVE_LABELS,
+            objective_names=OBJECTIVE_LABELS,
         )
 
         if comparison is None:

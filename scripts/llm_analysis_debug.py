@@ -17,7 +17,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import httpx
 from dotenv import load_dotenv
 
 _api_root = Path(__file__).resolve().parents[1] / "services" / "api"
@@ -25,35 +24,6 @@ sys.path.insert(0, str(_api_root))
 
 # Load env before importing app (database_url, openai_api_key, etc.)
 load_dotenv(_api_root / ".env")
-
-
-_OBJECTIVE_LABELS: dict[str, str] = {
-    "DRAGON": "Dragon",
-    "RIFTHERALD": "Rift Herald",
-    "BARON_NASHOR": "Baron Nashor",
-}
-
-
-async def _load_item_name_map() -> dict[str, str]:
-    """Fetch item_id → name mapping from Data Dragon."""
-    try:
-        from app.services.ddragon_client import DdragonClient
-
-        client = DdragonClient()
-        version = await client.fetch_latest_version()
-        url = f"{DdragonClient.CDN_BASE_URL}/{version}/data/en_US/item.json"
-        async with httpx.AsyncClient(timeout=20.0) as http_client:
-            response = await http_client.get(url)
-            response.raise_for_status()
-            payload: dict[str, Any] = response.json()
-        data = payload.get("data", {})
-        return {
-            item_id: (info.get("name") or str(item_id))
-            for item_id, info in data.items()
-            if isinstance(info, dict)
-        }
-    except Exception:
-        return {}
 
 
 async def _run(
@@ -72,6 +42,11 @@ async def _run(
     from app.models.champion import Champion
     from app.models.llm_analysis import LLMAnalysis
     from app.models.riot_account import RiotAccount
+    from app.jobs.llm_analysis import (
+        OBJECTIVE_LABELS,
+        _get_scored_match_ids,
+        load_item_name_map,
+    )
     from app.services.action_aggregation import aggregate_action_stats_for_player
     from app.services.action_comparison import compare_action_stats
     from app.services.llm_client import OpenAIClient
@@ -125,14 +100,14 @@ async def _run(
             champion_name = champion
 
     # Load item names
-    item_names = await _load_item_name_map()
+    item_names = await load_item_name_map()
 
     # Step 6: Compare
     print("Running step 6 (compare)...")
     comparison = compare_action_stats(
         aggregates,
         item_names=item_names,
-        objective_names=_OBJECTIVE_LABELS,
+        objective_names=OBJECTIVE_LABELS,
     )
 
     if comparison is None:
@@ -218,8 +193,6 @@ async def _run(
     # Step 8: Persist
     print("Running step 8 (persist)...")
     async with async_session_factory() as session:
-        from app.jobs.llm_analysis import _get_scored_match_ids
-
         match_ids = await _get_scored_match_ids(
             session, UUID(account_id), champion, rank_tier
         )

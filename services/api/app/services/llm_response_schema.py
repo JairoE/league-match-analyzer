@@ -24,7 +24,7 @@ class Recommendation(BaseModel):
         category: Type of recommendation.
     """
 
-    rank: int = Field(ge=1, le=5)
+    rank: int = Field(ge=1, le=3)
     title: str
     current_choice: str
     recommended_choice: str
@@ -42,6 +42,6 @@ class LLMAnalysisResponse(BaseModel):
         overall_assessment: 1-2 sentence summary of the analysis.
     """
 
-    recommendations: list[Recommendation] = Field(max_length=5)
+    recommendations: list[Recommendation] = Field(max_length=3)
     selection_bias_summary: str | None = None
     overall_assessment: str

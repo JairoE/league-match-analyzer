@@ -54,9 +54,9 @@ class TestRecommendation:
         with pytest.raises(ValidationError, match="rank"):
             Recommendation(**_valid_recommendation(rank=0))
 
-    def test_rank_above_5_rejected(self) -> None:
+    def test_rank_above_3_rejected(self) -> None:
         with pytest.raises(ValidationError, match="rank"):
-            Recommendation(**_valid_recommendation(rank=6))
+            Recommendation(**_valid_recommendation(rank=4))
 
     def test_all_categories_accepted(self) -> None:
         for cat in ("item_purchase", "objective_kill", "selection_bias"):
@@ -80,7 +80,7 @@ class TestLLMAnalysisResponse:
         assert resp.recommendations == []
 
     def test_too_many_recommendations_rejected(self) -> None:
-        recs = [_valid_recommendation(rank=i) for i in range(1, 7)]
+        recs = [_valid_recommendation(rank=(i % 3) + 1) for i in range(4)]
         with pytest.raises(ValidationError):
             LLMAnalysisResponse(**_valid_response(recommendations=recs))
 

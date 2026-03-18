@@ -1,13 +1,8 @@
-"""LLM provider abstraction with OpenAI implementation.
-
-Defines a protocol-based client interface so swapping providers (OpenAI → Anthropic)
-requires only adding a new class in this file and changing the instantiation site.
-"""
+"""LLM client – OpenAI implementation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
 
 from openai import AsyncOpenAI
 
@@ -33,28 +28,8 @@ class LLMResponse:
     token_count_output: int
 
 
-@runtime_checkable
-class LLMClient(Protocol):
-    """Protocol for LLM provider clients.
-
-    Implement this protocol to add a new provider (e.g. AnthropicClient).
-    """
-
-    async def complete(self, system_prompt: str, user_prompt: str) -> LLMResponse:
-        """Send a system + user prompt and return the model's response.
-
-        Args:
-            system_prompt: Instructions/role for the model.
-            user_prompt: The user-facing content to analyze.
-
-        Returns:
-            LLMResponse with content and token metadata.
-        """
-        ...
-
-
 class OpenAIClient:
-    """OpenAI SDK implementation of LLMClient.
+    """OpenAI chat-completions client.
 
     Uses JSON mode to force structured output from the model.
 
@@ -90,6 +65,7 @@ class OpenAIClient:
             ],
             response_format={"type": "json_object"},
             temperature=0.3,
+            max_tokens=1024,
         )
 
         choice = response.choices[0]

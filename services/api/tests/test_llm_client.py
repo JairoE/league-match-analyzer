@@ -1,4 +1,4 @@
-"""Tests for LLM client abstraction."""
+"""Tests for OpenAI LLM client."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.llm_client import LLMClient, LLMResponse, OpenAIClient
+from app.services.llm_client import LLMResponse, OpenAIClient
 
 
 class TestLLMResponse:
@@ -22,12 +22,6 @@ class TestLLMResponse:
         assert resp.model_name == "gpt-4o-mini"
         assert resp.token_count_input == 100
         assert resp.token_count_output == 50
-
-
-class TestOpenAIClientProtocol:
-    def test_implements_llm_client_protocol(self) -> None:
-        client = OpenAIClient(api_key="test-key")
-        assert isinstance(client, LLMClient)
 
 
 class TestOpenAIClientComplete:
