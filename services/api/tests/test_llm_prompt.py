@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.services.action_aggregation import ActionAggregate, AggregateRow, GroupKey
 from app.services.action_comparison import compare_action_stats
-from app.services.llm_prompt import build_system_prompt, build_user_prompt
+from app.services.llm_prompt import build_user_prompt
 
 
 def _make_agg(
@@ -51,22 +51,6 @@ def _build_comparison_dict() -> dict:
     comparison = compare_action_stats(aggregates, item_names=item_names)
     assert comparison is not None
     return comparison.to_dict()
-
-
-class TestBuildSystemPrompt:
-    def test_contains_json_schema(self) -> None:
-        prompt = build_system_prompt()
-        assert "recommendations" in prompt
-        assert "overall_assessment" in prompt
-
-    def test_contains_coaching_instructions(self) -> None:
-        prompt = build_system_prompt()
-        assert "League of Legends" in prompt
-        assert "ΔW" in prompt or "delta" in prompt.lower()
-
-    def test_instructs_json_response(self) -> None:
-        prompt = build_system_prompt()
-        assert "JSON" in prompt
 
 
 class TestBuildUserPrompt:

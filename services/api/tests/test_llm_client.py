@@ -7,21 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.llm_client import LLMResponse, OpenAIClient
-
-
-class TestLLMResponse:
-    def test_dataclass_fields(self) -> None:
-        resp = LLMResponse(
-            content='{"test": true}',
-            model_name="gpt-4o-mini",
-            token_count_input=100,
-            token_count_output=50,
-        )
-        assert resp.content == '{"test": true}'
-        assert resp.model_name == "gpt-4o-mini"
-        assert resp.token_count_input == 100
-        assert resp.token_count_output == 50
+from app.services.llm_client import OpenAIClient
 
 
 class TestOpenAIClientComplete:

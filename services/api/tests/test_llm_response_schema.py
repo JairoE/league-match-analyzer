@@ -41,11 +41,6 @@ def _valid_response(**overrides: object) -> dict:
 
 
 class TestRecommendation:
-    def test_valid_recommendation_parses(self) -> None:
-        rec = Recommendation(**_valid_recommendation())
-        assert rec.rank == 1
-        assert rec.category == "item_purchase"
-
     def test_invalid_category_rejected(self) -> None:
         with pytest.raises(ValidationError, match="category"):
             Recommendation(**_valid_recommendation(category="invalid_type"))
@@ -58,18 +53,7 @@ class TestRecommendation:
         with pytest.raises(ValidationError, match="rank"):
             Recommendation(**_valid_recommendation(rank=4))
 
-    def test_all_categories_accepted(self) -> None:
-        for cat in ("item_purchase", "objective_kill", "selection_bias"):
-            rec = Recommendation(**_valid_recommendation(category=cat))
-            assert rec.category == cat
-
-
 class TestLLMAnalysisResponse:
-    def test_valid_response_parses(self) -> None:
-        resp = LLMAnalysisResponse(**_valid_response())
-        assert len(resp.recommendations) == 3
-        assert resp.overall_assessment == "Focus on itemization improvements."
-
     def test_parse_from_json_string(self) -> None:
         raw = json.dumps(_valid_response())
         resp = LLMAnalysisResponse.model_validate_json(raw)

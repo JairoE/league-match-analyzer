@@ -10,6 +10,8 @@ from uuid import uuid4
 from app.services.action_aggregation import ActionAggregate, AggregateRow, GroupKey
 from app.services.llm_client import LLMResponse
 
+_SEPARATOR = "─" * 60
+
 
 def _make_agg(
     *,
@@ -74,20 +76,38 @@ class TestLLMAnalysisJob:
         """Job should return skipped status when API key is empty."""
         from app.jobs.llm_analysis import llm_analysis_job
 
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Guard — no OpenAI API key configured")
+        print(_SEPARATOR)
+
+        print("  Settings: openai_api_key = '' (empty)")
+
         with patch(
             "app.jobs.llm_analysis.get_settings",
             return_value=_mock_settings(api_key=""),
         ):
             result = await llm_analysis_job({}, str(uuid4()), "157")
-            assert result["status"] == "skipped"
-            assert result["reason"] == "no_api_key"
+
+        print(f"  Result:   {result}")
+        print("  Pipeline halted before Step 5 (aggregation never called)")
+        print(_SEPARATOR)
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no_api_key"
 
     async def test_no_data_when_aggregates_empty(self) -> None:
         """Job should return no_data when aggregation returns nothing."""
         from app.jobs.llm_analysis import llm_analysis_job
 
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Step 5 (Aggregate) — no action stats found")
+        print(_SEPARATOR)
+
         mock_session = AsyncMock()
         mock_aggregate = AsyncMock(return_value=[])
+
+        print("  Step 5 input:  champion_id='157', rank_tier=None")
+        print("  Step 5 output: [] (no aggregates)")
 
         with (
             patch("app.jobs.llm_analysis.get_settings", return_value=_mock_settings()),
@@ -104,11 +124,20 @@ class TestLLMAnalysisJob:
             ),
         ):
             result = await llm_analysis_job({}, str(uuid4()), "157")
-            assert result["status"] == "no_data"
+
+        print(f"  Result: {result}")
+        print("  Pipeline halted at Step 5 — nothing to compare")
+        print(_SEPARATOR)
+
+        assert result["status"] == "no_data"
 
     async def test_no_comparison_when_all_none_dw(self) -> None:
         """Job should return no_comparison when compare_action_stats returns None."""
         from app.jobs.llm_analysis import llm_analysis_job
+
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Step 6 (Compare) — all delta_w values are None")
+        print(_SEPARATOR)
 
         agg_with_none = _make_agg(personal_dw=None)
         agg_with_none.personal_stats = AggregateRow(
@@ -118,6 +147,15 @@ class TestLLMAnalysisJob:
             count=0, mean_delta_w=None, mean_pre_win_prob=None, stddev_delta_w=None,
         )
         agg_with_none.insufficient_personal_sample = True
+
+        ak = agg_with_none.group_key.action_key
+        ps = agg_with_none.personal_stats
+        pop = agg_with_none.population_stats
+        print(f"  Step 5 output: 1 aggregate (action_key='{ak}')")
+        print(f"    personal  mean_delta_w={ps.mean_delta_w}  count={ps.count}")
+        print(f"    population mean_delta_w={pop.mean_delta_w}  count={pop.count}")
+        insuf = agg_with_none.insufficient_personal_sample
+        print(f"    insufficient_personal_sample={insuf}")
 
         mock_session = AsyncMock()
 
@@ -140,16 +178,33 @@ class TestLLMAnalysisJob:
             ),
         ):
             result = await llm_analysis_job({}, str(uuid4()), "157")
-            assert result["status"] == "no_comparison"
+
+        print("  Step 6 output: None (no scoreable actions)")
+        print(f"  Result: {result}")
+        print("  Pipeline halted at Step 6 — insufficient signal for comparison")
+        print(_SEPARATOR)
+
+        assert result["status"] == "no_comparison"
 
     async def test_llm_error_on_api_failure(self) -> None:
         """Job should return llm_error when LLM client raises."""
         from app.jobs.llm_analysis import llm_analysis_job
 
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Step 7 (LLM Call) — API raises RuntimeError")
+        print(_SEPARATOR)
+
         aggregates = [
             _make_agg(action_key="3089", personal_dw=0.03),
             _make_agg(action_key="3031", personal_dw=-0.01),
         ]
+
+        print(f"  Step 5 output: {len(aggregates)} aggregates")
+        for agg in aggregates:
+            ak = agg.group_key.action_key
+            p_dw = agg.personal_stats.mean_delta_w
+            pop_dw = agg.population_stats.mean_delta_w
+            print(f"    {ak}: personal dw={p_dw:+.4f}  pop dw={pop_dw:+.4f}")
 
         # Mock champion resolution
         mock_champ = SimpleNamespace(name="Yasuo")
@@ -163,6 +218,11 @@ class TestLLMAnalysisJob:
         mock_client_instance.complete = AsyncMock(
             side_effect=RuntimeError("API down")
         )
+
+        print("  Step 6 output: comparison produced")
+        print("  Champion resolved: 157 → Yasuo")
+        print("  Step 7 input:  sending prompts to gpt-4o-mini...")
+        print("  Step 7 output: RuntimeError('API down')")
 
         with (
             patch("app.jobs.llm_analysis.get_settings", return_value=_mock_settings()),
@@ -191,16 +251,28 @@ class TestLLMAnalysisJob:
             ),
         ):
             result = await llm_analysis_job({}, str(uuid4()), "157")
-            assert result["status"] == "llm_error"
+
+        print(f"  Result: {result}")
+        print("  Pipeline halted at Step 7 — LLM call failed, nothing persisted")
+        print(_SEPARATOR)
+
+        assert result["status"] == "llm_error"
 
     async def test_parse_error_stores_raw_response(self) -> None:
         """Job should store raw response on parse failure and return parse_error."""
         from app.jobs.llm_analysis import llm_analysis_job
 
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Step 7→8 — LLM returns invalid schema, raw response persisted")
+        print(_SEPARATOR)
+
         aggregates = [
             _make_agg(action_key="3089", personal_dw=0.03),
             _make_agg(action_key="3031", personal_dw=-0.01),
         ]
+
+        print(f"  Step 5 output: {len(aggregates)} aggregates")
+        print("  Step 6 output: comparison produced")
 
         mock_champ = SimpleNamespace(name="Yasuo")
         mock_champ_result = MagicMock()
@@ -210,12 +282,17 @@ class TestLLMAnalysisJob:
         mock_session.execute = AsyncMock(return_value=mock_champ_result)
 
         # LLM returns invalid JSON structure
+        bad_content = '{"invalid": "not matching schema"}'
         bad_llm_response = LLMResponse(
-            content='{"invalid": "not matching schema"}',
+            content=bad_content,
             model_name="gpt-4o-mini",
             token_count_input=100,
             token_count_output=50,
         )
+
+        print("  Champion resolved: 157 → Yasuo")
+        print(f"  Step 7 LLM raw response: {bad_content}")
+        print("  Step 7 parse: FAILED — missing required fields")
 
         mock_client_instance = AsyncMock()
         mock_client_instance.complete = AsyncMock(return_value=bad_llm_response)
@@ -267,11 +344,19 @@ class TestLLMAnalysisJob:
             ),
         ):
             result = await llm_analysis_job({}, str(uuid4()), "157")
+
+            print("  Step 8 persist: raw response saved as output_payload")
+            analysis = persisted_analyses[0]
+            print(f"    champion_name:  {analysis.champion_name}")
+            print(f"    recommendations: {analysis.recommendations}")
+            print(f"    output_payload:  {analysis.output_payload}")
+            print(f"  Result: {result}")
+            print(_SEPARATOR)
+
             assert result["status"] == "parse_error"
 
             # Verify raw response was stored
             assert len(persisted_analyses) == 1
-            analysis = persisted_analyses[0]
             assert analysis.recommendations == []
             assert analysis.output_payload == {"invalid": "not matching schema"}
             assert analysis.champion_name == "Yasuo"
@@ -280,10 +365,26 @@ class TestLLMAnalysisJob:
         """Full success path: aggregate → compare → LLM → persist."""
         from app.jobs.llm_analysis import llm_analysis_job
 
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Full success — Steps 5 → 6 → 7 → 8")
+        print(_SEPARATOR)
+
         aggregates = [
             _make_agg(action_key="3089", personal_dw=0.03),
             _make_agg(action_key="3031", personal_dw=-0.01, personal_count=70),
         ]
+        item_names = {"3089": "Rabadon's Deathcap", "3031": "IE"}
+
+        print(f"  Step 5 (Aggregate): {len(aggregates)} action aggregates")
+        for agg in aggregates:
+            name = item_names.get(agg.group_key.action_key, agg.group_key.action_key)
+            print(
+                f"    {name} ({agg.group_key.action_key}): "
+                f"personal dw={agg.personal_stats.mean_delta_w:+.4f} "
+                f"(n={agg.personal_stats.count})  "
+                f"pop dw={agg.population_stats.mean_delta_w:+.4f} "
+                f"(n={agg.population_stats.count})"
+            )
 
         mock_champ = SimpleNamespace(name="Yasuo")
         mock_champ_result = MagicMock()
@@ -292,8 +393,9 @@ class TestLLMAnalysisJob:
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(return_value=mock_champ_result)
 
+        valid_json = _valid_llm_json()
         valid_response = LLMResponse(
-            content=_valid_llm_json(),
+            content=valid_json,
             model_name="gpt-4o-mini-2024-07-18",
             token_count_input=200,
             token_count_output=100,
@@ -323,6 +425,8 @@ class TestLLMAnalysisJob:
                 __aexit__=AsyncMock(return_value=False),
             )
 
+        match_ids = ["NA1_111", "NA1_222"]
+
         with (
             patch("app.jobs.llm_analysis.get_settings", return_value=_mock_settings()),
             patch(
@@ -335,18 +439,71 @@ class TestLLMAnalysisJob:
             ),
             patch(
                 "app.jobs.llm_analysis.load_item_name_map",
-                AsyncMock(return_value={"3089": "Rabadon's Deathcap", "3031": "IE"}),
+                AsyncMock(return_value=item_names),
             ),
             patch(
                 "app.jobs.llm_analysis._get_scored_match_ids",
-                AsyncMock(return_value=["NA1_111", "NA1_222"]),
+                AsyncMock(return_value=match_ids),
             ),
             patch(
                 "app.jobs.llm_analysis.OpenAIClient",
                 return_value=mock_client_instance,
             ),
         ):
+            # Capture prompts sent to LLM
+            n = len(aggregates)
+            print(f"\n  Step 6 (Compare): {n} aggregates")
+            print(f"    item_names mapped: {item_names}")
+
+            print("\n  Champion resolved: 157 → Yasuo")
+            print(f"  Scored matches: {match_ids}")
+
             result = await llm_analysis_job({}, str(uuid4()), "157", "GOLD")
+
+            # Show what was sent to LLM
+            ca = mock_client_instance.complete.call_args
+            sys_p = ca.args[0] if ca.args else ""
+            usr_p = ca.args[1] if len(ca.args) > 1 else ""
+
+            print("\n  Step 7 (LLM Prompt):")
+            print(f"    System prompt ({len(sys_p)} chars):")
+            print(f"      {sys_p[:100]}...")
+            print(f"    User prompt ({len(usr_p)} chars):")
+            print(f"      {usr_p[:160]}...")
+            print("\n  Step 7 (LLM Response):")
+            print(f"    model: {valid_response.model_name}")
+            tok_in = valid_response.token_count_input
+            tok_out = valid_response.token_count_output
+            print(f"    tokens: {tok_in} in / {tok_out} out")
+            parsed_output = json.loads(valid_json)
+            recs = parsed_output["recommendations"]
+            print(f"    recommendations: {len(recs)}")
+            for rec in recs:
+                r = rec["rank"]
+                cat = rec["category"]
+                print(f"      #{r} [{cat}] {rec['title']}")
+                cur = rec["current_choice"]
+                nxt = rec["recommended_choice"]
+                gap = rec["delta_w_gap"]
+                print(f"         {cur} → {nxt} (gap={gap:+.4f})")
+            assessment = parsed_output["overall_assessment"]
+            print(f"    overall_assessment: {assessment}")
+
+            analysis = persisted_analyses[0]
+            print("\n  Step 8 (Persist):")
+            print(f"    champion_name:    {analysis.champion_name}")
+            print(f"    rank_tier:        {analysis.rank_tier}")
+            print(f"    match_ids:        {analysis.match_ids}")
+            print(f"    model_name:       {analysis.model_name}")
+            a_in = analysis.token_count_input
+            a_out = analysis.token_count_output
+            print(f"    tokens:           {a_in} in / {a_out} out")
+            n_recs = len(analysis.recommendations)
+            print(f"    recommendations:  {n_recs}")
+            print(f"      {analysis.recommendations[0]['title']}")
+
+            print(f"\n  Final result: {result}")
+            print(_SEPARATOR)
 
             assert result["status"] == "ok"
             assert result["champion_name"] == "Yasuo"
@@ -358,7 +515,6 @@ class TestLLMAnalysisJob:
 
             # Verify persisted analysis
             assert len(persisted_analyses) == 1
-            analysis = persisted_analyses[0]
             assert analysis.champion_name == "Yasuo"
             assert analysis.rank_tier == "GOLD"
             assert analysis.match_ids == ["NA1_111", "NA1_222"]
