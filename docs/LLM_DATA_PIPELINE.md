@@ -184,12 +184,10 @@ Captures the real comparison output (steps 5-6) from the DB into a committed JSO
 
 ```bash
 # Auto-pick most-played champion (default)
-DATABASE_URL=""\
-    python services/api/tests/seed_llm_fixture.py
+DATABASE_URL="postgresql+asyncpg://league:league@localhost:5432/league" python services/api/tests/seed_llm_fixture.py
 
 # Seed for a specific champion by champion_id
-CHAMPION_ID=238 DATABASE_URL=""\
-    python services/api/tests/seed_llm_fixture.py
+CHAMPION_ID=238 DATABASE_URL="postgresql+asyncpg://league:league@localhost:5432/league" python services/api/tests/seed_llm_fixture.py
 ```
 
 Without `CHAMPION_ID`, the seeder picks the champion with the highest total personal action count. Set `CHAMPION_ID` to target any champion in the DB — useful for testing edge cases (selection bias patterns, low-game-count champions, no rank tier data).
