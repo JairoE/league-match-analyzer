@@ -1,0 +1,797 @@
+{
+  "riot_id": "damanjr#NA1",
+  "champion_name": "Jhin",
+  "champion_id": "202",
+  "rank_tier": "SILVER",
+  "comparison": {
+    "schema_version": 1,
+    "groups": [
+      {
+        "champion_id": "202",
+        "rank_tier": "SILVER",
+        "action_type": "ITEM_PURCHASE",
+        "opponent_damage_bucket": "mixed",
+        "ranked_actions": [
+          {
+            "action_key": "3156",
+            "action_name": "Maw of Malmortius",
+            "effective_delta_w": 0.09313612642062587,
+            "personal_delta_w": 0.09313612642062587,
+            "population_delta_w": 0.09313612642062587,
+            "personal_count": 4,
+            "population_count": 4,
+            "mean_pre_win_prob": 0.5622509693464988,
+            "used_population_fallback": true,
+            "rank": 1
+          },
+          {
+            "action_key": "3026",
+            "action_name": "Guardian Angel",
+            "effective_delta_w": 0.06420887834104395,
+            "personal_delta_w": 0.0012195756597782803,
+            "population_delta_w": 0.06420887834104395,
+            "personal_count": 4,
+            "population_count": 5,
+            "mean_pre_win_prob": 0.3356912773074726,
+            "used_population_fallback": true,
+            "rank": 2
+          },
+          {
+            "action_key": "3142",
+            "action_name": "Youmuu's Ghostblade",
+            "effective_delta_w": 0.04014499283133557,
+            "personal_delta_w": 0.04014499283133558,
+            "population_delta_w": 0.04014499283133557,
+            "personal_count": 36,
+            "population_count": 36,
+            "mean_pre_win_prob": 0.47318689872913233,
+            "used_population_fallback": true,
+            "rank": 3
+          },
+          {
+            "action_key": "3036",
+            "action_name": "Lord Dominik's Regards",
+            "effective_delta_w": 0.025367680026826663,
+            "personal_delta_w": 0.032680858403191786,
+            "population_delta_w": 0.025367680026826663,
+            "personal_count": 18,
+            "population_count": 20,
+            "mean_pre_win_prob": 0.5201385553302678,
+            "used_population_fallback": true,
+            "rank": 4
+          },
+          {
+            "action_key": "3094",
+            "action_name": "Rapid Firecannon",
+            "effective_delta_w": 0.02354806357065953,
+            "personal_delta_w": 0.02354806357065953,
+            "population_delta_w": 0.02122034177995699,
+            "personal_count": 93,
+            "population_count": 96,
+            "mean_pre_win_prob": 0.5152650285380613,
+            "used_population_fallback": false,
+            "rank": 5
+          },
+          {
+            "action_key": "6676",
+            "action_name": "The Collector",
+            "effective_delta_w": 0.004074564072441933,
+            "personal_delta_w": 0.004074564072441933,
+            "population_delta_w": 0.0033559991752905014,
+            "personal_count": 77,
+            "population_count": 80,
+            "mean_pre_win_prob": 0.5115906015465845,
+            "used_population_fallback": false,
+            "rank": 6
+          },
+          {
+            "action_key": "3031",
+            "action_name": "Infinity Edge",
+            "effective_delta_w": -0.010219132876047476,
+            "personal_delta_w": -0.005461800379662721,
+            "population_delta_w": -0.010219132876047476,
+            "personal_count": 48,
+            "population_count": 53,
+            "mean_pre_win_prob": 0.45120777660549294,
+            "used_population_fallback": true,
+            "rank": 7
+          },
+          {
+            "action_key": "3033",
+            "action_name": "Mortal Reminder",
+            "effective_delta_w": -0.010622470572424323,
+            "personal_delta_w": -0.01062247057242433,
+            "population_delta_w": -0.010622470572424323,
+            "personal_count": 30,
+            "population_count": 30,
+            "mean_pre_win_prob": 0.47529416731585866,
+            "used_population_fallback": true,
+            "rank": 8
+          },
+          {
+            "action_key": "3072",
+            "action_name": "Bloodthirster",
+            "effective_delta_w": -0.017850396696360703,
+            "personal_delta_w": -0.017850396696360703,
+            "population_delta_w": -0.017850396696360703,
+            "personal_count": 15,
+            "population_count": 15,
+            "mean_pre_win_prob": 0.39646712687303054,
+            "used_population_fallback": true,
+            "rank": 9
+          }
+        ],
+        "summoner_top_actions": [
+          {
+            "action_key": "3094",
+            "action_name": "Rapid Firecannon",
+            "effective_delta_w": 0.02354806357065953,
+            "personal_delta_w": 0.02354806357065953,
+            "population_delta_w": 0.02122034177995699,
+            "personal_count": 93,
+            "population_count": 96,
+            "mean_pre_win_prob": 0.5152650285380613,
+            "used_population_fallback": false,
+            "rank": 5
+          },
+          {
+            "action_key": "6676",
+            "action_name": "The Collector",
+            "effective_delta_w": 0.004074564072441933,
+            "personal_delta_w": 0.004074564072441933,
+            "population_delta_w": 0.0033559991752905014,
+            "personal_count": 77,
+            "population_count": 80,
+            "mean_pre_win_prob": 0.5115906015465845,
+            "used_population_fallback": false,
+            "rank": 6
+          },
+          {
+            "action_key": "3031",
+            "action_name": "Infinity Edge",
+            "effective_delta_w": -0.010219132876047476,
+            "personal_delta_w": -0.005461800379662721,
+            "population_delta_w": -0.010219132876047476,
+            "personal_count": 48,
+            "population_count": 53,
+            "mean_pre_win_prob": 0.45120777660549294,
+            "used_population_fallback": true,
+            "rank": 7
+          },
+          {
+            "action_key": "3142",
+            "action_name": "Youmuu's Ghostblade",
+            "effective_delta_w": 0.04014499283133557,
+            "personal_delta_w": 0.04014499283133558,
+            "population_delta_w": 0.04014499283133557,
+            "personal_count": 36,
+            "population_count": 36,
+            "mean_pre_win_prob": 0.47318689872913233,
+            "used_population_fallback": true,
+            "rank": 3
+          },
+          {
+            "action_key": "3033",
+            "action_name": "Mortal Reminder",
+            "effective_delta_w": -0.010622470572424323,
+            "personal_delta_w": -0.01062247057242433,
+            "population_delta_w": -0.010622470572424323,
+            "personal_count": 30,
+            "population_count": 30,
+            "mean_pre_win_prob": 0.47529416731585866,
+            "used_population_fallback": true,
+            "rank": 8
+          }
+        ],
+        "improvement_gaps": [
+          {
+            "summoner_action": {
+              "action_key": "3033",
+              "action_name": "Mortal Reminder",
+              "effective_delta_w": -0.010622470572424323,
+              "personal_delta_w": -0.01062247057242433,
+              "population_delta_w": -0.010622470572424323,
+              "personal_count": 30,
+              "population_count": 30,
+              "mean_pre_win_prob": 0.47529416731585866,
+              "used_population_fallback": true,
+              "rank": 8
+            },
+            "better_alternative": {
+              "action_key": "3156",
+              "action_name": "Maw of Malmortius",
+              "effective_delta_w": 0.09313612642062587,
+              "personal_delta_w": 0.09313612642062587,
+              "population_delta_w": 0.09313612642062587,
+              "personal_count": 4,
+              "population_count": 4,
+              "mean_pre_win_prob": 0.5622509693464988,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.10375859699305019
+          },
+          {
+            "summoner_action": {
+              "action_key": "3031",
+              "action_name": "Infinity Edge",
+              "effective_delta_w": -0.010219132876047476,
+              "personal_delta_w": -0.005461800379662721,
+              "population_delta_w": -0.010219132876047476,
+              "personal_count": 48,
+              "population_count": 53,
+              "mean_pre_win_prob": 0.45120777660549294,
+              "used_population_fallback": true,
+              "rank": 7
+            },
+            "better_alternative": {
+              "action_key": "3156",
+              "action_name": "Maw of Malmortius",
+              "effective_delta_w": 0.09313612642062587,
+              "personal_delta_w": 0.09313612642062587,
+              "population_delta_w": 0.09313612642062587,
+              "personal_count": 4,
+              "population_count": 4,
+              "mean_pre_win_prob": 0.5622509693464988,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.10335525929667334
+          },
+          {
+            "summoner_action": {
+              "action_key": "6676",
+              "action_name": "The Collector",
+              "effective_delta_w": 0.004074564072441933,
+              "personal_delta_w": 0.004074564072441933,
+              "population_delta_w": 0.0033559991752905014,
+              "personal_count": 77,
+              "population_count": 80,
+              "mean_pre_win_prob": 0.5115906015465845,
+              "used_population_fallback": false,
+              "rank": 6
+            },
+            "better_alternative": {
+              "action_key": "3156",
+              "action_name": "Maw of Malmortius",
+              "effective_delta_w": 0.09313612642062587,
+              "personal_delta_w": 0.09313612642062587,
+              "population_delta_w": 0.09313612642062587,
+              "personal_count": 4,
+              "population_count": 4,
+              "mean_pre_win_prob": 0.5622509693464988,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.08906156234818394
+          },
+          {
+            "summoner_action": {
+              "action_key": "3094",
+              "action_name": "Rapid Firecannon",
+              "effective_delta_w": 0.02354806357065953,
+              "personal_delta_w": 0.02354806357065953,
+              "population_delta_w": 0.02122034177995699,
+              "personal_count": 93,
+              "population_count": 96,
+              "mean_pre_win_prob": 0.5152650285380613,
+              "used_population_fallback": false,
+              "rank": 5
+            },
+            "better_alternative": {
+              "action_key": "3156",
+              "action_name": "Maw of Malmortius",
+              "effective_delta_w": 0.09313612642062587,
+              "personal_delta_w": 0.09313612642062587,
+              "population_delta_w": 0.09313612642062587,
+              "personal_count": 4,
+              "population_count": 4,
+              "mean_pre_win_prob": 0.5622509693464988,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.06958806284996634
+          },
+          {
+            "summoner_action": {
+              "action_key": "3142",
+              "action_name": "Youmuu's Ghostblade",
+              "effective_delta_w": 0.04014499283133557,
+              "personal_delta_w": 0.04014499283133558,
+              "population_delta_w": 0.04014499283133557,
+              "personal_count": 36,
+              "population_count": 36,
+              "mean_pre_win_prob": 0.47318689872913233,
+              "used_population_fallback": true,
+              "rank": 3
+            },
+            "better_alternative": {
+              "action_key": "3156",
+              "action_name": "Maw of Malmortius",
+              "effective_delta_w": 0.09313612642062587,
+              "personal_delta_w": 0.09313612642062587,
+              "population_delta_w": 0.09313612642062587,
+              "personal_count": 4,
+              "population_count": 4,
+              "mean_pre_win_prob": 0.5622509693464988,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.0529911335892903
+          }
+        ],
+        "selection_bias_flags": []
+      },
+      {
+        "champion_id": "202",
+        "rank_tier": "SILVER",
+        "action_type": "OBJECTIVE_KILL",
+        "opponent_damage_bucket": "mixed",
+        "ranked_actions": [
+          {
+            "action_key": "RIFTHERALD",
+            "action_name": "Rift Herald",
+            "effective_delta_w": 0.15463676256875988,
+            "personal_delta_w": 0.15463676256875988,
+            "population_delta_w": 0.15463676256875988,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.45413929129866537,
+            "used_population_fallback": true,
+            "rank": 1
+          },
+          {
+            "action_key": "DRAGON",
+            "action_name": "Dragon",
+            "effective_delta_w": 0.021100112560844417,
+            "personal_delta_w": 0.02930272314080239,
+            "population_delta_w": 0.021100112560844417,
+            "personal_count": 10,
+            "population_count": 11,
+            "mean_pre_win_prob": 0.6235359250523422,
+            "used_population_fallback": true,
+            "rank": 2
+          }
+        ],
+        "summoner_top_actions": [
+          {
+            "action_key": "DRAGON",
+            "action_name": "Dragon",
+            "effective_delta_w": 0.021100112560844417,
+            "personal_delta_w": 0.02930272314080239,
+            "population_delta_w": 0.021100112560844417,
+            "personal_count": 10,
+            "population_count": 11,
+            "mean_pre_win_prob": 0.6235359250523422,
+            "used_population_fallback": true,
+            "rank": 2
+          },
+          {
+            "action_key": "RIFTHERALD",
+            "action_name": "Rift Herald",
+            "effective_delta_w": 0.15463676256875988,
+            "personal_delta_w": 0.15463676256875988,
+            "population_delta_w": 0.15463676256875988,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.45413929129866537,
+            "used_population_fallback": true,
+            "rank": 1
+          }
+        ],
+        "improvement_gaps": [
+          {
+            "summoner_action": {
+              "action_key": "DRAGON",
+              "action_name": "Dragon",
+              "effective_delta_w": 0.021100112560844417,
+              "personal_delta_w": 0.02930272314080239,
+              "population_delta_w": 0.021100112560844417,
+              "personal_count": 10,
+              "population_count": 11,
+              "mean_pre_win_prob": 0.6235359250523422,
+              "used_population_fallback": true,
+              "rank": 2
+            },
+            "better_alternative": {
+              "action_key": "RIFTHERALD",
+              "action_name": "Rift Herald",
+              "effective_delta_w": 0.15463676256875988,
+              "personal_delta_w": 0.15463676256875988,
+              "population_delta_w": 0.15463676256875988,
+              "personal_count": 2,
+              "population_count": 2,
+              "mean_pre_win_prob": 0.45413929129866537,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.13353665000791548
+          }
+        ],
+        "selection_bias_flags": [
+          {
+            "action_key": "DRAGON",
+            "action_name": "Dragon",
+            "mean_pre_win_prob": 0.6235359250523422,
+            "effective_delta_w": 0.021100112560844417,
+            "population_best_delta_w": 0.15463676256875988
+          }
+        ]
+      },
+      {
+        "champion_id": "202",
+        "rank_tier": "",
+        "action_type": "ITEM_PURCHASE",
+        "opponent_damage_bucket": "mixed",
+        "ranked_actions": [
+          {
+            "action_key": "3094",
+            "action_name": "Rapid Firecannon",
+            "effective_delta_w": 0.3471968287665248,
+            "personal_delta_w": 0.3471968287665248,
+            "population_delta_w": 0.3471968287665248,
+            "personal_count": 1,
+            "population_count": 1,
+            "mean_pre_win_prob": 0.399031789031042,
+            "used_population_fallback": true,
+            "rank": 1
+          },
+          {
+            "action_key": "3026",
+            "action_name": "Guardian Angel",
+            "effective_delta_w": 0.03676758951745884,
+            "personal_delta_w": 0.03676758951745884,
+            "population_delta_w": 0.03676758951745884,
+            "personal_count": 1,
+            "population_count": 1,
+            "mean_pre_win_prob": 0.8156920198527752,
+            "used_population_fallback": true,
+            "rank": 2
+          },
+          {
+            "action_key": "6676",
+            "action_name": "The Collector",
+            "effective_delta_w": 0.019553151558300147,
+            "personal_delta_w": 0.019553151558300147,
+            "population_delta_w": 0.019553151558300147,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.2957825445232334,
+            "used_population_fallback": true,
+            "rank": 3
+          },
+          {
+            "action_key": "3031",
+            "action_name": "Infinity Edge",
+            "effective_delta_w": -0.035796949039642284,
+            "personal_delta_w": -0.035796949039642284,
+            "population_delta_w": -0.035796949039642284,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.3511326451211758,
+            "used_population_fallback": true,
+            "rank": 4
+          },
+          {
+            "action_key": "3072",
+            "action_name": "Bloodthirster",
+            "effective_delta_w": -0.3356688189862251,
+            "personal_delta_w": -0.3356688189862251,
+            "population_delta_w": -0.3356688189862251,
+            "personal_count": 1,
+            "population_count": 1,
+            "mean_pre_win_prob": 0.6803082114126826,
+            "used_population_fallback": true,
+            "rank": 5
+          },
+          {
+            "action_key": "3033",
+            "action_name": "Mortal Reminder",
+            "effective_delta_w": -0.34253697766995517,
+            "personal_delta_w": -0.34253697766995517,
+            "population_delta_w": -0.34253697766995517,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.6578726737514886,
+            "used_population_fallback": true,
+            "rank": 6
+          }
+        ],
+        "summoner_top_actions": [
+          {
+            "action_key": "6676",
+            "action_name": "The Collector",
+            "effective_delta_w": 0.019553151558300147,
+            "personal_delta_w": 0.019553151558300147,
+            "population_delta_w": 0.019553151558300147,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.2957825445232334,
+            "used_population_fallback": true,
+            "rank": 3
+          },
+          {
+            "action_key": "3031",
+            "action_name": "Infinity Edge",
+            "effective_delta_w": -0.035796949039642284,
+            "personal_delta_w": -0.035796949039642284,
+            "population_delta_w": -0.035796949039642284,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.3511326451211758,
+            "used_population_fallback": true,
+            "rank": 4
+          },
+          {
+            "action_key": "3033",
+            "action_name": "Mortal Reminder",
+            "effective_delta_w": -0.34253697766995517,
+            "personal_delta_w": -0.34253697766995517,
+            "population_delta_w": -0.34253697766995517,
+            "personal_count": 2,
+            "population_count": 2,
+            "mean_pre_win_prob": 0.6578726737514886,
+            "used_population_fallback": true,
+            "rank": 6
+          },
+          {
+            "action_key": "3094",
+            "action_name": "Rapid Firecannon",
+            "effective_delta_w": 0.3471968287665248,
+            "personal_delta_w": 0.3471968287665248,
+            "population_delta_w": 0.3471968287665248,
+            "personal_count": 1,
+            "population_count": 1,
+            "mean_pre_win_prob": 0.399031789031042,
+            "used_population_fallback": true,
+            "rank": 1
+          },
+          {
+            "action_key": "3026",
+            "action_name": "Guardian Angel",
+            "effective_delta_w": 0.03676758951745884,
+            "personal_delta_w": 0.03676758951745884,
+            "population_delta_w": 0.03676758951745884,
+            "personal_count": 1,
+            "population_count": 1,
+            "mean_pre_win_prob": 0.8156920198527752,
+            "used_population_fallback": true,
+            "rank": 2
+          }
+        ],
+        "improvement_gaps": [
+          {
+            "summoner_action": {
+              "action_key": "3033",
+              "action_name": "Mortal Reminder",
+              "effective_delta_w": -0.34253697766995517,
+              "personal_delta_w": -0.34253697766995517,
+              "population_delta_w": -0.34253697766995517,
+              "personal_count": 2,
+              "population_count": 2,
+              "mean_pre_win_prob": 0.6578726737514886,
+              "used_population_fallback": true,
+              "rank": 6
+            },
+            "better_alternative": {
+              "action_key": "3094",
+              "action_name": "Rapid Firecannon",
+              "effective_delta_w": 0.3471968287665248,
+              "personal_delta_w": 0.3471968287665248,
+              "population_delta_w": 0.3471968287665248,
+              "personal_count": 1,
+              "population_count": 1,
+              "mean_pre_win_prob": 0.399031789031042,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.68973380643648
+          },
+          {
+            "summoner_action": {
+              "action_key": "3031",
+              "action_name": "Infinity Edge",
+              "effective_delta_w": -0.035796949039642284,
+              "personal_delta_w": -0.035796949039642284,
+              "population_delta_w": -0.035796949039642284,
+              "personal_count": 2,
+              "population_count": 2,
+              "mean_pre_win_prob": 0.3511326451211758,
+              "used_population_fallback": true,
+              "rank": 4
+            },
+            "better_alternative": {
+              "action_key": "3094",
+              "action_name": "Rapid Firecannon",
+              "effective_delta_w": 0.3471968287665248,
+              "personal_delta_w": 0.3471968287665248,
+              "population_delta_w": 0.3471968287665248,
+              "personal_count": 1,
+              "population_count": 1,
+              "mean_pre_win_prob": 0.399031789031042,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.38299377780616706
+          },
+          {
+            "summoner_action": {
+              "action_key": "6676",
+              "action_name": "The Collector",
+              "effective_delta_w": 0.019553151558300147,
+              "personal_delta_w": 0.019553151558300147,
+              "population_delta_w": 0.019553151558300147,
+              "personal_count": 2,
+              "population_count": 2,
+              "mean_pre_win_prob": 0.2957825445232334,
+              "used_population_fallback": true,
+              "rank": 3
+            },
+            "better_alternative": {
+              "action_key": "3094",
+              "action_name": "Rapid Firecannon",
+              "effective_delta_w": 0.3471968287665248,
+              "personal_delta_w": 0.3471968287665248,
+              "population_delta_w": 0.3471968287665248,
+              "personal_count": 1,
+              "population_count": 1,
+              "mean_pre_win_prob": 0.399031789031042,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.3276436772082246
+          },
+          {
+            "summoner_action": {
+              "action_key": "3026",
+              "action_name": "Guardian Angel",
+              "effective_delta_w": 0.03676758951745884,
+              "personal_delta_w": 0.03676758951745884,
+              "population_delta_w": 0.03676758951745884,
+              "personal_count": 1,
+              "population_count": 1,
+              "mean_pre_win_prob": 0.8156920198527752,
+              "used_population_fallback": true,
+              "rank": 2
+            },
+            "better_alternative": {
+              "action_key": "3094",
+              "action_name": "Rapid Firecannon",
+              "effective_delta_w": 0.3471968287665248,
+              "personal_delta_w": 0.3471968287665248,
+              "population_delta_w": 0.3471968287665248,
+              "personal_count": 1,
+              "population_count": 1,
+              "mean_pre_win_prob": 0.399031789031042,
+              "used_population_fallback": true,
+              "rank": 1
+            },
+            "delta_w_gap": 0.31042923924906596
+          }
+        ],
+        "selection_bias_flags": [
+          {
+            "action_key": "3033",
+            "action_name": "Mortal Reminder",
+            "mean_pre_win_prob": 0.6578726737514886,
+            "effective_delta_w": -0.34253697766995517,
+            "population_best_delta_w": 0.3471968287665248
+          },
+          {
+            "action_key": "3072",
+            "action_name": "Bloodthirster",
+            "mean_pre_win_prob": 0.6803082114126826,
+            "effective_delta_w": -0.3356688189862251,
+            "population_best_delta_w": 0.3471968287665248
+          }
+        ]
+      }
+    ],
+    "top_improvement_opportunities": [
+      {
+        "summoner_action": {
+          "action_key": "3033",
+          "action_name": "Mortal Reminder",
+          "effective_delta_w": -0.34253697766995517,
+          "personal_delta_w": -0.34253697766995517,
+          "population_delta_w": -0.34253697766995517,
+          "personal_count": 2,
+          "population_count": 2,
+          "mean_pre_win_prob": 0.6578726737514886,
+          "used_population_fallback": true,
+          "rank": 6
+        },
+        "better_alternative": {
+          "action_key": "3094",
+          "action_name": "Rapid Firecannon",
+          "effective_delta_w": 0.3471968287665248,
+          "personal_delta_w": 0.3471968287665248,
+          "population_delta_w": 0.3471968287665248,
+          "personal_count": 1,
+          "population_count": 1,
+          "mean_pre_win_prob": 0.399031789031042,
+          "used_population_fallback": true,
+          "rank": 1
+        },
+        "delta_w_gap": 0.68973380643648
+      },
+      {
+        "summoner_action": {
+          "action_key": "3031",
+          "action_name": "Infinity Edge",
+          "effective_delta_w": -0.035796949039642284,
+          "personal_delta_w": -0.035796949039642284,
+          "population_delta_w": -0.035796949039642284,
+          "personal_count": 2,
+          "population_count": 2,
+          "mean_pre_win_prob": 0.3511326451211758,
+          "used_population_fallback": true,
+          "rank": 4
+        },
+        "better_alternative": {
+          "action_key": "3094",
+          "action_name": "Rapid Firecannon",
+          "effective_delta_w": 0.3471968287665248,
+          "personal_delta_w": 0.3471968287665248,
+          "population_delta_w": 0.3471968287665248,
+          "personal_count": 1,
+          "population_count": 1,
+          "mean_pre_win_prob": 0.399031789031042,
+          "used_population_fallback": true,
+          "rank": 1
+        },
+        "delta_w_gap": 0.38299377780616706
+      },
+      {
+        "summoner_action": {
+          "action_key": "6676",
+          "action_name": "The Collector",
+          "effective_delta_w": 0.019553151558300147,
+          "personal_delta_w": 0.019553151558300147,
+          "population_delta_w": 0.019553151558300147,
+          "personal_count": 2,
+          "population_count": 2,
+          "mean_pre_win_prob": 0.2957825445232334,
+          "used_population_fallback": true,
+          "rank": 3
+        },
+        "better_alternative": {
+          "action_key": "3094",
+          "action_name": "Rapid Firecannon",
+          "effective_delta_w": 0.3471968287665248,
+          "personal_delta_w": 0.3471968287665248,
+          "population_delta_w": 0.3471968287665248,
+          "personal_count": 1,
+          "population_count": 1,
+          "mean_pre_win_prob": 0.399031789031042,
+          "used_population_fallback": true,
+          "rank": 1
+        },
+        "delta_w_gap": 0.3276436772082246
+      }
+    ],
+    "top_selection_bias_flags": [
+      {
+        "action_key": "3033",
+        "action_name": "Mortal Reminder",
+        "mean_pre_win_prob": 0.6578726737514886,
+        "effective_delta_w": -0.34253697766995517,
+        "population_best_delta_w": 0.3471968287665248
+      },
+      {
+        "action_key": "3072",
+        "action_name": "Bloodthirster",
+        "mean_pre_win_prob": 0.6803082114126826,
+        "effective_delta_w": -0.3356688189862251,
+        "population_best_delta_w": 0.3471968287665248
+      },
+      {
+        "action_key": "DRAGON",
+        "action_name": "Dragon",
+        "mean_pre_win_prob": 0.6235359250523422,
+        "effective_delta_w": 0.021100112560844417,
+        "population_best_delta_w": 0.15463676256875988
+      }
+    ]
+  }
+}

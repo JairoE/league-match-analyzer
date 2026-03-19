@@ -15,7 +15,7 @@ A full-stack League of Legends match analysis platform with AI-powered insights,
 - **Champion Insights**: Champion-specific performance metrics and build recommendations
 - **Search-First Access**: Immediate match data lookup using Riot ID (GameName#Tag)
 - **Optional Authentication**: Sign up for persistent features and saved preferences
-- **LLM-Powered Analysis**: Semantic search and natural language queries over match data (upcoming)
+- **LLM-Powered Analysis**: Item and objective gap analysis with ranked recommendations via OpenAI
 
 ---
 
@@ -638,6 +638,7 @@ CORS_ALLOW_ORIGINS=https://league-match-analyzer.vercel.app
 
 ### Development Docs
 
+- [LLM Data Pipeline](docs/LLM_DATA_PIPELINE.md) — End-to-end pipeline runbook (ingest → score → aggregate → LLM analysis), including steps to seed the test fixture and run the real-data integration test
 - [Database Setup](docs/DATABASE_SETUP.md) — Local database configuration
 - [Phase 0 Endpoints](docs/PHASE0_ENDPOINTS.md) — API endpoint specifications
 
