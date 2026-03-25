@@ -1,6 +1,6 @@
 # Technical Architecture & Design Patterns
 
-**Last Updated:** March 16, 2026
+**Last Updated:** March 18, 2026
 **Scope:** Full codebase of `league-match-analyzer` (FastAPI + Next.js + Infrastructure + LLM Pipeline)
 
 ## Executive Summary
@@ -40,16 +40,16 @@ The system employs a **"Stateless Lookup with Side-Effect Persistence"** pattern
 
 ### 1.3 LLM Data Pipeline
 
-An 8-step pipeline (Steps 1–5 implemented) for win probability-based match analysis:
+Full 8-step pipeline (all steps implemented) for win probability-based match analysis:
 
 1. **Ingest**: Fetch timeline from Riot API with Redis caching (1h TTL).
 2. **Extract**: Pull per-minute state vectors and discrete action events from timeline data.
 3. **Score**: Logistic regression model trained from exported CSV; scoring service loads joblib at worker startup.
 4. **Compute ΔW**: `score_actions_job` persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action` rows.
 5. **Aggregate**: Read-only SQL aggregation with personal + population stats and K≥50 fallback.
-6. **Compare** (future): Rank summoner choices vs. population-optimal alternatives.
-7. **Prompt LLM** (future): Submit gap analysis to Claude for recommendations.
-8. **Store** (future): Persist output to `llm_analysis` table.
+6. **Compare**: Rank summoner choices vs. population-optimal alternatives, detect selection bias.
+7. **Prompt LLM**: Send gap analysis to LLM (OpenAI, swappable via `LLMClient` protocol) for 3 ranked recommendations.
+8. **Store**: Persist LLM output to `llm_analysis` table with schema versioning and token counts.
 
 See `docs/LLM_DATA_PIPELINE.md` for the full specification.
 
@@ -74,6 +74,7 @@ See `docs/LLM_DATA_PIPELINE.md` for the full specification.
   - `fetch_match_details_job`: Batch fetching of match payloads.
   - `extract_match_timeline_job`: Timeline ingest, state vector + action extraction, DB persistence. Idempotent (skips if vectors already exist).
   - `score_actions_job`: Scores pre/post states via win probability model, persists ΔW on `match_action` rows. Idempotent; skips when model not loaded.
+  - `llm_analysis_job`: Orchestrates steps 5→8 end-to-end (aggregate → compare → prompt LLM → persist). Handles error cases: `no_data`, `no_comparison`, `llm_error`, `parse_error`, `skipped`.
   - `fetch_timeline_cache_job`: Timeline prefetch/caching for match detail expansion UX.
   - **Cron**: `sync_all_riot_accounts_matches` runs every 6 hours.
 
@@ -93,8 +94,14 @@ See `docs/LLM_DATA_PIPELINE.md` for the full specification.
 | `state_vector.py` | Game state vector extraction from timeline data |
 | `action_extraction.py` | Discrete action extraction (item purchases, objective kills) |
 | `action_aggregation.py` | Personal + population ΔW aggregation with K≥50 fallback |
+| `action_comparison.py` | Rank summoner choices vs. population-optimal; improvement gaps, selection bias detection |
+| `llm_client.py` | `LLMClient` protocol + `OpenAIClient` (provider abstraction for LLM calls) |
+| `llm_prompt.py` | Sanitized prompt construction from `ComparisonResult` (system + user prompts) |
+| `llm_response_schema.py` | `LLMAnalysisResponse`, `Recommendation` Pydantic models for structured LLM output |
 | `win_prob_features.py` | `FEATURE_ORDER`, `encode_rank()` shared by training and scoring |
 | `win_prob_scoring.py` | `load_model()`, `score_state(features)` → w(x) |
+| `resolve_match_rank.py` | `resolve_average_rank()` — median rank from Redis cache + DB |
+| `enqueue_timeline_extraction.py` | Idempotent enqueue of extraction jobs for matches missing state vectors |
 | `live_game.py` | Live game spectator data with SSE streaming |
 | `champions.py` | Champion data management |
 | `champion_seed.py` | Auto-seed champions from Data Dragon on startup |
@@ -254,7 +261,7 @@ All components are folderized in `src/components/`, each with its own CSS module
 ### 4.3 Testing
 
 - **Backend**: pytest with `asyncio_mode = "auto"` in `services/api/tests/`
-- **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests), action aggregation (12 tests), background jobs, rate limiting, and more; 106 tests pass.
+- **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests), action aggregation (12 tests), action comparison (14 tests), LLM prompt (11 tests), LLM response schema (12 tests), LLM client (6 tests), LLM analysis job (6 tests), background jobs, rate limiting, and more; 160 tests pass.
 - **No frontend test suite** currently.
 
 ## 5. Key Updates
@@ -263,10 +270,10 @@ All components are folderized in `src/components/`, each with its own CSS module
 - **Stateless Search**: The `/search` endpoint architecture supports instant-feedback lookups without requiring prior user registration.
 - **Page-1 Correctness Hardening**: Match details are backfilled before initial page-1 list ordering to avoid stale first-load ordering when new matches were just upserted.
 - **Timeline Warmup Refactor**: Timeline enqueue was flattened to direct router->service dispatch, replacing the extra wrapper layer.
-- **LLM Service Stub**: A dedicated `league-llm` service structure exists, though currently minimal, indicating the architectural separation of concerns for future AI features.
+- **LLM Pipeline Complete**: Full 8-step pipeline operational — ingest through LLM analysis and persistence. `llm_analysis_job` orchestrates steps 5→8 with OpenAI provider (swappable via `LLMClient` protocol).
 - **Metric Instrumentation**: Added internal metric tracking (`worker_metrics.py`) for job reliability monitoring.
 
-## 5. Design Decisions & Trade-offs
+## 5b. Design Decisions & Trade-offs
 
 - **Client-side tab filtering**: Queue type filtering happens in the frontend, not the API. Some pages may show fewer items after filtering. Acceptable trade-off to avoid API complexity.
 - **JSONB over normalized columns**: `game_info`, `features`, `action_detail` stored as JSONB for flexibility; structured columns added only for fields that need indexing.
@@ -276,11 +283,12 @@ All components are folderized in `src/components/`, each with its own CSS module
 
 ## 6. Known Issues
 
-- **Race condition**: `_get_or_create_match` and `upsert_user_from_riot` use non-atomic check-then-insert, causing `IntegrityError` under concurrency. Fix requires `INSERT ... ON CONFLICT`.
+- **Race condition** (RESOLVED): All select-then-insert patterns in `match_sync.py` and `riot_account_upsert.py` replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
 
 ## 7. Roadmap
 
-- **LLM Pipeline Steps 6–8**: Compare (ranking vs. optimal) → LLM prompt → recommendation storage
-- **Batch scoring**: Add a "score all unscored matches for account" command (step 4 is currently per-match)
 - **Server-side queue filtering**: Move tab filtering to the API for more accurate pagination counts
 - **Vector embeddings**: `pgvector` is enabled; wire up for semantic search capabilities
+- **Champion kill ΔW**: Add when sample sizes support it
+- **Skill level-up order**: Add when data volume allows per-champion analysis
+- **Production observability**: Trace IDs, latency monitoring, error rates, manual review flags

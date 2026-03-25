@@ -26,10 +26,14 @@ class Settings(BaseSettings):
             False otherwise). Override via ARQ_CRON_RUN_AT_STARTUP env var.
         win_prob_model_path: Path to joblib-serialized win probability model;
             empty to disable action scoring.
+        openai_api_key: OpenAI API key for LLM analysis; empty to disable.
+        llm_model_name: LLM model identifier (e.g. "gpt-4o-mini").
     """
 
     environment: str = "development"
     win_prob_model_path: str = ""
+    openai_api_key: str = ""
+    llm_model_name: str = "gpt-4o-mini"
     database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
     redis_url: str = "redis://localhost:6379/0"
     riot_api_key: str = "replace-me"

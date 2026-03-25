@@ -17,7 +17,7 @@ Ingest a summoner's match history, compute contextualized win probability statis
 
 ## Pipeline Runbook
 
-Steps 1-2 run automatically when matches are fetched through the API/worker. Steps 3-6 require manual invocation. Steps 7-8 are not yet implemented.
+Steps 1-2 run automatically when matches are fetched through the API/worker. Steps 3-6 require manual invocation. Steps 7-8 run the full LLM pipeline; steps 9-10 seed and run the integration test.
 
 **Prerequisites**: `make db-up`, `make db-migrate`, `make install`, and a valid `RIOT_API_KEY` in `services/api/.env`.
 
@@ -139,13 +139,81 @@ make compare-actions-debug RIOT_ACCOUNT_ID=<uuid>
 
 If this returns "No comparison results", it means step 5 returned no aggregates (no scored actions for this account/filters).
 
-### Steps 7-8: Not yet implemented
+---
+
+Once step 4 is complete (scored match data in the DB), two independent workflows are available:
+
+- **Production run** (steps 7-8): calls the LLM and persists results to the `llm_analysis` table.
+- **Test workflow** (steps 9-10): saves the intermediate comparison output to a committed fixture file, then replays step 7 in a pytest test — no DB access needed after the one-time seed.
+
+Neither path requires the other to have run first.
+
+---
+
+### Step 7-8: LLM Analysis (manual, per champion)
+
+Runs steps 5→6→7→8 end-to-end: aggregates actions, compares against population optimal, sends gap analysis to an LLM, and persists results to `llm_analysis`.
+
+**Prerequisites**: `OPENAI_API_KEY` set in `services/api/.env`. Scored matches for the target account (step 4 completed).
+
+```bash
+# Dry run — show the prompt without calling the LLM
+make llm-analysis-debug RIOT_ID="damanjr#NA1" CHAMPION=157 DRY_RUN=1
+
+# Full run — call LLM and persist results
+make llm-analysis-debug RIOT_ID="damanjr#NA1" CHAMPION=157
+
+# With rank filter
+make llm-analysis-debug RIOT_ID="damanjr#NA1" CHAMPION=157 RANK_TIER=GOLD
+
+# By account UUID
+make llm-analysis-debug RIOT_ACCOUNT_ID=<uuid> CHAMPION=157
+```
+
+The job can also be enqueued via ARQ (requires `make worker-dev` running):
+
+```python
+await arq_pool.enqueue_job("llm_analysis_job", riot_account_id, champion, rank_tier)
+```
+
+### Step 9: Seed LLM Test Fixture (one-time, per account)
+
+Captures the real comparison output (steps 5-6) from the DB into a committed JSON fixture so the integration test never needs a live DB at test time.
+
+**Prerequisites**: Step 4 completed for the target account (scored match data in DB); `DATABASE_URL` set. Steps 5-6 from the runbook are debug tools — the seeder re-runs them internally.
+
+```bash
+# Auto-pick most-played champion (default)
+DATABASE_URL="postgresql+asyncpg://league:league@localhost:5432/league" python services/api/tests/seed_llm_fixture.py
+
+# Seed for a specific champion by champion_id
+CHAMPION_ID=238 DATABASE_URL="postgresql+asyncpg://league:league@localhost:5432/league" python services/api/tests/seed_llm_fixture.py
+```
+
+Without `CHAMPION_ID`, the seeder picks the champion with the highest total personal action count. Set `CHAMPION_ID` to target any champion in the DB — useful for testing edge cases (selection bias patterns, low-game-count champions, no rank tier data).
+
+Writes `services/api/tests/fixtures/damanjr_comparison.json`. **Commit this file** — it becomes the permanent test input.
+
+Re-run the seeder whenever you want to refresh the fixture with newer match data (e.g. after scoring more matches).
+
+### Step 10: Run LLM Integration Test Against Real Data
+
+Runs step 7 (prompt construction + OpenAI call + schema validation) using the seeded fixture. No DB or Riot API access needed.
+
+**Prerequisites**: `OPENAI_API_KEY` set; `fixtures/damanjr_comparison.json` exists (step 9 done).
+
+```bash
+OPENAI_API_KEY=sk-... pytest services/api/tests/test_llm_pipeline_real_data.py -s -v
+```
+
+The test auto-skips if either condition is unmet, so it is safe to include in `make test` runs without those variables set.
 
 ## Game State Vector ($X$)
 
 Extract per-minute state vectors from `participantFrames` and `events`. These align with Table 5 of the thesis (75.9% accuracy, 0.90% ECE):
 
 **Per-player features (x10):**
+
 - `position.x`, `position.y` — from participantFrame (1-min resolution)
 - `level` — current champion level
 - `totalGold` — cumulative gold acquired
@@ -154,6 +222,7 @@ Extract per-minute state vectors from `participantFrames` and `events`. These al
 - Kills / Deaths / Assists — derived from `CHAMPIONKILL` events
 
 **Per-team features (x2):**
+
 - Voidgrubs killed — from `ELITEMONSTERKILL` events
 - Dragons killed — from `ELITEMONSTERKILL` events
 - Barons killed — from `ELITEMONSTERKILL` events
@@ -161,6 +230,7 @@ Extract per-minute state vectors from `participantFrames` and `events`. These al
 - Inhibitors destroyed — from `BUILDINGKILL` events
 
 **Global features:**
+
 - `timestamp` — current in-game time
 - Rank — average rank of the players (pre-game feature)
 
@@ -171,12 +241,14 @@ No sub-minute interpolation is needed for the win probability model; the thesis 
 Compute $\Delta W$ for two action types in V1. Additional action types (champion kills, skill level-ups) can be added when data volume supports statistically significant results.
 
 ### Item Purchases
+
 - Action ($a$): `ITEMPURCHASED` — focus on legendary items only (82 items in `LEGENDARY_ITEM_IDS`, clearest strategic signal)
 - Initial state ($x$): game state at the minute frame nearest to purchase time
 - Final state ($z$): game state when item is sold, destroyed, upgraded, or terminal match state
 - `ITEMUNDO` events are key signals of players correcting suboptimal decisions
 
 ### Objective Kills (Dragon / Baron / Herald)
+
 - Action ($a$): `ELITEMONSTERKILL`
 - Initial state ($x$): game state at the minute frame nearest to the kill
 - Final state ($z$): game state ~3-5 minutes later (the objective's effective buff window)
@@ -184,17 +256,21 @@ Compute $\Delta W$ for two action types in V1. Additional action types (champion
 ## Win Probability Model
 
 ### V1: Logistic Regression
+
 Start with logistic regression using the features above. This follows Maymin [27] and achieves a usable baseline (~72% accuracy per White & Romano [60]).
 
 ### V2: Deep Neural Network
+
 Upgrade to a DNN when training data exceeds ~100K matches. The thesis achieved 75.9% accuracy / 0.90% ECE on 350K matches with M=20 bins. Use temperature scaling for calibration (second-best method per Kim et al. [22], simpler to implement than data uncertainty loss).
 
 ### Evaluation
+
 - **Accuracy**: proportion of correctly predicted outcomes
 - **ECE**: expected calibration error with $M = 20$ bins
 - **Reliability diagrams**: plot $\overline{w}(B_m)$ vs. $\overline{y}(B_m)$ per bin, split by 10-min time intervals
 
 ### Key Design Decisions
+
 - Train on one random game state per 5-min interval per match to reduce overfitting from correlated successive states (per thesis and AlphaGo [46])
 - Items are excluded from model features (categorical complexity of 60 variables); item evaluation uses $\Delta W$ from the action space, which is independent of the state space
 - Use the $\overline{W_X}(a)$ statistic to detect selection bias: $\overline{W_X}(a) > 0.5$ means the action is taken more often when already winning (e.g., Heartsteel in the thesis case study)
@@ -222,6 +298,7 @@ Input to LLM:
 ```
 
 The LLM is asked to:
+
 1. Explain the 3 largest improvement opportunities ranked by $\Delta W$ impact
 2. Provide context-specific advice (e.g., "vs. magic damage top laners, buy X instead of Y")
 3. Flag any selection bias patterns (high $W$ but low $\Delta W$ items the summoner defaults to)
@@ -235,17 +312,17 @@ The LLM is asked to:
 
 ## Implementation Status
 
-| Step | Status | Implementation |
-|------|--------|----------------|
-| 1. Ingest | **Done** | `extract_match_timeline_job` in `app/jobs/timeline_extraction.py`. Fetches timeline via `RiotApiClient.fetch_match_timeline()`, caches in Redis (`timeline:{matchId}`, 1h TTL). |
-| 2. Extract | **Done** | `extract_state_vectors()` in `app/services/state_vector.py` — per-minute `GameStateVector` with cumulative KDA/objective trackers. `extract_actions()` in `app/services/action_extraction.py` — legendary item purchases + objective kills with pre/post state linking. |
-| 1→2 Wiring | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered via `func(extract_match_timeline_job, max_tries=5)` in `WorkerSettings.functions`. Rate-limited jobs raise `arq.Retry(defer=120)` instead of failing permanently (up to 5 ARQ retries, ~10 min total). All existing matches backfilled via `scripts/backfill_extraction.py`. |
-| 3. Score | **Done** | `scripts/train_win_prob_model.py` trains logistic regression from exported CSV and saves joblib. Scoring service in `app/services/win_prob_scoring.py` loads model (optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x). |
-| 4. Compute ΔW | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded. |
-| 5. Aggregate | **Done** | `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id, rank_tier, action_type, action_key, opponent_damage_bucket (V1: "mixed"). `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` returns list of `ActionAggregate` with personal_stats, population_stats, and `insufficient_personal_sample` when K < 50. Population restricted to same (champion, rank_tier) buckets. Optional dispersion: stddev(delta_w). Debug script: `scripts/aggregate_actions_debug.py` and `make aggregate-actions-debug RIOT_ACCOUNT_ID=...` or `RIOT_ID=...`. |
-| 6. Compare | **Done** | `compare_action_stats()` in `app/services/action_comparison.py` — pure sync function consuming step 5 `list[ActionAggregate]`. Groups by (champion, rank, action_type), ranks by effective ΔW (personal K≥50, else population), computes improvement gaps (summoner's top items vs. rank-1 alternative), detects selection bias (W(x) ≥ 0.55 + ΔW below group median). Output: `ComparisonResult` (champion-agnostic top level; each `ComparisonGroup` carries champion/rank) serializable to `LLMAnalysis.input_payload` via `dataclasses.asdict()`. Supports multi-champion analysis. Debug script: `scripts/compare_actions_debug.py` and `make compare-actions-debug`. |
-| 7. Prompt LLM | Not started | `llm_analysis` table exists with `input_payload`, `output_payload`, `recommendations` columns. |
-| 8. Store + Log | Not started | `LLMAnalysis` model ready with `schema_version`, `model_name`, token counts. |
+| Step           | Status   | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Ingest      | **Done** | `extract_match_timeline_job` in `app/jobs/timeline_extraction.py`. Fetches timeline via `RiotApiClient.fetch_match_timeline()`, caches in Redis (`timeline:{matchId}`, 1h TTL).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 2. Extract     | **Done** | `extract_state_vectors()` in `app/services/state_vector.py` — per-minute `GameStateVector` with cumulative KDA/objective trackers. `extract_actions()` in `app/services/action_extraction.py` — legendary item purchases + objective kills with pre/post state linking.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 1→2 Wiring     | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered via `func(extract_match_timeline_job, max_tries=5)` in `WorkerSettings.functions`. Rate-limited jobs raise `arq.Retry(defer=120)` instead of failing permanently (up to 5 ARQ retries, ~10 min total). All existing matches backfilled via `scripts/backfill_extraction.py`.                                                                                                                                                  |
+| 3. Score       | **Done** | `scripts/train_win_prob_model.py` trains logistic regression from exported CSV and saves joblib. Scoring service in `app/services/win_prob_scoring.py` loads model (optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x).                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 4. Compute ΔW  | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 5. Aggregate   | **Done** | `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id, rank_tier, action_type, action_key, opponent_damage_bucket (V1: "mixed"). `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` returns list of `ActionAggregate` with personal_stats, population_stats, and `insufficient_personal_sample` when K < 50. Population restricted to same (champion, rank_tier) buckets. Optional dispersion: stddev(delta_w). Debug script: `scripts/aggregate_actions_debug.py` and `make aggregate-actions-debug RIOT_ACCOUNT_ID=...` or `RIOT_ID=...`. |
+| 6. Compare     | **Done** | `compare_action_stats()` in `app/services/action_comparison.py` — pure sync function consuming step 5 `list[ActionAggregate]`. Groups by (champion, rank, action_type), ranks by effective ΔW (personal K≥50, else population), computes improvement gaps (summoner's top items vs. rank-1 alternative), detects selection bias (W(x) ≥ 0.55 + ΔW below group median). Output: `ComparisonResult` (champion-agnostic top level; each `ComparisonGroup` carries champion/rank) serializable to `LLMAnalysis.input_payload` via `dataclasses.asdict()`. Supports multi-champion analysis. Debug script: `scripts/compare_actions_debug.py` and `make compare-actions-debug`.    |
+| 7. Prompt LLM  | **Done** | `llm_analysis_job` in `app/jobs/llm_analysis.py` orchestrates steps 5→8. Provider abstraction in `app/services/llm_client.py` (`LLMClient` protocol + `OpenAIClient`). Prompt construction in `app/services/llm_prompt.py` (system + user prompt from `ComparisonResult`). Response schema in `app/services/llm_response_schema.py` (`LLMAnalysisResponse` with `Recommendation` Pydantic models). Sanitized: no summoner names, PUUIDs, or raw Riot data in prompts.                                                                                                                                                                                                         |
+| 8. Store + Log | **Done** | `llm_analysis_job` persists `LLMAnalysis` row with `input_payload` (serialized `ComparisonResult`), `output_payload` (parsed LLM response), `recommendations` (list of dicts), `model_name`, `token_count_input/output`, `champion_name`, `rank_tier`, `match_ids`, `schema_version`. On parse failure, raw response stored in `output_payload` with empty `recommendations`.                                                                                                                                                                                                                                                                                                 |
 
 ### DB tables (migration `20260305_0002`)
 
@@ -259,7 +336,7 @@ The LLM is asked to:
 - `services/api/app/services/action_extraction.py` — `MatchAction` dataclass, `ActionType` enum, `LEGENDARY_ITEM_IDS` set (82 items); `extract_actions()`
 - `services/api/app/jobs/timeline_extraction.py` — `extract_match_timeline_job` ARQ job (idempotent, Redis-cached timeline fetch)
 - `services/api/app/services/enqueue_timeline_extraction.py` — `enqueue_missing_extraction_jobs()` with DB idempotency check and deterministic `_job_id`
-- `services/api/app/services/background_jobs.py` — `WorkerSettings` with all 4 job functions registered
+- `services/api/app/services/background_jobs.py` — `WorkerSettings` with all job functions registered
 - `services/api/app/models/match_state_vector.py` — `MatchStateVector` SQLModel
 - `services/api/app/models/match_action.py` — `MatchActionRecord` SQLModel
 - `services/api/app/models/llm_analysis.py` — `LLMAnalysis` SQLModel
@@ -274,10 +351,19 @@ The LLM is asked to:
 - `services/api/app/services/action_aggregation.py` — `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` → list of `ActionAggregate` (personal + population stats, K≥50 fallback); `GroupKey`, `AggregateRow`, `ActionAggregate`; `_build_personal_sql`, `_build_population_sql` for optional filters and IN expansion
 - `services/api/app/services/action_comparison.py` — `compare_action_stats(aggregates, item_names?, objective_names?)` → `ComparisonResult` (champion-agnostic) with `ComparisonGroup`, `RankedAction`, `ImprovementGap`, `SelectionBiasFlag`; pure sync function, supports multi-champion input
 - `scripts/compare_actions_debug.py` — CLI debug script for step 6 comparison output
+- `services/api/app/services/llm_client.py` — `LLMClient` protocol + `OpenAIClient` (provider abstraction; swap to Anthropic by adding `AnthropicClient` here)
+- `services/api/app/services/llm_prompt.py` — `build_system_prompt()`, `build_user_prompt()` (sanitized prompt construction from `ComparisonResult`)
+- `services/api/app/services/llm_response_schema.py` — `LLMAnalysisResponse`, `Recommendation` (Pydantic models for structured LLM output)
+- `services/api/app/jobs/llm_analysis.py` — `llm_analysis_job(ctx, riot_account_id, champion, rank_tier?)` orchestrates steps 5→8
+- `scripts/llm_analysis_debug.py` — CLI debug/dry-run script for steps 5→8
 - `services/api/tests/test_action_comparison.py` — 14 tests
 - `services/api/tests/test_action_aggregation.py` — 12 tests
 - `services/api/tests/test_state_vector.py` — 10 tests
 - `services/api/tests/test_action_extraction.py` — 12 tests
+- `services/api/tests/test_llm_prompt.py` — 11 tests
+- `services/api/tests/test_llm_response_schema.py` — 12 tests
+- `services/api/tests/test_llm_client.py` — 6 tests
+- `services/api/tests/test_llm_analysis_job.py` — 6 tests
 
 ### Next steps to continue
 
@@ -288,7 +374,7 @@ The LLM is asked to:
 5. ~~Build a `score_actions_job` to populate `delta_w` / `pre_win_prob` / `post_win_prob` on `match_action` rows~~ **Done**
 6. ~~Build aggregation queries~~ **Done** — `action_aggregation.py` with personal/population merge and K≥50 fallback.
 7. ~~Build comparison logic~~ **Done** — `action_comparison.py` with ranking, improvement gaps, selection bias detection.
-8. Implement LLM prompt construction and `llm_analysis` persistence
+8. ~~Implement LLM prompt construction and `llm_analysis` persistence~~ **Done** — `llm_analysis_job` orchestrates steps 5→8 with OpenAI provider (swappable via `LLMClient` protocol).
 
 ## Future Extensions
 

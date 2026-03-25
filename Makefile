@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug capture-riot-fixtures print-champion-ids
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids
 
 help:
 	@echo "Available targets:"
@@ -19,6 +19,7 @@ help:
 	@echo "  account-match-stats  Show total vs scored matches for an account (RIOT_ACCOUNT_ID=... or RIOT_ID=name#NA1)"
 	@echo "  aggregate-actions-debug  Print action aggregates for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
 	@echo "  compare-actions-debug  Print action comparison (gaps + bias) for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
+	@echo "  llm-analysis-debug  Run LLM analysis for account+champion (RIOT_ID=... CHAMPION=157 [RANK_TIER=GOLD] [DRY_RUN=1])"
 	@echo "  capture-riot-fixtures  Capture live Riot JSON fixtures for tests"
 	@echo "  print-champion-ids  Print Riot championId -> name mapping from Data Dragon"
 
@@ -182,6 +183,17 @@ compare-actions-debug:
 		exit 1; \
 	fi
 	./.venv/bin/python scripts/compare_actions_debug.py $$([ -n "$$RIOT_ACCOUNT_ID" ] && echo "--riot-account-id $$RIOT_ACCOUNT_ID" || echo "--riot-id $$RIOT_ID")
+
+llm-analysis-debug:
+	@if [ -z "$$RIOT_ACCOUNT_ID" ] && [ -z "$$RIOT_ID" ]; then \
+		echo "Usage: make llm-analysis-debug RIOT_ID=name#NA1 CHAMPION=157 [RANK_TIER=GOLD] [DRY_RUN=1]"; \
+		exit 1; \
+	fi
+	@if [ -z "$$CHAMPION" ]; then \
+		echo "CHAMPION is required (e.g. CHAMPION=157)"; \
+		exit 1; \
+	fi
+	./.venv/bin/python scripts/llm_analysis_debug.py $$([ -n "$$RIOT_ACCOUNT_ID" ] && echo "--riot-account-id $$RIOT_ACCOUNT_ID" || echo "--riot-id $$RIOT_ID") --champion $$CHAMPION $$([ -n "$$RANK_TIER" ] && echo "--rank-tier $$RANK_TIER") $$([ -n "$$DRY_RUN" ] && echo "--dry-run")
 
 win-prob-model-training:
 	./.venv/bin/python scripts/train_win_prob_model.py --input data/training.csv --output data/win_prob_model.joblib

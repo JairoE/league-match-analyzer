@@ -1,10 +1,8 @@
 # App State
 
-**Last Updated:** 2026-03-17
-**Branch:** `llm-phase-6`
-**Status:** STABLE — lint clean, tests pass (14/14 comparison tests). LLM pipeline steps 1–6 implemented (Ingest → Extract → Score → ΔW → Aggregate → Compare). Step 7 (Prompt LLM) is next.
-
-**Review:** Code review of step 6 completed 2026-03-17. Findings: (1) `opponent_damage_bucket` not in grouping key — safe under V1 "mixed" but must be added when V2 damage-type buckets land; (2) top-level `champion_id`/`rank_tier` on `ComparisonResult` were arbitrary (first group's values) and misleading for multi-champion analysis — **removed** so each `ComparisonGroup` is the sole source of champion/rank context.
+**Last Updated:** 2026-03-18
+**Branch:** `llm-phase-7`
+**Status:** STABLE — lint clean, 160 tests pass (35 new LLM tests). Full 8-step LLM pipeline implemented (Ingest → Extract → Score → ΔW → Aggregate → Compare → Prompt LLM → Store). All steps operational end-to-end.
 
 ## What's Built
 
@@ -15,7 +13,7 @@
 - **Pagination schema**: `PaginatedMatchList` wraps `data` + `PaginationMeta` (page, limit, total, last_page, stale, stale_reason). On 429 during page-1 sync, endpoints fall back to DB and return cached data with `stale=true`.
 - **Auth flow**: `POST /users/sign_in`, `POST /users/sign_up` — optional user authentication.
 - **Riot API Client**: Redis-backed sliding-window rate limiter with dynamic header parsing and exponential backoff.
-- **Background jobs**: `fetch_match_details_job` (batch → auto-enqueues `extract_match_timeline_job`), `extract_match_timeline_job` (state vector + action extraction), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
+- **Background jobs**: `fetch_match_details_job` (batch → auto-enqueues `extract_match_timeline_job`), `extract_match_timeline_job` (state vector + action extraction), `score_actions_job` (ΔW scoring), `llm_analysis_job` (steps 5→8 orchestration), `fetch_timeline_cache_job` (timeline warmup), `sync_all_riot_accounts_matches` (cron every 6h).
 - **Data model**: `RiotAccount`, `Match` (with `game_info` JSONB), `RiotAccountMatch` join table. `pgvector` extension enabled.
 - **Observability**: Structured JSON logging, `increment_metric_safe` metric helper.
 
@@ -55,6 +53,38 @@
 | Race condition in `_get_or_create_match` and `upsert_user_from_riot` — non-atomic check-then-insert causes `IntegrityError` under concurrency | `services/api/app/services/match_sync.py`, `riot_account_upsert.py` | **RESOLVED** |
 
 **Resolved** (session 15): All select-then-insert patterns replaced with `INSERT ... ON CONFLICT DO NOTHING` for `Match`, `RiotAccountMatch`, `User`, and `UserRiotAccount`.
+
+---
+
+## Recent Changes (2026-03-18, LLM pipeline code review fixes)
+
+### Code review fixes for LLM pipeline steps 7-8
+
+- **Deduplicated shared helpers**: Removed duplicate `_OBJECTIVE_LABELS` dict and `_load_item_name_map()` from `scripts/llm_analysis_debug.py`. Debug script now imports `OBJECTIVE_LABELS`, `load_item_name_map`, and `_get_scored_match_ids` from `app/jobs/llm_analysis.py`. Functions renamed from private (`_`) to public since they're part of the module's import API.
+- **Aligned recommendation constraints**: Changed `Recommendation.rank` from `le=5` to `le=3` and `LLMAnalysisResponse.recommendations` from `max_length=5` to `max_length=3` in `llm_response_schema.py`. Matches the system prompt instruction ("identify the 3 largest improvement opportunities") and pipeline doc. Tests updated accordingly.
+- **Documented prompt truncation**: Added inline comment explaining the `[:10]` cap on ranked actions in `_build_rankings_section()` (`llm_prompt.py`) — keeps prompts compact and within token budget.
+- **Added `max_tokens=1024`**: Set token budget on the OpenAI `create()` call in `llm_client.py` for cost control. Expected response is a JSON object with 3 recommendations + 2 summary strings, well under 1K tokens.
+- **Tests**: 160/160 pass. Lint clean.
+
+---
+
+## Recent Changes (2026-03-18, LLM pipeline steps 7-8 — Prompt LLM + Store)
+
+### Step 7 — LLM prompt construction + calling
+
+- **Provider abstraction**: `app/services/llm_client.py` — `LLMClient` protocol + `OpenAIClient` implementation. Uses `response_format={"type": "json_object"}` for structured output, `temperature=0.3`, `max_tokens=1024`. To swap to Claude/Anthropic later: add `AnthropicClient` in this same file, change one instantiation line in the job.
+- **Response schema**: `app/services/llm_response_schema.py` — `Recommendation` (rank 1-3, title, current_choice, recommended_choice, delta_w_gap, explanation, category) + `LLMAnalysisResponse` (up to 3 recommendations, selection_bias_summary, overall_assessment). Pydantic v2 with `model_validate_json()` for parsing.
+- **Prompt construction**: `app/services/llm_prompt.py` — `build_system_prompt()` with JSON schema inline, coaching analyst role, ΔW explanation. `build_user_prompt(comparison_dict, champion_name, rank_tier)` formats improvement opportunities, selection bias flags, and per-group action rankings (capped at 10 per group). Sanitized: no summoner names, PUUIDs, account IDs, or raw Riot payloads.
+
+### Step 8 — Persistence + orchestration
+
+- **ARQ job**: `app/jobs/llm_analysis.py` — `llm_analysis_job(ctx, riot_account_id, champion, rank_tier?)` orchestrates steps 5→8 end-to-end. Aggregates actions (step 5), compares against population (step 6), resolves champion name from DB, fetches item names from DDragon, builds/sends prompt (step 7), parses response, persists `LLMAnalysis` row (step 8). Registered in `WorkerSettings.functions`. Exports `OBJECTIVE_LABELS`, `load_item_name_map()` for reuse by debug script.
+- **Error handling**: `no_data` (empty aggregation), `no_comparison` (all None ΔW), `llm_error` (API failure), `parse_error` (invalid JSON — raw response stored in `output_payload`, recommendations set to `[]`), `skipped` (no API key configured).
+- **Config**: Added `openai_api_key: str = ""` and `llm_model_name: str = "gpt-4o-mini"` to `Settings`. Added to `.env.example`.
+- **Dependency**: Added `openai>=1.58.0` to `services/api/pyproject.toml`.
+- **Debug script**: `scripts/llm_analysis_debug.py` — accepts `--riot-account-id` or `--riot-id`, `--champion` (required), `--rank-tier`, `--dry-run`. Make: `make llm-analysis-debug RIOT_ID="damanjr#NA1" CHAMPION=157 [DRY_RUN=1]`. Imports shared helpers from `llm_analysis.py` (no code duplication).
+- **Tests**: 35 new tests across 4 files — `test_llm_prompt.py` (11), `test_llm_response_schema.py` (12), `test_llm_client.py` (6), `test_llm_analysis_job.py` (6). Total: 160 tests pass.
+- **Doc**: `docs/LLM_DATA_PIPELINE.md` updated — steps 7-8 marked Done; runbook, key files, and next steps revised.
 
 ---
 

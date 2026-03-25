@@ -1,6 +1,6 @@
 # Request Flow: Search to Home (with Optional Auth)
 
-**Last Updated:** March 7, 2026
+**Last Updated:** March 18, 2026
 
 This document outlines the high-level request flow for the `league-match-analyzer` application, illustrating how services and technologies interact across search, match display, live game, and LLM analysis flows.
 
@@ -49,7 +49,7 @@ graph TD
 
   subgraph External ["External APIs"]
     Riot["Riot API"]
-    LLM["LLM API"]
+    LLM["LLM API (OpenAI)"]
   end
 
   %% Primary Search Flow
@@ -87,17 +87,19 @@ graph TD
   TimelineJob -. "23. Cache Timeline (1h TTL)" .-> Redis
   TimelineJob -. "24. Extract State Vectors + Actions" .-> DB
 
-  %% Future: LLM Analysis
-  DB -. "25. Aggregated ΔW stats" .-> LLM
-  LLM -. "26. Recommendations" .-> DB
+  %% LLM Analysis Pipeline (Steps 5-8)
+  DB -- "25. Aggregate + Compare ΔW stats" --> Service
+  Service -- "26. Gap analysis prompt" --> LLM
+  LLM -- "27. Recommendations" --> Service
+  Service -- "28. Persist LLMAnalysis" --> DB
 
   %% Optional Auth Flow
-  Home -- "27. Optional Sign In" --> Auth
-  Auth -- "28. POST /users/sign_in" --> AuthRoute
+  Home -- "29. Optional Sign In" --> Auth
+  Auth -- "30. POST /users/sign_in" --> AuthRoute
   AuthRoute --> Service
-  Service -- "29. Validate User" --> DB
-  AuthRoute -- "30. Auth Response" --> Auth
-  Auth -- "31. Save Session" --> Home
+  Service -- "31. Validate User" --> DB
+  AuthRoute -- "32. Auth Response" --> Auth
+  Auth -- "33. Save Session" --> Home
 ```
 
 ## Request Flows
@@ -162,16 +164,22 @@ User → GET /live-game/{riot_id} (SSE stream)
   → Frontend renders LiveGameCard
 ```
 
-### 6. LLM Analysis Flow (Future — Steps 3–7)
+### 6. LLM Analysis Flow (Steps 5–8, implemented)
 
 ```
-Stored state vectors + actions →
-  → Score via win probability model: w(x) → ΔW(d) = w(z) - w(x)
-  → Aggregate: mean ΔW per (champion, action, rank), K≥50 threshold
-  → Compare summoner choices vs. population-optimal alternatives
-  → Submit gap analysis to LLM (Claude)
-  → Store recommendations in llm_analysis table
+llm_analysis_job(ctx, riot_account_id, champion, rank_tier?) →
+  → Step 5: Aggregate ΔW stats (personal + population, K≥50 fallback)
+  → Step 6: Compare summoner choices vs. population-optimal alternatives
+       → Rank by effective ΔW, compute improvement gaps, detect selection bias
+  → Step 7: Build sanitized prompt (ComparisonResult → system + user prompt)
+       → Call LLM via LLMClient protocol (OpenAI, swappable to Anthropic)
+       → Parse structured JSON response (LLMAnalysisResponse: 3 recommendations)
+  → Step 8: Persist LLMAnalysis row (input_payload, output_payload, recommendations,
+       model_name, token counts, schema_version, match_ids)
+  → Error handling: no_data, no_comparison, llm_error, parse_error, skipped
 ```
+
+Debug/dry-run: `make llm-analysis-debug RIOT_ID="name#TAG" CHAMPION=157 [DRY_RUN=1]`
 
 ### 7. Optional Auth Flow
 
@@ -228,6 +236,9 @@ Frontend → Save to sessionStorage → useSession hook
 - **Job Types**:
   - `fetch_match_details_job` (batch detail backfill path, still available)
   - `fetch_timeline_cache_job` (timeline warmup path used by search/matches page 1)
+  - `extract_match_timeline_job` (state vector + action extraction from timeline data)
+  - `score_actions_job` (ΔW scoring via win probability model)
+  - `llm_analysis_job` (steps 5→8 orchestration: aggregate → compare → prompt LLM → persist)
   - `sync_all_riot_accounts_matches` (periodic sync)
 - **Timeline Extraction**: Separate background job extracts state vectors and actions, persists to `match_state_vector` + `match_action` tables for downstream ΔW computation.
 
@@ -235,7 +246,7 @@ Frontend → Save to sessionStorage → useSession hook
 
 - **PostgreSQL 16**: Primary store with hybrid relational + JSONB approach
 - **Core Tables**: `user`, `riot_account`, `match` (with `game_info` JSONB), `riot_account_match`, `user_riot_account`, `champion`
-- **LLM Pipeline Tables** (new): `match_state_vector` (per-minute game state features), `match_action` (item purchases + objective kills with ΔW scoring columns), `llm_analysis` (LLM recommendations with schema versioning)
+- **LLM Pipeline Tables**: `match_state_vector` (per-minute game state features), `match_action` (item purchases + objective kills with ΔW scoring columns), `llm_analysis` (LLM output with input/output payloads, recommendations, model name, token counts, schema versioning)
 - **pgvector**: Extension enabled for future vector search
 - **Alembic**: Async migration environment with Railway pre-deploy release step
 
