@@ -27,19 +27,12 @@ Replace `{riot_id}` with the target player, e.g. `PlayerName%23TAG`.
 
 ---
 
-## Step 2 — Edit the Riot ID in the seed script
+## Step 2 — Seed the fixture
 
-Open [seed_llm_fixture.py](seed_llm_fixture.py) and change line 40:
-
-```python
-_RIOT_ID = "PlayerName#TAG"   # replace with your target player
-```
-
----
-
-## Step 3 — Seed the fixture
+Pass `RIOT_ID` as an env var (defaults to `damanjr#NA1` if omitted):
 
 ```bash
+RIOT_ID=PlayerName#TAG \
 DATABASE_URL=postgresql+asyncpg://user:pass@localhost/league_db \
     python services/api/tests/seed_llm_fixture.py
 ```
@@ -48,17 +41,18 @@ The script picks the champion with the most recorded games automatically.
 To force a specific champion, pass `CHAMPION_ID`:
 
 ```bash
+RIOT_ID=PlayerName#TAG \
 CHAMPION_ID=Jinx \
 DATABASE_URL=postgresql+asyncpg://user:pass@localhost/league_db \
     python services/api/tests/seed_llm_fixture.py
 ```
 
-On success it writes `services/api/tests/fixtures/damanjr_comparison.json`
-(the filename is fixed; it gets overwritten each run).
+On success it writes `services/api/tests/fixtures/<riot_id>_comparison.json`
+(e.g. `PlayerName_TAG_comparison.json`). The file is overwritten each run.
 
 ---
 
-## Step 4 — Run the test
+## Step 3 — Run the test
 
 ```bash
 OPENAI_API_KEY=sk-... pytest services/api/tests/test_llm_pipeline_real_data.py -s -v

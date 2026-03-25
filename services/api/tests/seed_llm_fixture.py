@@ -1,11 +1,12 @@
 """One-time script to seed the LLM pipeline fixture from a real DB.
 
-Queries the DB for damanjr#NA1, runs steps 5-6 (aggregate + compare), and
-writes the result to tests/fixtures/damanjr_comparison.json.  Commit that
-file so test_llm_pipeline_real_data.py never needs a live DB again.
+Queries the DB for the given RIOT_ID, runs steps 5-6 (aggregate + compare),
+and writes the result to tests/fixtures/<riot_id>_comparison.json.  Commit
+that file so test_llm_pipeline_real_data.py never needs a live DB again.
 
 Usage:
     DATABASE_URL=postgresql+asyncpg://user:pass@localhost/league_db \\
+    RIOT_ID=damanjr#NA1 \\
         python services/api/tests/seed_llm_fixture.py
 """
 
@@ -37,8 +38,10 @@ from app.services.action_aggregation import (  # noqa: E402
 )
 from app.services.action_comparison import compare_action_stats  # noqa: E402
 
-_RIOT_ID = "damanjr#NA1"
-_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "damanjr_comparison.json"
+_RIOT_ID = os.environ.get("RIOT_ID", "damanjr#NA1")
+_FIXTURE_PATH = (
+    Path(__file__).parent / "fixtures" / f"{_RIOT_ID.replace('#', '_')}_comparison.json"
+)
 
 
 def _pick_top_champion(aggregates: list[ActionAggregate]) -> str:
@@ -129,7 +132,7 @@ async def main() -> None:
     print(f"  champion : {champion_name} ({top_champion_id})")
     print(f"  rank     : {effective_rank}")
     print(f"  groups   : {len(aggregates)}")
-    print("\nCommit fixtures/damanjr_comparison.json and run the test with:")
+    print(f"\nCommit {_FIXTURE_PATH.name} and run the test with:")
     print("  OPENAI_API_KEY=sk-... pytest services/api/tests/test_llm_pipeline_real_data.py -s -v")
 
 

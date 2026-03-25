@@ -29,8 +29,11 @@ from app.services.llm_response_schema import LLMAnalysisResponse
 
 _SEPARATOR = "─" * 60
 
-_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "damanjr_comparison.json"
-
+# _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "damanjr_comparison.json"
+_RIOT_ID = os.environ.get("RIOT_ID", "damanjr#NA1")
+_FIXTURE_PATH = (
+    Path(__file__).parent / "fixtures" / f"{_RIOT_ID.replace('#', '_')}_comparison.json"
+)
 _SKIP_REASON = (
     "OPENAI_API_KEY not set or fixtures/damanjr_comparison.json missing — "
     "set the key and run seed_llm_fixture.py to generate the fixture"
