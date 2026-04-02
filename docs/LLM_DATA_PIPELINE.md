@@ -2,7 +2,7 @@
 
 ## Goal
 
-Ingest a summoner's match history, compute contextualized win probability statistics (following xPetu's thesis framework), and generate actionable improvement recommendations via LLM.
+Ingest a summoner's match history, compute contextualized win probability statistics (following xPetu's thesis framework https://drive.google.com/file/d/1CkYW0JdMfXXcczFvqjXcfp64D8eMIq1d/view), and generate actionable improvement recommendations via LLM.
 
 ## Pipeline Steps
 
