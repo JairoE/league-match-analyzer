@@ -1,0 +1,84 @@
+// Regression: S2 (useTransition for pagination page changes)
+// Branch: frontend-enhancements
+// Report: .gstack/qa-reports/
+
+import {test, expect} from "@playwright/test";
+import {mockRiotAccountRoutes, riotAccountUrl} from "./helpers";
+
+test.describe("MatchesTable — pagination (S2 useTransition)", () => {
+  test.beforeEach(async ({page}) => {
+    // Enable page 2 response override
+    await mockRiotAccountRoutes(page, {page2: true});
+  });
+
+  test("Pagination controls appear when total > page size", async ({page}) => {
+    await page.goto(riotAccountUrl());
+
+    // Wait for matches to load
+    await expect(page.getByRole("cell", {name: "Ranked Solo"}).first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Fixture: total=40, last_page=2, so pagination renders
+    await expect(page.getByText("40 matches total")).toBeVisible();
+    await expect(page.getByText("Page 1 of 2")).toBeVisible();
+
+    // Previous is disabled on page 1; Next is enabled
+    await expect(page.getByRole("button", {name: "Previous"})).toBeDisabled();
+    await expect(page.getByRole("button", {name: "Next"})).toBeEnabled();
+  });
+
+  test("Clicking Next navigates to page 2", async ({page}) => {
+    await page.goto(riotAccountUrl());
+    await expect(page.getByRole("cell", {name: "Ranked Solo"}).first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.getByRole("button", {name: "Next"}).click();
+
+    // After page change, pagination reflects page 2
+    await expect(page.getByText("Page 2 of 2")).toBeVisible({timeout: 10_000});
+
+    // Next is now disabled; Previous is enabled
+    await expect(page.getByRole("button", {name: "Next"})).toBeDisabled();
+    await expect(page.getByRole("button", {name: "Previous"})).toBeEnabled();
+  });
+
+  test("Clicking Previous navigates back to page 1", async ({page}) => {
+    await page.goto(riotAccountUrl());
+    await expect(page.getByRole("cell", {name: "Ranked Solo"}).first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Go forward then back
+    await page.getByRole("button", {name: "Next"}).click();
+    await expect(page.getByText("Page 2 of 2")).toBeVisible({timeout: 10_000});
+
+    await page.getByRole("button", {name: "Previous"}).click();
+    await expect(page.getByText("Page 1 of 2")).toBeVisible({timeout: 10_000});
+
+    await expect(page.getByRole("button", {name: "Previous"})).toBeDisabled();
+  });
+
+  test("No JS errors during page navigation", async ({page}) => {
+    const errors: string[] = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await page.goto(riotAccountUrl());
+    await expect(page.getByRole("cell", {name: "Ranked Solo"}).first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.getByRole("button", {name: "Next"}).click();
+    await expect(page.getByText("Page 2 of 2")).toBeVisible({timeout: 10_000});
+
+    // Filter out hydration noise if any; only real errors matter
+    const realErrors = errors.filter(
+      (e) =>
+        !e.includes("Hydration") &&
+        !e.includes("hydrat") &&
+        !e.includes("Warning:")
+    );
+    expect(realErrors).toHaveLength(0);
+  });
+});

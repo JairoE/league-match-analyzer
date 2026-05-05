@@ -157,7 +157,8 @@ docs: update request flow diagram
 - Backend tests live in `services/api/tests/`
 - All tests are async; `asyncio_mode = "auto"` is set in `pyproject.toml` so no decorator needed
 - Use `monkeypatch` for dependency injection, `caplog` for log assertions
-- No frontend test suite currently exists
+- Frontend E2E tests use Playwright (`league-web/e2e/`). Run: `cd league-web && npm run test:e2e`
+- See `league-web/TESTING.md` for conventions and mock patterns
 
 Before finishing any task, run `make test` and `make lint` (backend) and `npm run lint` (frontend). Fix any new failures — pre-existing ruff import-sort warnings are acceptable noise.
 
