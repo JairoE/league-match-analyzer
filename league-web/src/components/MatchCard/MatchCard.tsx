@@ -11,11 +11,13 @@
 
 import {memo, useMemo} from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import styles from "./MatchCard.module.css";
 import type {MatchCardProps} from "./types";
 import {ItemSlot} from "./ItemSlot";
 import Teams from "./Teams";
-import {ChampionKdaChart} from "./ChampionKdaChart";
+import {ChartSkeleton} from "./ChartSkeleton";
+import {DynamicImportBoundary} from "../common/DynamicImportBoundary";
 import {diffLabel, getMultikillBadges, getOutcomeDisplay} from "./match-card.utils";
 import {
   calculateKillParticipation,
@@ -39,6 +41,11 @@ import {
   getSpellImageUrl,
   getSpellLabel,
 } from "../../lib/constants/ddragon";
+
+const ChampionKdaChart = dynamic(
+  () => import("./ChampionKdaChart").then((m) => m.ChampionKdaChart),
+  {ssr: false, loading: () => <ChartSkeleton />}
+);
 
 export default memo(function MatchCard({
   match,
@@ -314,12 +321,19 @@ export default memo(function MatchCard({
       <div className={styles.cardChart}>
         {/* ── KDA History Chart (full-width row) ── */}
         {championHistory.length >= 2 && (
-          <div className={styles.kdaChart}>
+          <DynamicImportBoundary
+            resetKey={currentMatchId ?? undefined}
+            fallback={
+              <div className={styles.chartUnavailable}>
+                Chart unavailable
+              </div>
+            }
+          >
             <ChampionKdaChart
               history={championHistory}
               currentMatchId={currentMatchId}
             />
-          </div>
+          </DynamicImportBoundary>
         )}
       </div>
     </article>

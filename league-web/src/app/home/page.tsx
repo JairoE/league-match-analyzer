@@ -49,6 +49,7 @@ export default function HomePage() {
     matchDetails,
     isLoading,
     isLoadingMore,
+    isPending,
     canLoadMore,
     paginationMeta,
     errorMessage,
@@ -123,6 +124,7 @@ export default function HomePage() {
         targetPuuid={userPuuid}
         isLoading={isLoading}
         isLoadingMore={isLoadingMore}
+        isPending={isPending}
         canLoadMore={canLoadMore}
         onLoadMore={loadMoreMatches}
         paginationMeta={paginationMeta}

@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState, useTransition} from "react";
 import {apiGet} from "../api";
 import {clearCache} from "../cache";
 import {useAppError} from "../errors/error-store";
@@ -34,6 +34,7 @@ type UseMatchListReturn = {
   matchDetails: Record<string, MatchDetail>;
   isLoading: boolean;
   isLoadingMore: boolean;
+  isPending: boolean;
   canLoadMore: boolean;
   paginationMeta: PaginationMeta | null;
   page: number;
@@ -70,6 +71,7 @@ export function useMatchList({
   onFetchError,
   resetKey,
 }: UseMatchListOptions): UseMatchListReturn {
+  const [isPending, startTransition] = useTransition();
   const [allMatches, setAllMatches] = useState<MatchSummary[]>([]);
   const [matchDetails, setMatchDetails] = useState<
     Record<string, MatchDetail>
@@ -235,7 +237,10 @@ export function useMatchList({
       }
     }
     if (Object.keys(seeded).length > 0) {
-      setMatchDetails((prev) => ({...prev, ...seeded}));
+      setMatchDetails((prev) => {
+        const hasNew = Object.keys(seeded).some((id) => prev[id] !== seeded[id]);
+        return hasNew ? {...prev, ...seeded} : prev;
+      });
     }
   }, [allMatches]);
 
@@ -376,10 +381,15 @@ export function useMatchList({
     reportError,
   ]);
 
-  const handlePageChange = useCallback((newPage: number) => {
-    setPage(newPage);
-    window.scrollTo(0, 0);
-  }, []);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      startTransition(() => {
+        setPage(newPage);
+      });
+      window.scrollTo(0, 0);
+    },
+    [startTransition]
+  );
 
   const handleRefresh = useCallback(() => {
     console.debug(`[${logTagRef.current}] manual refresh`);
@@ -400,6 +410,7 @@ export function useMatchList({
     matchDetails,
     isLoading,
     isLoadingMore,
+    isPending,
     canLoadMore,
     paginationMeta,
     page,

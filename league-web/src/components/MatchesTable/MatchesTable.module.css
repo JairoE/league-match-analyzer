@@ -180,3 +180,9 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.pending {
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity 0.1s;
+}

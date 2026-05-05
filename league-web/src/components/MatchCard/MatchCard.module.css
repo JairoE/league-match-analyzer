@@ -426,3 +426,33 @@
   font-size: 11px;
   color: #f8fafc;
 }
+
+.chartSkeleton,
+.chartUnavailable {
+  height: 116px;
+}
+
+.chartSkeleton {
+  border-radius: 4px;
+  background: var(--color-chip, #1e293b);
+  animation: chartPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes chartPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.chartUnavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--match-text-muted);
+  opacity: 0.6;
+}

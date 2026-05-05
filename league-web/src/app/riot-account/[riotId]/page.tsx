@@ -78,6 +78,7 @@ export default function RiotAccountPage() {
     matchDetails,
     isLoading,
     isLoadingMore,
+    isPending,
     canLoadMore,
     paginationMeta,
     errorMessage,
@@ -226,6 +227,7 @@ export default function RiotAccountPage() {
         targetPuuid={accountPuuid}
         isLoading={isLoading}
         isLoadingMore={isLoadingMore}
+        isPending={isPending}
         canLoadMore={canLoadMore}
         onLoadMore={loadMoreMatches}
         paginationMeta={paginationMeta}

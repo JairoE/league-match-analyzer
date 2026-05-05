@@ -1,9 +1,22 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type {LiveGameData} from "../../lib/types/live-game";
 import type {LiveGameStatus} from "../../lib/hooks/useLiveGame";
-import {LiveGameCard} from "../LiveGameCard";
+import {DynamicImportBoundary} from "../common/DynamicImportBoundary";
 import styles from "./LiveGameSlot.module.css";
+
+const LiveGameCard = dynamic(
+  () => import("../LiveGameCard/LiveGameCard"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className={styles.box}>
+        <span className={styles.message}>Loading live game…</span>
+      </div>
+    ),
+  }
+);
 
 type LiveGameSlotProps = {
   status: LiveGameStatus;
@@ -23,7 +36,15 @@ export default function LiveGameSlot({
 
   if (status === "live" && liveGame) {
     return (
-      <LiveGameCard game={liveGame} targetPuuid={targetPuuid} />
+      <DynamicImportBoundary
+        fallback={
+          <div className={styles.box}>
+            <span className={styles.message}>Live game unavailable.</span>
+          </div>
+        }
+      >
+        <LiveGameCard game={liveGame} targetPuuid={targetPuuid} />
+      </DynamicImportBoundary>
     );
   }
 
