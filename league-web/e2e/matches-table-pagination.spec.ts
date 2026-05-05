@@ -24,8 +24,8 @@ test.describe("MatchesTable — pagination (S2 useTransition)", () => {
     await expect(page.getByText("Page 1 of 2")).toBeVisible();
 
     // Previous is disabled on page 1; Next is enabled
-    await expect(page.getByRole("button", {name: "Previous"})).toBeDisabled();
-    await expect(page.getByRole("button", {name: "Next"})).toBeEnabled();
+    await expect(page.getByRole("button", {name: "Previous", exact: true})).toBeDisabled();
+    await expect(page.getByRole("button", {name: "Next", exact: true})).toBeEnabled();
   });
 
   test("Clicking Next navigates to page 2", async ({page}) => {
@@ -34,14 +34,14 @@ test.describe("MatchesTable — pagination (S2 useTransition)", () => {
       timeout: 10_000,
     });
 
-    await page.getByRole("button", {name: "Next"}).click();
+    await page.getByRole("button", {name: "Next", exact: true}).click();
 
     // After page change, pagination reflects page 2
     await expect(page.getByText("Page 2 of 2")).toBeVisible({timeout: 10_000});
 
     // Next is now disabled; Previous is enabled
-    await expect(page.getByRole("button", {name: "Next"})).toBeDisabled();
-    await expect(page.getByRole("button", {name: "Previous"})).toBeEnabled();
+    await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled();
+    await expect(page.getByRole("button", {name: "Previous", exact: true})).toBeEnabled();
   });
 
   test("Clicking Previous navigates back to page 1", async ({page}) => {
@@ -51,13 +51,13 @@ test.describe("MatchesTable — pagination (S2 useTransition)", () => {
     });
 
     // Go forward then back
-    await page.getByRole("button", {name: "Next"}).click();
+    await page.getByRole("button", {name: "Next", exact: true}).click();
     await expect(page.getByText("Page 2 of 2")).toBeVisible({timeout: 10_000});
 
-    await page.getByRole("button", {name: "Previous"}).click();
+    await page.getByRole("button", {name: "Previous", exact: true}).click();
     await expect(page.getByText("Page 1 of 2")).toBeVisible({timeout: 10_000});
 
-    await expect(page.getByRole("button", {name: "Previous"})).toBeDisabled();
+    await expect(page.getByRole("button", {name: "Previous", exact: true})).toBeDisabled();
   });
 
   test("No JS errors during page navigation", async ({page}) => {
@@ -69,7 +69,7 @@ test.describe("MatchesTable — pagination (S2 useTransition)", () => {
       timeout: 10_000,
     });
 
-    await page.getByRole("button", {name: "Next"}).click();
+    await page.getByRole("button", {name: "Next", exact: true}).click();
     await expect(page.getByText("Page 2 of 2")).toBeVisible({timeout: 10_000});
 
     // Filter out hydration noise if any; only real errors matter
