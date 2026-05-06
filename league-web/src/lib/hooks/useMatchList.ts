@@ -238,8 +238,14 @@ export function useMatchList({
     }
     if (Object.keys(seeded).length > 0) {
       setMatchDetails((prev) => {
-        const hasNew = Object.keys(seeded).some((id) => prev[id] !== seeded[id]);
-        return hasNew ? {...prev, ...seeded} : prev;
+        // Only add entries that are genuinely new — never overwrite an existing
+        // entry with a fresh-deserialized reference to the same data. This keeps
+        // matchDetails reference-stable across polling ticks where no new
+        // game_info arrives, preventing unnecessary downstream re-computation.
+        const newEntries = Object.entries(seeded).filter(([id]) => prev[id] == null);
+        return newEntries.length > 0
+          ? {...prev, ...Object.fromEntries(newEntries)}
+          : prev;
       });
     }
   }, [allMatches]);
