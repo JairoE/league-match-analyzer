@@ -242,6 +242,7 @@ export default function MatchesTable({
   return (
     <div className={styles.wrapper}>
       <div
+        data-testid="tab-bar"
         className={`${styles.tabBar} ${isTabPending ? styles.pending : ""}`}
       >
         <button

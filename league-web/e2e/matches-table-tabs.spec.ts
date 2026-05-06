@@ -19,7 +19,8 @@ test.describe("MatchesTable — queue group tabs", () => {
     });
 
     // "All" tab is present and initially active
-    const allTab = page.getByRole("button", {name: "All"});
+    const tabBar = page.getByTestId("tab-bar");
+    const allTab = tabBar.getByRole("button", {name: "All", exact: true});
     await expect(allTab).toBeVisible();
 
     // Fixture has 4 matches: 2 ranked solo + 1 normal + 1 ARAM
@@ -33,7 +34,7 @@ test.describe("MatchesTable — queue group tabs", () => {
       timeout: 10_000,
     });
 
-    await page.getByRole("button", {name: "Ranked Solo"}).click();
+    await page.getByTestId("tab-bar").getByRole("button", {name: "Ranked Solo", exact: true}).click();
 
     // Only 2 ranked rows remain
     const rankedRows = page.getByRole("cell", {name: "Ranked Solo"});
@@ -50,7 +51,7 @@ test.describe("MatchesTable — queue group tabs", () => {
       timeout: 10_000,
     });
 
-    await page.getByRole("button", {name: "Normal"}).click();
+    await page.getByTestId("tab-bar").getByRole("button", {name: "Normal", exact: true}).click();
 
     await expect(page.getByRole("cell", {name: "Normal Draft"})).toHaveCount(1);
     await expect(page.getByRole("cell", {name: "Ranked Solo"})).toHaveCount(0);
@@ -62,7 +63,7 @@ test.describe("MatchesTable — queue group tabs", () => {
       timeout: 10_000,
     });
 
-    await page.getByRole("button", {name: "ARAM"}).click();
+    await page.getByTestId("tab-bar").getByRole("button", {name: "ARAM", exact: true}).click();
 
     await expect(page.getByRole("cell", {name: "ARAM"})).toHaveCount(1);
     await expect(page.getByRole("cell", {name: "Ranked Solo"})).toHaveCount(0);
@@ -75,8 +76,9 @@ test.describe("MatchesTable — queue group tabs", () => {
     });
 
     // Go to Ranked Solo, then back to All
-    await page.getByRole("button", {name: "Ranked Solo"}).click();
-    await page.getByRole("button", {name: "All"}).click();
+    const tabBar = page.getByTestId("tab-bar");
+    await tabBar.getByRole("button", {name: "Ranked Solo", exact: true}).click();
+    await tabBar.getByRole("button", {name: "All", exact: true}).click();
 
     const rows = page.getByRole("row").filter({hasText: /(Ranked Solo|Normal Draft|ARAM)/});
     await expect(rows).toHaveCount(4);
@@ -109,7 +111,7 @@ test.describe("MatchesTable — summary stats bar (S5 matchDetails stability)", 
       timeout: 10_000,
     });
 
-    await page.getByRole("button", {name: "Ranked Solo"}).click();
+    await page.getByTestId("tab-bar").getByRole("button", {name: "Ranked Solo", exact: true}).click();
 
     // Ranked matches: RANKED_MATCH_1(W) + RANKED_MATCH_2(L) = 1W 1L
     await expect(page.getByText("1W")).toBeVisible();
@@ -122,7 +124,7 @@ test.describe("MatchesTable — summary stats bar (S5 matchDetails stability)", 
       timeout: 10_000,
     });
 
-    await page.getByRole("button", {name: "ARAM"}).click();
+    await page.getByTestId("tab-bar").getByRole("button", {name: "ARAM", exact: true}).click();
 
     // ARAM: only ARAM_MATCH which is a win
     await expect(page.getByText("1W")).toBeVisible();
