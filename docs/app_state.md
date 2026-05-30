@@ -1,8 +1,77 @@
 # App State
 
-**Last Updated:** 2026-03-18
-**Branch:** `llm-phase-7`
-**Status:** STABLE — lint clean, 160 tests pass (35 new LLM tests). Full 8-step LLM pipeline implemented (Ingest → Extract → Score → ΔW → Aggregate → Compare → Prompt LLM → Store). All steps operational end-to-end.
+**Last Updated:** 2026-05-27
+**Branch:** `frontend-enhancements`
+**Status:** STABLE — React performance optimizations (S1–S5) shipped on the frontend, plus a 22-test Playwright E2E suite locking in the new behaviors. Backend unchanged from `llm-phase-7` (160 tests pass, full 8-step LLM pipeline operational end-to-end).
+
+## Current Phase
+
+**Frontend perf hardening + E2E coverage on `frontend-enhancements`.** The S1–S5 perf work, follow-up bug fixes (matchDetails reference churn on poll ticks, `reactCompiler` config key location), and the Playwright suite are committed. A small staged-but-uncommitted batch tightens those tests (replaces `waitForTimeout` calls with deterministic anchors via a new `gotoAccountAndWait` helper) and clarifies one architecture-doc line about the `isHydrated` pattern. Ready to commit + open PR against `main`.
+
+## Blockers
+
+- None. All committed work passes lint + tests; staged test refactors are mechanical and self-contained.
+- Operational note from earlier phase still stands: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
+
+## Next Steps
+
+1. Commit the staged test/docs cleanup (suggested message in this session's `/SUMMARIZE` output).
+2. `cd league-web && npm run test:e2e` — confirm all 22 specs still green after the `waitForTimeout` removals.
+3. Open PR `frontend-enhancements` → `main` using the PR description drafted in this session.
+4. After merge: verify in production DevTools that `recharts` and `LiveGameCard` chunks load lazily, not on initial page load (validates S1 + S3 in the real bundle).
+5. Optional follow-up (not blocking): migrate `sessionStorage` session state to cookies so the affected routes can render server-side and the `isHydrated` workaround can be removed (see updated note in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`).
+
+## Recent Changes (2026-05-27, frontend-enhancements — React perf S1–S5 + Playwright E2E)
+
+### What changed
+
+- **S1 — Code-split `ChampionKdaChart`** via `next/dynamic` (`ssr:false`); recharts ships only when a match with 2+ point KDA history is expanded. New `MatchCard/ChartSkeleton.tsx` placeholder + `components/common/DynamicImportBoundary.tsx` error boundary with a `resetKey` prop so transient chunk-load failures don't permanently break the UI.
+- **S2 — `useTransition`** wired into `MatchesTable` pagination and queue-tab switches; stale render stays visible while the next page/filter computes, click feedback stays instant.
+- **S3 — Code-split `LiveGameSlot`** via `next/dynamic`; the `LiveGameCard` chunk only loads when SSE reports an in-game state. Idle / `not_in_game` / error renders are pure status UI.
+- **S4 — React Compiler annotation mode (`"use memo"`)** opted-in on `MatchesTable`, `home` page, and `riot-account/[riotId]` page (per-file rather than repo-wide).
+- **S5 — Stable `matchDetails` reference** in `useMatchList`. Removed the `matchDetailsRef` / `loadedDetailCount` gate; `setMatchDetails` now returns `prev` when content is unchanged, and the polling seeding effect only merges entries genuinely absent from `prev`. Stops `matchSummaryStats` / `championHistoryByMatchId` memos from re-running every 3-second poll tick.
+
+### Config + follow-up fixes
+
+- **`next.config.ts`**: `reactCompiler` moved to top-level (stable in Next.js 16; staying under `experimental` triggered a startup warning + risked silent fallback).
+- **`useMatchList` polling tick fix**: the seeding effect was overwriting existing entries with freshly-deserialized objects every poll, churning `matchDetails` references. Now only merges entries absent from `prev`.
+
+### Playwright E2E suite (`league-web/e2e/`)
+
+- 22 tests across 4 specs:
+  - `matches-table-tabs.spec.ts` — queue tab filtering (S2) + summary stats W/L correctness (S5 regression).
+  - `matches-table-pagination.spec.ts` — Next/Previous via `useTransition` (S2).
+  - `match-card-chart.spec.ts` — dynamic chart load, skeleton→chart transition, `DynamicImportBoundary` `resetKey` recovery (S1).
+  - `live-game-slot.spec.ts` — dynamic `LiveGameSlot` with SSE `not_in_game` / error / retry flows (S3).
+- Typed fixtures in `e2e/fixtures/matches.ts` cover Ranked Solo, Normal Draft, and ARAM queue types with multi-champion history data.
+- Mocks use `page.route()` wildcards — no backend required to run tests (`cd league-web && npm run test:e2e`).
+- Locator hardening fixes: `data-testid="tab-bar"` on the tab bar to scope tab-click locators away from row cells with the same accessible name; `exact: true` on pagination button locators so `Next` no longer matches the Next.js Dev Tools button.
+
+### Staged-but-uncommitted (test stability + doc clarification)
+
+- New `gotoAccountAndWait(page)` helper in `e2e/helpers.ts` — navigates to the riot-account page and awaits the first "Ranked Solo" cell.
+- `live-game-slot.spec.ts`: removed `waitForTimeout(500/2000)` calls. Retry test now uses `Promise.all([page.waitForRequest(...), click])`; "no account loaded" test waits on the deterministic page-error copy "No search results for the summoner …"; error-state test asserts the "Please try again." copy.
+- `match-card-chart.spec.ts`: collapsed three overlapping expansion tests into one combined "expand → chart loads → SVG renders" test. Single-game (Lux/ARAM) no-chart test now anchors on close-button visibility instead of `waitForTimeout(1000)`.
+- `matches-table-pagination.spec.ts`: merged the standalone "no JS errors during navigation" assertion into the "Next navigates to page 2" test (single `pageerror` listener); reused `gotoAccountAndWait`.
+- `matches-table-tabs.spec.ts`: added a `queueLabelCells(page)` helper because `MatchRow` renders `<tr role="button">`, overriding the implicit row role — rows are now counted via the first cell. Removed the redundant "switch back to All" test.
+- `docs/TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`: clarified that `isHydrated` is a workaround for client-only `sessionStorage` reads on `"use client"` routes, not a Next.js feature. Notes the cookie-migration path that would let those routes render server-side and remove the pattern.
+
+### Key files
+
+- `league-web/next.config.ts`
+- `league-web/src/components/MatchesTable/MatchesTable.tsx` (useTransition, `data-testid="tab-bar"`, `"use memo"`)
+- `league-web/src/components/MatchCard/{MatchCard.tsx, ChartSkeleton.tsx, MatchCard.module.css}`
+- `league-web/src/components/common/DynamicImportBoundary.tsx` (new)
+- `league-web/src/components/LiveGameSlot/LiveGameSlot.tsx` (dynamic import)
+- `league-web/src/lib/hooks/useMatchList.ts` (S5 reference stabilization + poll-tick merge fix)
+- `league-web/src/app/{home,riot-account/[riotId]}/page.tsx` (`"use memo"`)
+- `league-web/playwright.config.ts`, `league-web/TESTING.md`, `league-web/e2e/` (suite + fixtures)
+
+### Tests / lint
+
+- Frontend lint clean; backend untouched (still 160/160).
+
+---
 
 ## What's Built
 

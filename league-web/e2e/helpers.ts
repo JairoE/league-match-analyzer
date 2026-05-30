@@ -1,4 +1,4 @@
-import type {Page} from "@playwright/test";
+import {expect, type Page} from "@playwright/test";
 import {
   ACCOUNT_RESPONSE,
   PAGE_1_RESPONSE,
@@ -56,4 +56,15 @@ export async function mockRiotAccountRoutes(
 /** Navigate to the riot-account page for the test user */
 export function riotAccountUrl(): string {
   return `/riot-account/${TEST_RIOT_ID}`;
+}
+
+/**
+ * Navigate to the riot-account page and wait until the matches table has
+ * rendered its first row (a Ranked Solo cell from the fixture).
+ */
+export async function gotoAccountAndWait(page: Page) {
+  await page.goto(riotAccountUrl());
+  await expect(
+    page.getByRole("cell", {name: "Ranked Solo"}).first()
+  ).toBeVisible({timeout: 10_000});
 }
