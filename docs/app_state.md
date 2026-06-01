@@ -1,12 +1,20 @@
 # App State
 
-**Last Updated:** 2026-05-27
+**Last Updated:** 2026-06-01
 **Branch:** `frontend-enhancements`
-**Status:** STABLE — React performance optimizations (S1–S5) shipped on the frontend, plus a 22-test Playwright E2E suite locking in the new behaviors. Backend unchanged from `llm-phase-7` (160 tests pass, full 8-step LLM pipeline operational end-to-end).
+**Status:** STABLE — React performance optimizations (S1–S5) shipped on the frontend, plus a 22-test Playwright E2E suite locking in the new behaviors. Backend unchanged from `llm-phase-7` (160 tests pass, full 8-step LLM pipeline operational end-to-end). Five-axis code review completed 2026-05-30: **Approve**, no blocking findings. A scale/maintainability verification on 2026-06-01 (new `/verify-changes` workflow) returned **GO-WITH-NITS**: no new runtime dependencies, all optimizations justified at scale; two non-blocking follow-ups (pin the React Compiler RC deps exactly, slim the e2e fixture).
 
 ## Current Phase
 
-**Frontend perf hardening + E2E coverage on `frontend-enhancements`.** The S1–S5 perf work, follow-up bug fixes (matchDetails reference churn on poll ticks, `reactCompiler` config key location), and the Playwright suite are committed. A small staged-but-uncommitted batch tightens those tests (replaces `waitForTimeout` calls with deterministic anchors via a new `gotoAccountAndWait` helper) and clarifies one architecture-doc line about the `isHydrated` pattern. Ready to commit + open PR against `main`.
+**Frontend perf hardening + E2E coverage on `frontend-enhancements` — reviewed, ready to ship.** The S1–S5 perf work, follow-up bug fixes (matchDetails reference churn on poll ticks, `reactCompiler` config key location), and the Playwright suite are committed. A five-axis review (correctness/readability/architecture/security/performance) passed with **Approve** and no blocking findings. Lint clean (only the pre-existing `AuthForm.tsx` exhaustive-deps warning, untouched by this branch).
+
+### Code review findings (2026-05-30, all non-blocking)
+
+- **FYI** — `useMatchList.ts:245` seeding-merge assumes `game_info` is immutable once `.info` exists (true for completed matches). A partial→full `game_info` upgrade would be silently skipped; not possible in the current data model.
+- **Consider** — `MatchesTable.tsx:413` applies page-change `isPending` dim to the pagination wrapper, not the table body; tab transitions dim only the tab bar. Stale-while-pending content is intentional, but the "busy" visual feedback arguably belongs on the table body.
+- **Nit** — `DynamicImportBoundary.componentDidCatch` logs via `console.error` (can't use the `useAppError` hook in a class boundary; these are transient chunk-load failures, not API errors). Add a one-line comment noting that intent.
+- **Nit** — `eslint-plugin-react-compiler@^19.1.0-rc.2` is a pre-release pin under `^`; lint-only dev dep, low risk, flagged for awareness.
+- **Verified clean:** S5 ref-hack removal is now honest (deps match body once churn is fixed at source); `.kdaChart` not orphaned (wrapper lives in `ChampionKdaChart.tsx:26`); other four `setMatchDetails` sites are full resets so nothing else churns the reference.
 
 ## Blockers
 
@@ -19,7 +27,27 @@
 2. `cd league-web && npm run test:e2e` — confirm all 22 specs still green after the `waitForTimeout` removals.
 3. Open PR `frontend-enhancements` → `main` using the PR description drafted in this session.
 4. After merge: verify in production DevTools that `recharts` and `LiveGameCard` chunks load lazily, not on initial page load (validates S1 + S3 in the real bundle).
-5. Optional follow-up (not blocking): migrate `sessionStorage` session state to cookies so the affected routes can render server-side and the `isHydrated` workaround can be removed (see updated note in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`).
+5. Optional polish from the review (all non-blocking, can fold into this PR or defer): add the `DynamicImportBoundary` console.error intent comment; reconsider whether the `isPending`/`isTabPending` dim should target the table body instead of the pagination/tab-bar wrappers.
+6. Optional follow-up (not blocking): migrate `sessionStorage` session state to cookies so the affected routes can render server-side and the `isHydrated` workaround can be removed (see updated note in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`).
+7. From the 2026-06-01 `/verify-changes` run (non-blocking nit): pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2` (caret on a pre-release is non-reproducible), or defer the S4 React Compiler adoption until it is GA.
+8. From the same run (non-blocking nit): slim `league-web/e2e/fixtures/matches.ts` (~255 lines) — add a `makeMatch()` builder and drop participant fields no spec asserts (`perks`, damage/CS totals, summoner-spell IDs); ~halves the file and lowers per-shape maintenance cost.
+
+## Recent Changes (2026-06-01 — scale & maintainability verification)
+
+### What changed
+
+- **New reusable workflow command**: `.claude/commands/verify-changes.md`. Invoke as `/verify-changes [base-ref] [--deep]`. It diffs a branch against a base ref and gates it on two bars — (1) **scale-appropriate** (no unneeded deps; optimizations justified at current scale) and (2) **maintainable** (not overengineered) — by orchestrating the agent-skills (`code-simplification`, `code-review-and-quality`, `performance-optimization`) plus an explicit dependency-hygiene gate and a lint/build/e2e integrity check. `--deep` fans out to the `code-reviewer` + `test-engineer` subagents.
+- **Ran it once** on `frontend-enhancements` (static review; suite not re-executed this run). Verdict **GO-WITH-NITS**.
+
+### Findings (verify-changes, 2026-06-01)
+
+- **Dependencies** — 3 new deps, all **devDependencies**, **zero new runtime/bundle deps**. `@playwright/test ^1.59.0` justified (real E2E suite). The two React Compiler packages (`babel-plugin-react-compiler`, `eslint-plugin-react-compiler`, both `^19.1.0-rc.2`) power S4 annotation mode on 3 files — **WARN** on caret-on-RC pin (non-reproducible); **NOTE** marginal ROI at current scale (contained, removable).
+- **Overengineering** — only real flag is `e2e/fixtures/matches.ts` (255 lines): fixtures carry detail (`perks`, damage/CS totals, summoner-spell IDs) and repeated ally/enemy blocks that no spec asserts. Everything else (`e2e/helpers.ts`, `DynamicImportBoundary.tsx` at 35 lines, `LiveGameSlot.tsx`, `playwright.config.ts`) is lean; deterministic anchors used throughout (no arbitrary timeouts); conditional paths branch-tested.
+- **Performance at scale** — S1/S3 code-splitting (recharts, `LiveGameCard`) and S5 `matchDetails` reference stability all **Justified**; S4 React Compiler annotation **borderline but not harmful** (opt-in, removable).
+
+### Tests / lint
+
+- Not re-run this session (static review per the request's focus). Recorded status stands: lint clean (pre-existing `AuthForm.tsx` exhaustive-deps warning only); 22/22 E2E green as of 2026-05-30.
 
 ## Recent Changes (2026-05-27, frontend-enhancements — React perf S1–S5 + Playwright E2E)
 
