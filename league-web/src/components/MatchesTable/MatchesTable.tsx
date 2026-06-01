@@ -1,6 +1,6 @@
 "use client";
 
-import {useMemo, useState, useCallback, useRef} from "react";
+import {useMemo, useState, useCallback, useTransition} from "react";
 import Image from "next/image";
 import styles from "./MatchesTable.module.css";
 import MatchRow from "../MatchRow/MatchRow";
@@ -36,6 +36,7 @@ type MatchesTableProps = {
   targetPuuid?: string | null;
   isLoading?: boolean;
   isLoadingMore?: boolean;
+  isPending?: boolean;
   canLoadMore?: boolean;
   onLoadMore?: () => void;
   paginationMeta?: PaginationMeta | null;
@@ -50,13 +51,16 @@ export default function MatchesTable({
   targetPuuid = null,
   isLoading = false,
   isLoadingMore = false,
+  isPending = false,
   canLoadMore = false,
   onLoadMore,
   paginationMeta = null,
   onPageChange,
 }: MatchesTableProps) {
+  "use memo";
   const {selectedMatchId, toggleMatch, closeMatch, clearAll} = useMatchSelection();
   const [activeTab, setActiveTab] = useState<GameQueueGroup | "all">("all");
+  const [isTabPending, startTabTransition] = useTransition();
 
   /** Resolve queueId from detail or match-level fallback */
   const resolveQueueId = useCallback(
@@ -120,27 +124,9 @@ export default function MatchesTable({
     return filtered.length > 0 ? filtered : matches;
   }, [matches, resolveQueueId, activeTab]);
 
-  // Stable gate for matchSummaryStats: a number that only grows when new match
-  // details arrive. matchDetails gets a new object reference on every polling
-  // tick, but this count only changes when previously-null entries are filled.
-  const loadedDetailCount = useMemo(
-    () =>
-      filteredMatches.filter((m) => {
-        const id = getMatchId(m);
-        return id != null && matchDetails[id] != null;
-      }).length,
-    [filteredMatches, matchDetails],
-  );
-
-  // Snapshot ref lets matchSummaryStats read matchDetails from the closure
-  // when loadedDetailCount changes, without adding matchDetails to its deps.
-  // This prevents the 80-line memo from re-running on every polling tick.
-  const matchDetailsRef = useRef(matchDetails);
-  matchDetailsRef.current = matchDetails;
-
   // Summary stats: win rate & best consecutive-win champion
   const matchSummaryStats = useMemo(() => {
-    const details = matchDetailsRef.current;
+    const details = matchDetails;
     let wins = 0;
     let total = 0;
 
@@ -207,14 +193,7 @@ export default function MatchesTable({
     }
 
     return {wins, total, bestStreakChampId, bestStreakCount, bestStreakName};
-    // loadedDetailCount is an intentional gate: it is a derived number that
-    // only changes when new match details arrive. matchDetails is read via
-    // matchDetailsRef so this memo skips ticks where only the reference
-    // changed with no new content (i.e., every 3-second polling tick where
-    // no new game_info loaded). ESLint flags loadedDetailCount as
-    // "unnecessary" because it is not read inside the body — that is by design.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredMatches, loadedDetailCount, isSearchView, targetPuuid, user]);
+  }, [filteredMatches, matchDetails, isSearchView, targetPuuid, user]);
 
   // Build KDA history per champion, keyed by matchId.
   // Only includes matches whose details have loaded; only entries with 2+ games on the champion are stored.
@@ -262,13 +241,18 @@ export default function MatchesTable({
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.tabBar}>
+      <div
+        data-testid="tab-bar"
+        className={`${styles.tabBar} ${isTabPending ? styles.pending : ""}`}
+      >
         <button
           type="button"
           className={activeTab === "all" ? styles.tabActive : styles.tab}
           onClick={() => {
-            clearAll();
-            setActiveTab("all");
+            startTabTransition(() => {
+              clearAll();
+              setActiveTab("all");
+            });
           }}
         >
           All
@@ -279,8 +263,10 @@ export default function MatchesTable({
             key={group}
             className={activeTab === group ? styles.tabActive : styles.tab}
             onClick={() => {
-              clearAll();
-              setActiveTab(group);
+              startTabTransition(() => {
+                clearAll();
+                setActiveTab(group);
+              });
             }}
           >
             {getQueueGroupLabel(group)}
@@ -426,7 +412,10 @@ export default function MatchesTable({
           </button>
         </div>
       )}
-      <div key={paginationMeta?.last_page ?? 1}>
+      <div
+        key={paginationMeta?.last_page ?? 1}
+        className={isPending ? styles.pending : undefined}
+      >
         {paginationMeta && onPageChange && (
           <Pagination meta={paginationMeta} onPageChange={onPageChange} />
         )}

@@ -229,7 +229,7 @@ All components are folderized in `src/components/`, each with its own CSS module
   - `SignInForm` / `SignUpForm` - Specific implementations
   - `MatchCard` - Reusable match display component
 - **Hydration Handling**:
-  - `isHydrated` pattern to prevent hydration mismatches
+  - `isHydrated` pattern is a workaround for client-only `sessionStorage` reads on routes that are currently `"use client"`; it is not a Next.js feature. Moving session state to cookies would let the affected routes render server-side and remove the need for this pattern.
   - Client-side only state initialization with `useEffect`
 - **Type Safety**: Full TypeScript coverage with shared type definitions
 

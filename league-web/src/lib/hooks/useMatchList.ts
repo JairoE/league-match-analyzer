@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState, useTransition} from "react";
 import {apiGet} from "../api";
 import {clearCache} from "../cache";
 import {useAppError} from "../errors/error-store";
@@ -34,6 +34,7 @@ type UseMatchListReturn = {
   matchDetails: Record<string, MatchDetail>;
   isLoading: boolean;
   isLoadingMore: boolean;
+  isPending: boolean;
   canLoadMore: boolean;
   paginationMeta: PaginationMeta | null;
   page: number;
@@ -70,6 +71,7 @@ export function useMatchList({
   onFetchError,
   resetKey,
 }: UseMatchListOptions): UseMatchListReturn {
+  const [isPending, startTransition] = useTransition();
   const [allMatches, setAllMatches] = useState<MatchSummary[]>([]);
   const [matchDetails, setMatchDetails] = useState<
     Record<string, MatchDetail>
@@ -235,7 +237,16 @@ export function useMatchList({
       }
     }
     if (Object.keys(seeded).length > 0) {
-      setMatchDetails((prev) => ({...prev, ...seeded}));
+      setMatchDetails((prev) => {
+        // Only add entries that are genuinely new — never overwrite an existing
+        // entry with a fresh-deserialized reference to the same data. This keeps
+        // matchDetails reference-stable across polling ticks where no new
+        // game_info arrives, preventing unnecessary downstream re-computation.
+        const newEntries = Object.entries(seeded).filter(([id]) => prev[id] == null);
+        return newEntries.length > 0
+          ? {...prev, ...Object.fromEntries(newEntries)}
+          : prev;
+      });
     }
   }, [allMatches]);
 
@@ -376,10 +387,15 @@ export function useMatchList({
     reportError,
   ]);
 
-  const handlePageChange = useCallback((newPage: number) => {
-    setPage(newPage);
-    window.scrollTo(0, 0);
-  }, []);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      startTransition(() => {
+        setPage(newPage);
+      });
+      window.scrollTo(0, 0);
+    },
+    [startTransition]
+  );
 
   const handleRefresh = useCallback(() => {
     console.debug(`[${logTagRef.current}] manual refresh`);
@@ -400,6 +416,7 @@ export function useMatchList({
     matchDetails,
     isLoading,
     isLoadingMore,
+    isPending,
     canLoadMore,
     paginationMeta,
     page,
