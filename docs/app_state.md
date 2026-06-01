@@ -1,37 +1,60 @@
 # App State
 
 **Last Updated:** 2026-06-01
-**Branch:** `frontend-enhancements`
-**Status:** STABLE — React performance optimizations (S1–S5) shipped on the frontend, plus a 22-test Playwright E2E suite locking in the new behaviors. Backend unchanged from `llm-phase-7` (160 tests pass, full 8-step LLM pipeline operational end-to-end). Five-axis code review completed 2026-05-30: **Approve**, no blocking findings. A scale/maintainability verification on 2026-06-01 returned **GO-WITH-NITS** (no new runtime dependencies, all optimizations justified at scale; two non-blocking follow-ups: pin the React Compiler RC deps exactly, slim the e2e fixture). **Caveat:** that verdict came from a *manual* review mirroring the new `/verify-changes` workflow's phases — the command was authored but **not actually invoked**, so its agent-skills and lint/build/e2e steps have not been run (see Next Steps 9).
+**Branch:** `claude-workflows-rag`
+**Status:** STABLE — RAG few-shot retrieval (Phase 2 of `docs/rag-design.md`) implemented on the backend and verified via `/verify-changes` against `main`: **GO-WITH-NITS**. Lint clean, full backend suite green (181 passed, 2 skipped — real-API integration only), and **zero new dependencies** (`pgvector>=0.3.6` and `openai>=1.58.0` were already declared). One WARN (dead `Vector` import-shim in the migration) plus minor NOTEs; nothing blocking. The Alembic up/down round-trip was not exercised (no DB container up). The earlier `frontend-enhancements` branch (React perf S1–S5 + 22-test Playwright suite) remains a separate in-flight branch — its ship steps live in the Recent Changes history below.
 
 ## Current Phase
 
-**Frontend perf hardening + E2E coverage on `frontend-enhancements` — reviewed, ready to ship.** The S1–S5 perf work, follow-up bug fixes (matchDetails reference churn on poll ticks, `reactCompiler` config key location), and the Playwright suite are committed. A five-axis review (correctness/readability/architecture/security/performance) passed with **Approve** and no blocking findings. Lint clean (only the pre-existing `AuthForm.tsx` exhaustive-deps warning, untouched by this branch).
+**RAG few-shot retrieval on `claude-workflows-rag` — implemented, verified GO-WITH-NITS, ready to address nits + ship.** Adds pipeline Step 6.5 (embed the comparison context, retrieve the most similar prior `LLMAnalysis` records for the same champion via pgvector cosine KNN, inject as few-shot examples) plus a post-persist embedding store so the corpus grows itself. All RAG paths are gated by `rag_enabled` (default True) + `openai_api_key` and are fail-soft (errors logged, pipeline never aborts). `/verify-changes` was run end-to-end for real this time (Phase 1 dependency gate + Phase 4 lint/test executed, not a manual stand-in), partially resolving the prior caveat about the workflow never having been invoked.
 
-### Code review findings (2026-05-30, all non-blocking)
+### verify-changes findings (2026-06-01, RAG branch — all non-blocking)
 
-- **FYI** — `useMatchList.ts:245` seeding-merge assumes `game_info` is immutable once `.info` exists (true for completed matches). A partial→full `game_info` upgrade would be silently skipped; not possible in the current data model.
-- **Consider** — `MatchesTable.tsx:413` applies page-change `isPending` dim to the pagination wrapper, not the table body; tab transitions dim only the tab bar. Stale-while-pending content is intentional, but the "busy" visual feedback arguably belongs on the table body.
-- **Nit** — `DynamicImportBoundary.componentDidCatch` logs via `console.error` (can't use the `useAppError` hook in a class boundary; these are transient chunk-load failures, not API errors). Add a one-line comment noting that intent.
-- **Nit** — `eslint-plugin-react-compiler@^19.1.0-rc.2` is a pre-release pin under `^`; lint-only dev dep, low risk, flagged for awareness.
-- **Verified clean:** S5 ref-hack removal is now honest (deps match body once churn is fixed at source); `.kdaChart` not orphaned (wrapper lives in `ChampionKdaChart.tsx:26`); other four `setMatchDetails` sites are full resets so nothing else churns the reference.
+- **WARN** — `20260601_0004_rag_embedding_column.py:16-26`: dead `try/except ImportError` fallback `Vector` type. `pgvector` is a hard runtime dep (`pyproject.toml:14`, imported unconditionally at `models/llm_analysis.py:13`), so the shim can never run where migrations run. Import `Vector` directly; delete ~11 lines.
+- **NOTE** — `jobs/llm_analysis.py`: `OpenAIClient` instantiated 3×, `comparison.to_dict()` called 3×, `build_embedding_text(...)` computed twice with identical args. Build once and reuse.
+- **NOTE** — HNSW index (`vector_cosine_ops`, m=16/ef=64) is premature-but-harmless at current corpus size (~hundreds of rows); removable, leaks nothing into call sites. Keep as forward-looking.
+- **NOTE** — `rag_enabled=True` by default means 2 embedding calls per job before the corpus is seeded (retrieval returns little until ~50/bucket per the design doc). Negligible cost; decision point.
 
 ## Blockers
 
-- None. All committed work passes lint + tests; staged test refactors are mechanical and self-contained.
+- None. The RAG feature passes lint + the full backend suite; all findings are NOTE/WARN.
+- Open integrity gap (not a blocker): the Alembic up/down round-trip for `20260601_0004` was not run (no Postgres container up). Verify before merge.
+- Model change + new migration are AGENTS.md ⚠️ ask-before-doing items; `docs/rag-design.md` pre-authorizes them — confirm reviewer sign-off.
 - Operational note from earlier phase still stands: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
 
 ## Next Steps
 
-1. Commit the staged test/docs cleanup (suggested message in this session's `/SUMMARIZE` output).
-2. `cd league-web && npm run test:e2e` — confirm all 22 specs still green after the `waitForTimeout` removals.
-3. Open PR `frontend-enhancements` → `main` using the PR description drafted in this session.
-4. After merge: verify in production DevTools that `recharts` and `LiveGameCard` chunks load lazily, not on initial page load (validates S1 + S3 in the real bundle).
-5. Optional polish from the review (all non-blocking, can fold into this PR or defer): add the `DynamicImportBoundary` console.error intent comment; reconsider whether the `isPending`/`isTabPending` dim should target the table body instead of the pagination/tab-bar wrappers.
-6. Optional follow-up (not blocking): migrate `sessionStorage` session state to cookies so the affected routes can render server-side and the `isHydrated` workaround can be removed (see updated note in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`).
-7. From the 2026-06-01 `/verify-changes` run (non-blocking nit): pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2` (caret on a pre-release is non-reproducible), or defer the S4 React Compiler adoption until it is GA.
-8. From the same run (non-blocking nit): slim `league-web/e2e/fixtures/matches.ts` (~255 lines) — add a `makeMatch()` builder and drop participant fields no spec asserts (`perks`, damage/CS totals, summoner-spell IDs); ~halves the file and lowers per-shape maintenance cost.
-9. **Validate the `/verify-changes` workflow for real** — actually invoke it (or invoke its agent-skills directly) on `frontend-enhancements` and run its Phase 4 gate (`cd league-web && npm run lint && npm run build && npm run test:e2e`). The 2026-06-01 verdict was a manual stand-in; the command has never been executed, so confirm it produces equivalent findings before relying on it.
+1. Remove the dead `Vector` ImportError shim in `20260601_0004_rag_embedding_column.py` — import pgvector directly (the only WARN).
+2. Run the migration round-trip (`make db-up && make db-migrate`, then downgrade one step) — not covered by any test.
+3. (Optional cleanup) Reuse one `OpenAIClient` + one embed-text/dict in `jobs/llm_analysis.py`; tighten `few_shot_examples: list[dict]` → `list[dict[str, Any]]`.
+4. (Decision) Confirm `rag_enabled=True`-by-default is intended before the corpus is seeded — otherwise default it off and flip after `make backfill-rag-embeddings`.
+5. Confirm reviewer sign-off on the model + migration (ask-before-doing), then open PR `claude-workflows-rag` → `main`.
+6. Once enough analyses exist (~50+ per champion/rank bucket per the design doc), run `make backfill-rag-embeddings` to embed pre-RAG rows, then evaluate few-shot quality.
+
+**Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Full detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
+
+## Recent Changes (2026-06-01 — RAG few-shot retrieval, `claude-workflows-rag`)
+
+### What changed (Phase 2 of `docs/rag-design.md`)
+
+- **Schema**: nullable `vector(1536)` `embedding` column on `llm_analysis` + HNSW cosine index (`ix_llm_analysis_embedding_hnsw`, m=16/ef_construction=64). Migration `20260601_0004` (revises `20260316_0003`); runs `CREATE EXTENSION IF NOT EXISTS vector`. Model: `embedding: list[float] | None` via `pgvector.sqlalchemy.Vector` (`models/llm_analysis.py`).
+- **Embeddings**: `OpenAIClient.embed(text, model="text-embedding-3-small")` (`services/llm_client.py`).
+- **Retrieval service** (`services/rag_retrieval.py`): `build_embedding_text()` (compact champion/rank/gaps/bias single-line text), `retrieve_few_shot_examples()` (champion-filtered cosine KNN, fail-soft → `[]`), `format_few_shot_examples()` (prompt-friendly dicts).
+- **Prompt** (`services/llm_prompt.py`): `build_user_prompt(..., few_shot_examples=...)` renders a `## Reference Examples` section before the Player Profile; no-ops on empty.
+- **Pipeline** (`jobs/llm_analysis.py`): new Step 6.5 (embed query → retrieve → inject) and a post-persist embedding store; both gated by `rag_enabled` + `openai_api_key` and wrapped fail-soft.
+- **Config** (`core/config.py`): `rag_enabled=True`, `rag_embedding_model="text-embedding-3-small"`, `rag_few_shot_limit=3`.
+- **Backfill**: `scripts/backfill_rag_embeddings.py` (`--batch-size`, `--dry-run`) + Makefile targets `backfill-rag-embeddings` / `backfill-rag-embeddings-dry`.
+- **Design doc**: `docs/rag-design.md` (Proposed) — problem, rejected standalone-search alternative, phased plan.
+
+### Tests / lint
+
+- New `test_rag_retrieval.py` (17 tests) + additions to `test_llm_client.py` (embed), `test_llm_prompt.py` (few-shot injection), `test_llm_analysis_job.py` (injection + fail-soft). Touched files: 47 passed.
+- `make lint` clean; `make test` → **181 passed, 2 skipped**. No new dependencies (`pgvector>=0.3.6`, `openai>=1.58.0` pre-declared).
+- Not run: migration up/down round-trip (no DB container up).
+
+### Note on the prior verify-changes caveat
+
+- The 2026-06-01 scale-verification entry below recorded that `/verify-changes` had been authored but **never actually invoked**. It has now been run end-to-end for real on this branch (Phase 1 dependency gate + Phase 4 lint/test executed against live tooling, not a manual stand-in), partially resolving prior Next Step 9. Phase 5 (`--deep` subagents) was not used (default fast run).
 
 ## Recent Changes (2026-06-01 — scale & maintainability verification)
 
