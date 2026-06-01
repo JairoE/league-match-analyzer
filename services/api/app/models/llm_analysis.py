@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, SQLModel
@@ -72,6 +73,10 @@ class LLMAnalysis(SQLModel, table=True):
     token_count_output: int | None = Field(
         default=None,
         sa_column=Column(Integer, nullable=True),
+    )
+    embedding: list[float] | None = Field(
+        default=None,
+        sa_column=Column(Vector(1536), nullable=True),
     )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

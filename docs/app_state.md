@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-06-01
 **Branch:** `frontend-enhancements`
-**Status:** STABLE — React performance optimizations (S1–S5) shipped on the frontend, plus a 22-test Playwright E2E suite locking in the new behaviors. Backend unchanged from `llm-phase-7` (160 tests pass, full 8-step LLM pipeline operational end-to-end). Five-axis code review completed 2026-05-30: **Approve**, no blocking findings. A scale/maintainability verification on 2026-06-01 (new `/verify-changes` workflow) returned **GO-WITH-NITS**: no new runtime dependencies, all optimizations justified at scale; two non-blocking follow-ups (pin the React Compiler RC deps exactly, slim the e2e fixture).
+**Status:** STABLE — React performance optimizations (S1–S5) shipped on the frontend, plus a 22-test Playwright E2E suite locking in the new behaviors. Backend unchanged from `llm-phase-7` (160 tests pass, full 8-step LLM pipeline operational end-to-end). Five-axis code review completed 2026-05-30: **Approve**, no blocking findings. A scale/maintainability verification on 2026-06-01 returned **GO-WITH-NITS** (no new runtime dependencies, all optimizations justified at scale; two non-blocking follow-ups: pin the React Compiler RC deps exactly, slim the e2e fixture). **Caveat:** that verdict came from a *manual* review mirroring the new `/verify-changes` workflow's phases — the command was authored but **not actually invoked**, so its agent-skills and lint/build/e2e steps have not been run (see Next Steps 9).
 
 ## Current Phase
 
@@ -31,13 +31,14 @@
 6. Optional follow-up (not blocking): migrate `sessionStorage` session state to cookies so the affected routes can render server-side and the `isHydrated` workaround can be removed (see updated note in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`).
 7. From the 2026-06-01 `/verify-changes` run (non-blocking nit): pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2` (caret on a pre-release is non-reproducible), or defer the S4 React Compiler adoption until it is GA.
 8. From the same run (non-blocking nit): slim `league-web/e2e/fixtures/matches.ts` (~255 lines) — add a `makeMatch()` builder and drop participant fields no spec asserts (`perks`, damage/CS totals, summoner-spell IDs); ~halves the file and lowers per-shape maintenance cost.
+9. **Validate the `/verify-changes` workflow for real** — actually invoke it (or invoke its agent-skills directly) on `frontend-enhancements` and run its Phase 4 gate (`cd league-web && npm run lint && npm run build && npm run test:e2e`). The 2026-06-01 verdict was a manual stand-in; the command has never been executed, so confirm it produces equivalent findings before relying on it.
 
 ## Recent Changes (2026-06-01 — scale & maintainability verification)
 
 ### What changed
 
 - **New reusable workflow command**: `.claude/commands/verify-changes.md`. Invoke as `/verify-changes [base-ref] [--deep]`. It diffs a branch against a base ref and gates it on two bars — (1) **scale-appropriate** (no unneeded deps; optimizations justified at current scale) and (2) **maintainable** (not overengineered) — by orchestrating the agent-skills (`code-simplification`, `code-review-and-quality`, `performance-optimization`) plus an explicit dependency-hygiene gate and a lint/build/e2e integrity check. `--deep` fans out to the `code-reviewer` + `test-engineer` subagents.
-- **Ran it once** on `frontend-enhancements` (static review; suite not re-executed this run). Verdict **GO-WITH-NITS**.
+- **Authored the command but did not actually invoke it.** The GO-WITH-NITS verdict below is from a **manual review performed by hand** (real `git diff` + file reads + reasoning) that *mirrors* the workflow's phases — NOT from running `/verify-changes` or its agent-skills (`code-simplification`, `code-review-and-quality`, `performance-optimization`). Phase 4 (lint/build/e2e) and Phase 5 (`--deep` subagents) were not run. The findings are evidence-based, but the workflow itself is unvalidated end-to-end.
 
 ### Findings (verify-changes, 2026-06-01)
 

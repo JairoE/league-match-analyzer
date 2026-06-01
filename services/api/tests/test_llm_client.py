@@ -120,3 +120,61 @@ class TestOpenAIClientComplete:
 
         call_kwargs = mock_create.call_args.kwargs
         assert call_kwargs["response_format"] == {"type": "json_object"}
+
+
+class TestOpenAIClientEmbed:
+    async def test_returns_float_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """embed() should return the embedding vector from the API response."""
+        fake_vector = [0.1, 0.2, 0.3]
+        mock_response = SimpleNamespace(
+            data=[SimpleNamespace(embedding=fake_vector)]
+        )
+
+        mock_create = AsyncMock(return_value=mock_response)
+        mock_embeddings = MagicMock()
+        mock_embeddings.create = mock_create
+
+        client = OpenAIClient(api_key="test-key")
+        monkeypatch.setattr(client._client, "embeddings", mock_embeddings)
+
+        result = await client.embed("Yasuo GOLD | gaps: Kraken Slayer gap=+0.0200")
+        assert result == fake_vector
+
+    async def test_passes_model_to_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """embed() should pass the specified model identifier to the API."""
+        mock_response = SimpleNamespace(
+            data=[SimpleNamespace(embedding=[0.0] * 5)]
+        )
+
+        mock_create = AsyncMock(return_value=mock_response)
+        mock_embeddings = MagicMock()
+        mock_embeddings.create = mock_create
+
+        client = OpenAIClient(api_key="test-key")
+        monkeypatch.setattr(client._client, "embeddings", mock_embeddings)
+
+        await client.embed("some text", model="text-embedding-3-small")
+
+        call_kwargs = mock_create.call_args.kwargs
+        assert call_kwargs["model"] == "text-embedding-3-small"
+        assert call_kwargs["input"] == "some text"
+
+    async def test_default_model_is_text_embedding_3_small(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Default embedding model should be text-embedding-3-small."""
+        mock_response = SimpleNamespace(
+            data=[SimpleNamespace(embedding=[0.0])]
+        )
+
+        mock_create = AsyncMock(return_value=mock_response)
+        mock_embeddings = MagicMock()
+        mock_embeddings.create = mock_create
+
+        client = OpenAIClient(api_key="test-key")
+        monkeypatch.setattr(client._client, "embeddings", mock_embeddings)
+
+        await client.embed("test")
+
+        call_kwargs = mock_create.call_args.kwargs
+        assert call_kwargs["model"] == "text-embedding-3-small"

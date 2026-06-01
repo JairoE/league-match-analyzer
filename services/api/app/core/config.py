@@ -28,12 +28,18 @@ class Settings(BaseSettings):
             empty to disable action scoring.
         openai_api_key: OpenAI API key for LLM analysis; empty to disable.
         llm_model_name: LLM model identifier (e.g. "gpt-4o-mini").
+        rag_enabled: Whether to retrieve few-shot examples from past analyses.
+        rag_embedding_model: OpenAI embedding model for RAG vectors.
+        rag_few_shot_limit: Max prior analyses to inject as few-shot examples.
     """
 
     environment: str = "development"
     win_prob_model_path: str = ""
     openai_api_key: str = ""
     llm_model_name: str = "gpt-4o-mini"
+    rag_enabled: bool = True
+    rag_embedding_model: str = "text-embedding-3-small"
+    rag_few_shot_limit: int = 3
     database_url: str = "postgresql+asyncpg://league:league@localhost:5432/league"
     redis_url: str = "redis://localhost:6379/0"
     riot_api_key: str = "replace-me"

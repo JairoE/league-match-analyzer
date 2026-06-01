@@ -1,4 +1,4 @@
-"""LLM client – OpenAI implementation."""
+"""LLM client – OpenAI implementation (completions + embeddings)."""
 
 from __future__ import annotations
 
@@ -90,3 +90,22 @@ class OpenAIClient:
             token_count_input=token_input,
             token_count_output=token_output,
         )
+
+    async def embed(self, text: str, model: str = "text-embedding-3-small") -> list[float]:
+        """Generate a dense embedding vector for the given text.
+
+        Args:
+            text: Input text to embed.
+            model: OpenAI embedding model identifier.
+
+        Returns:
+            List of floats representing the embedding vector.
+        """
+        logger.info("llm_client_embed_start", extra={"model": model})
+        response = await self._client.embeddings.create(model=model, input=text)
+        embedding = response.data[0].embedding
+        logger.info(
+            "llm_client_embed_done",
+            extra={"model": model, "dims": len(embedding)},
+        )
+        return embedding

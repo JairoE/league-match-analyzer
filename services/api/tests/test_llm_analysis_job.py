@@ -62,10 +62,13 @@ def _valid_llm_json() -> str:
     })
 
 
-def _mock_settings(api_key: str = "test-key") -> SimpleNamespace:
+def _mock_settings(api_key: str = "test-key", rag_enabled: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         openai_api_key=api_key,
         llm_model_name="gpt-4o-mini",
+        rag_enabled=rag_enabled,
+        rag_embedding_model="text-embedding-3-small",
+        rag_few_shot_limit=3,
     )
 
 
@@ -523,3 +526,209 @@ class TestLLMAnalysisJob:
             assert analysis.token_count_output == 100
             assert len(analysis.recommendations) == 1
             assert analysis.recommendations[0]["title"] == "Switch to Kraken Slayer"
+
+    async def test_rag_few_shot_injected_when_enabled(self) -> None:
+        """When rag_enabled=True, few-shot examples should be retrieved and injected."""
+        from app.jobs.llm_analysis import llm_analysis_job
+
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Step 6.5 (RAG) — few-shot examples retrieved and injected")
+        print(_SEPARATOR)
+
+        aggregates = [
+            _make_agg(action_key="3089", personal_dw=0.03),
+            _make_agg(action_key="3031", personal_dw=-0.01, personal_count=70),
+        ]
+
+        mock_champ = SimpleNamespace(name="Yasuo")
+        mock_champ_result = MagicMock()
+        mock_champ_result.scalar_one_or_none.return_value = mock_champ
+
+        # Session 1: aggregate + compare + champion resolve + RAG retrieval
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_champ_result)
+
+        valid_json = _valid_llm_json()
+        valid_response = LLMResponse(
+            content=valid_json,
+            model_name="gpt-4o-mini-2024-07-18",
+            token_count_input=300,
+            token_count_output=120,
+        )
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.complete = AsyncMock(return_value=valid_response)
+        # embed() called for query + post-persist
+        mock_client_instance.embed = AsyncMock(return_value=[0.1] * 1536)
+
+        persisted_analyses: list = []
+        persist_session = AsyncMock()
+        persist_session.add = lambda obj: persisted_analyses.append(obj)
+        persist_session.commit = AsyncMock()
+        persist_session.refresh = AsyncMock()
+
+        call_count = 0
+
+        def fake_session_factory() -> AsyncMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                )
+            return AsyncMock(
+                __aenter__=AsyncMock(return_value=persist_session),
+                __aexit__=AsyncMock(return_value=False),
+            )
+
+        # Simulate RAG returning one prior example
+        prior_example_raw = SimpleNamespace(
+            champion_name="Yasuo",
+            rank_tier="GOLD",
+            recommendations=[{
+                "rank": 1,
+                "title": "Prior recommendation",
+                "current_choice": "IE",
+                "recommended_choice": "Kraken",
+                "delta_w_gap": 0.015,
+                "explanation": "Older analysis.",
+                "category": "item_purchase",
+            }],
+            output_payload={"overall_assessment": "Old advice."},
+            embedding=[0.1] * 1536,
+        )
+
+        print("  Step 6.5 input:  champion=Yasuo, rank=GOLD")
+        print("  Step 6.5 output: 1 similar analysis retrieved")
+        print("  Step 7: prompt includes Reference Examples section")
+
+        with (
+            patch(
+                "app.jobs.llm_analysis.get_settings",
+                return_value=_mock_settings(rag_enabled=True),
+            ),
+            patch(
+                "app.jobs.llm_analysis.async_session_factory",
+                side_effect=fake_session_factory,
+            ),
+            patch(
+                "app.jobs.llm_analysis.aggregate_action_stats_for_player",
+                AsyncMock(return_value=aggregates),
+            ),
+            patch(
+                "app.jobs.llm_analysis.load_item_name_map",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.jobs.llm_analysis._get_scored_match_ids",
+                AsyncMock(return_value=["NA1_123"]),
+            ),
+            patch(
+                "app.jobs.llm_analysis.OpenAIClient",
+                return_value=mock_client_instance,
+            ),
+            patch(
+                "app.jobs.llm_analysis.retrieve_few_shot_examples",
+                AsyncMock(return_value=[prior_example_raw]),
+            ),
+        ):
+            result = await llm_analysis_job({}, str(uuid4()), "157", "GOLD")
+
+        print(f"  Result: {result}")
+        print(_SEPARATOR)
+
+        assert result["status"] == "ok"
+
+        # Verify embed() was called (for query embedding + post-persist)
+        assert mock_client_instance.embed.call_count >= 1
+
+        # Verify the user prompt included few-shot context
+        call_args = mock_client_instance.complete.call_args
+        user_prompt = call_args.args[1] if call_args.args else ""
+        assert "Reference Examples" in user_prompt or "Prior recommendation" in user_prompt
+
+    async def test_rag_failure_does_not_abort_pipeline(self) -> None:
+        """RAG retrieval errors should be swallowed — pipeline continues without examples."""
+        from app.jobs.llm_analysis import llm_analysis_job
+
+        print(f"\n{_SEPARATOR}")
+        print("PIPELINE: Step 6.5 (RAG) — retrieval fails, pipeline continues")
+        print(_SEPARATOR)
+
+        aggregates = [_make_agg(action_key="3089", personal_dw=0.03)]
+
+        mock_champ = SimpleNamespace(name="Yasuo")
+        mock_champ_result = MagicMock()
+        mock_champ_result.scalar_one_or_none.return_value = mock_champ
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_champ_result)
+
+        valid_json = _valid_llm_json()
+        valid_response = LLMResponse(
+            content=valid_json,
+            model_name="gpt-4o-mini-2024-07-18",
+            token_count_input=200,
+            token_count_output=100,
+        )
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.complete = AsyncMock(return_value=valid_response)
+        # embed() raises to simulate API failure during RAG query
+        mock_client_instance.embed = AsyncMock(side_effect=RuntimeError("embed API down"))
+
+        persisted_analyses: list = []
+        persist_session = AsyncMock()
+        persist_session.add = lambda obj: persisted_analyses.append(obj)
+        persist_session.commit = AsyncMock()
+        persist_session.refresh = AsyncMock()
+
+        call_count = 0
+
+        def fake_session_factory() -> AsyncMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                )
+            return AsyncMock(
+                __aenter__=AsyncMock(return_value=persist_session),
+                __aexit__=AsyncMock(return_value=False),
+            )
+
+        with (
+            patch(
+                "app.jobs.llm_analysis.get_settings",
+                return_value=_mock_settings(rag_enabled=True),
+            ),
+            patch(
+                "app.jobs.llm_analysis.async_session_factory",
+                side_effect=fake_session_factory,
+            ),
+            patch(
+                "app.jobs.llm_analysis.aggregate_action_stats_for_player",
+                AsyncMock(return_value=aggregates),
+            ),
+            patch(
+                "app.jobs.llm_analysis.load_item_name_map",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.jobs.llm_analysis._get_scored_match_ids",
+                AsyncMock(return_value=["NA1_123"]),
+            ),
+            patch(
+                "app.jobs.llm_analysis.OpenAIClient",
+                return_value=mock_client_instance,
+            ),
+        ):
+            result = await llm_analysis_job({}, str(uuid4()), "157", "GOLD")
+
+        print(f"  Result: {result}")
+        print(_SEPARATOR)
+
+        # Pipeline should complete successfully despite RAG failure
+        assert result["status"] in ("ok", "parse_error")

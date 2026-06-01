@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids backfill-rag-embeddings backfill-rag-embeddings-dry
 
 help:
 	@echo "Available targets:"
@@ -194,6 +194,12 @@ llm-analysis-debug:
 		exit 1; \
 	fi
 	./.venv/bin/python scripts/llm_analysis_debug.py $$([ -n "$$RIOT_ACCOUNT_ID" ] && echo "--riot-account-id $$RIOT_ACCOUNT_ID" || echo "--riot-id $$RIOT_ID") --champion $$CHAMPION $$([ -n "$$RANK_TIER" ] && echo "--rank-tier $$RANK_TIER") $$([ -n "$$DRY_RUN" ] && echo "--dry-run")
+
+backfill-rag-embeddings:
+	./.venv/bin/python scripts/backfill_rag_embeddings.py --batch-size 50
+
+backfill-rag-embeddings-dry:
+	./.venv/bin/python scripts/backfill_rag_embeddings.py --dry-run
 
 win-prob-model-training:
 	./.venv/bin/python scripts/train_win_prob_model.py --input data/training.csv --output data/win_prob_model.joblib
