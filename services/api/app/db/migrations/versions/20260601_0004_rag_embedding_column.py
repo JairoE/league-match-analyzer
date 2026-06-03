@@ -12,19 +12,7 @@ Changes:
 
 import sqlalchemy as sa
 from alembic import op
-
-try:
-    from pgvector.sqlalchemy import Vector
-except ImportError:
-    from sqlalchemy import UserDefinedType
-
-    class Vector(UserDefinedType):  # type: ignore[no-redef]
-        def __init__(self, dim: int) -> None:
-            self.dim = dim
-
-        def get_col_spec(self, **kw: object) -> str:
-            return f"vector({self.dim})"
-
+from pgvector.sqlalchemy import Vector
 
 revision = "20260601_0004"
 down_revision = "20260316_0003"

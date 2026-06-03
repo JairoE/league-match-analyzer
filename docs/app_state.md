@@ -33,6 +33,50 @@
 
 **Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Full detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
 
+## Recent Changes (2026-06-01 — documentation audit, read-only)
+
+### What changed
+
+- No code changes — audited all of `docs/` to identify which documents/sections
+  describe features that are **not yet implemented** (verified against the
+  codebase, not just the prose).
+
+### Current phase / findings
+
+- **Biggest gap — `LLM_INTEGRATION.md` is entirely unbuilt.** Verified missing:
+  `app/api/routers/analysis.py`, `app/schemas/analysis.py`, frontend
+  `AnalysisPanel/` + `AnalysisButton/` + `useAnalysis.ts`; `CompareButton.tsx`
+  (which the doc says to delete) still exists. The full 8-step LLM pipeline has
+  **zero API endpoints and zero UI** — reachable only via CLI debug scripts.
+- **`rag-design.md`** — Phase 2 (few-shot) done this branch; **Phase 1 eval
+  harness (`evals/`)** and **Phase 3 experiments + `docs/rag-deep-dive.md`** both
+  verified missing.
+- **`LLM_RAG_COMPLIMENTARY.md`** — Phase 2 "Game Knowledge Grounding"
+  (`game_knowledge` table + patch-notes/item ingestion) verified not implemented.
+- **`LLM_DATA_PIPELINE.md` "Future Extensions"** + V2 DNN model — pending.
+- **`WIN_PROB_MODEL_NOTES.md`** — `model_version` tagging and `SCORE_VERSION` in
+  the ARQ `_job_id` verified not implemented; model-hardening pass pending.
+- **`LLM_PROMPT_SCALING.md` "Scaling Risks"** and **`TECHNICAL_ARCHITECTURE…` §7
+  Roadmap** are forward-looking mitigations. The architecture doc is also stale
+  (claims 160 tests / no frontend suite; latest migration listed as `0002`, now
+  `0004`; references the removed `backfill_match_details_inline`).
+- Reference-only (no pending features): `TECHNICAL_REQUEST_FLOW.md`,
+  `RAILWAY_API_DEPLOYMENT.md`, `RIOT_API_PARTICIPANT_FIELDS.md`.
+
+### Blockers
+
+- None. Read-only audit.
+
+### Next steps
+
+- After the RAG branch lands, the highest-leverage next feature is
+  **`LLM_INTEGRATION.md`** (analysis router + schemas → `useAnalysis` hook →
+  `AnalysisPanel`/`AnalysisButton` → wire into pages, delete `CompareButton`) —
+  it makes the entire pipeline user-facing.
+- Lower priority / scale-gated: rag eval harness (Phase 1), game-knowledge
+  grounding, win-prob model hardening + version tagging, and a refresh of the
+  stale sections in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`.
+
 ## Recent Changes (2026-06-01 — RAG few-shot retrieval, `claude-workflows-rag`)
 
 ### What changed (Phase 2 of `docs/rag-design.md`)
