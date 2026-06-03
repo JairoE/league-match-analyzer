@@ -1,6 +1,7 @@
 "use client";
 
 import {useCallback, useEffect, useMemo, useState} from "react";
+import {isDemoMode} from "../mock/resolve-mock";
 import {getStaleMessage} from "../stale-message";
 import type {LiveGameData} from "../types/live-game";
 
@@ -52,13 +53,24 @@ export function useLiveGame(puuid: string | null): LiveGameState {
     let es: EventSource | null = null;
     let cancelled = false;
 
+    // Demo mode: there is no SSE backend — report "not in game" instantly.
+    // Deferred via setTimeout(0) to avoid synchronous setState in the effect.
+    const demo = isDemoMode();
+
     const tid = setTimeout(() => {
       if (!cancelled) {
-        setStatus("connecting");
+        setStatus(demo ? "not_in_game" : "connecting");
         setLiveGame(null);
         setLiveGameWarning(null);
       }
     }, 0);
+
+    if (demo) {
+      return () => {
+        cancelled = true;
+        clearTimeout(tid);
+      };
+    }
 
     const base = API_BASE_URL.endsWith("/")
       ? API_BASE_URL.slice(0, -1)
