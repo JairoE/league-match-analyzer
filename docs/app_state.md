@@ -2,11 +2,11 @@
 
 **Last Updated:** 2026-06-03
 **Branch:** `claude-workflows-rag`
-**Status:** STABLE — RAG feature complete + corpus seeding tooling added. Lint clean, 181 tests pass (2 skipped). Ready for nit cleanup and PR.
+**Status:** STABLE — RAG feature complete, corpus seeding verified (1 row), unified status doc written. Ready for nit cleanup and PR.
 
 ## Current Phase
 
-**RAG corpus seeding tooling added (`claude-workflows-rag`, 2026-06-03).** The RAG pipeline (Step 6.5 + post-persist embedding) was already wired in the previous session. This session added the operational tooling to seed the corpus: `scripts/seed_rag_corpus.py` runs the full `llm_analysis_job` (including embedding storage) for batches of account+champion pairs, and `make corpus-stats` shows coverage. The docker-compose service name confusion (`db` vs `postgres`) was also documented — the correct container name is `league_postgres`.
+**Unified pipeline + RAG status doc created (`claude-workflows-rag`, 2026-06-03).** `docs/LLM_PIPELINE_STATUS.md` supersedes `docs/rag-design.md` and `docs/LLM_RAG_COMPLIMENTARY.md` — it is now the single source of truth for pipeline implementation status, RAG architecture, and the remaining work before `docs/LLM_INTEGRATION.md`. Corpus seeding was also verified end-to-end: 1 `LLMAnalysis` row persisted for Jhin/SILVER with embedding stored (`make corpus-stats` confirmed).
 
 ### RAG architecture (complete)
 
@@ -14,6 +14,7 @@
 - **Post-persist**: generate + store embedding on new `LLMAnalysis` rows so corpus grows automatically
 - **Cold start**: empty corpus returns `[]`, pipeline never aborts; RAG activates meaningfully at ~5+ rows per champion, quality improves at ~50+ per champion/rank bucket
 - **Seeding**: `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` or `--entry "name#NA1:157"`
+- **Corpus now**: 1 row (Jhin/SILVER, 2026-06-03)
 
 ### verify-changes findings (2026-06-01, RAG branch — all non-blocking)
 
@@ -26,19 +27,37 @@
 
 - None. Lint clean; 181 tests pass (2 skipped — real-API integration only).
 - Open integrity gap (not a blocker): Alembic up/down round-trip for `20260601_0004` was not run (no DB container during implementation). Verify before merge: `make db-up && make db-migrate` then downgrade one step.
-- Model change + new migration are AGENTS.md ⚠️ ask-before-doing items; `docs/rag-design.md` pre-authorizes them — confirm reviewer sign-off.
 - Operational note: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
 
 ## Next Steps
 
-1. **Verify migration**: `docker exec league_postgres psql -U league -d league -c "\d llm_analysis"` — confirm `embedding | vector(1536)` column and HNSW index exist. (Note: docker-compose service is `postgres`, container name is `league_postgres` — not `db`.)
-2. **Remove dead Vector shim** in `20260601_0004_rag_embedding_column.py` — the only WARN from verify-changes.
-3. **Seed the corpus**: create `seeding_list.txt` with `RIOT_ID:CHAMPION_ID` pairs (one per line), then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'`. Check coverage with `make corpus-stats`.
-4. (Optional cleanup) Reuse one `OpenAIClient` + one `comparison.to_dict()` + one `build_embedding_text()` call in `jobs/llm_analysis.py` — three NOTE items from verify-changes.
-5. (Decision) Confirm `rag_enabled=True`-by-default is intended before the corpus is seeded.
-6. Confirm reviewer sign-off on model + migration changes, then open PR `claude-workflows-rag` → `main`.
+1. **Remove dead Vector shim** in `20260601_0004_rag_embedding_column.py` — only WARN from verify-changes (~11 lines).
+2. **Seed more corpus**: score matches (`make score-account-matches RIOT_ID=...`) then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` targeting 5+ rows per champion. Check with `make corpus-stats`.
+3. (Optional) Build eval harness (`evals/` directory) — ~30–50 labeled cases, precision@k / MRR metrics, LLM-as-judge rubric — for the cold-prompt vs RAG portfolio story. See `docs/LLM_PIPELINE_STATUS.md` for scope.
+4. (Optional cleanup) Reuse one `OpenAIClient` + one `comparison.to_dict()` + one `build_embedding_text()` in `jobs/llm_analysis.py`.
+5. (Optional) Archive/delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md`.
+6. Open PR `claude-workflows-rag` → `main`.
+7. Next feature: `docs/LLM_INTEGRATION.md` — AI Coach button + AnalysisPanel frontend integration.
 
 **Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Full detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
+
+## Recent Changes (2026-06-03 — unified pipeline status doc, `claude-workflows-rag`)
+
+### What changed
+
+- **`docs/LLM_PIPELINE_STATUS.md`** (new): unified status and integration roadmap doc. Supersedes `docs/rag-design.md` and `docs/LLM_RAG_COMPLIMENTARY.md`. Covers: full pipeline status table (Steps 1–8 + 6.5), Phase 1 RAG complete with corpus status, Phase 2 not-started, the two required items before LLM_INTEGRATION.md, eval harness scope, open nits table from verify-changes.
+- **Corpus verified end-to-end**: `make seed-rag-corpus` ran successfully for Jhin/SILVER; `make corpus-stats` confirmed 1 `LLMAnalysis` row with `with_embedding = 1`.
+- **Diagnosed `no_data` skip**: root cause documented — the account exists in DB but the target champion's matches have no scored actions (`delta_w IS NULL` in `match_action`). Fix: `make score-account-matches RIOT_ID=...` before seeding.
+
+### Key files
+
+- `docs/LLM_PIPELINE_STATUS.md` (new — replaces `rag-design.md` and `LLM_RAG_COMPLIMENTARY.md`)
+
+### Tests / lint
+
+- No code changes this session. No lint or test re-run needed.
+
+---
 
 ## Recent Changes (2026-06-03 — RAG corpus seeding tooling, `claude-workflows-rag`)
 
