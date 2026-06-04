@@ -134,10 +134,46 @@ def _build_rankings_section(groups: list[dict[str, Any]]) -> str:
     return "\n\n".join(sections) + "\n"
 
 
+def _build_few_shot_section(examples: list[dict[str, Any]]) -> str:
+    """Format retrieved few-shot examples as a reference section."""
+    if not examples:
+        return ""
+
+    lines: list[str] = ["## Reference Examples (similar prior analyses)"]
+    for i, ex in enumerate(examples, 1):
+        champ = ex.get("champion_name", "?")
+        rank = ex.get("rank_tier", "UNKNOWN")
+        lines.append(f"\n### Example {i} — {champ}, {rank}")
+
+        recs = ex.get("recommendations") or []
+        if recs:
+            lines.append("Recommendations:")
+            for rec in recs:
+                r = rec.get("rank", "?")
+                cat = rec.get("category", "")
+                title = rec.get("title", "")
+                cur = rec.get("current_choice", "?")
+                nxt = rec.get("recommended_choice", "?")
+                gap = rec.get("delta_w_gap")
+                gap_str = f"{gap:+.4f}" if gap is not None else "N/A"
+                lines.append(f"{r}. [{cat}] {title}: {cur} → {nxt} (gap={gap_str})")
+                explanation = rec.get("explanation", "")
+                if explanation:
+                    lines.append(f"   {explanation}")
+
+        assessment = ex.get("overall_assessment")
+        if assessment:
+            lines.append(f"Overall: {assessment}")
+
+    lines.append("\n---\nNow analyze the following:")
+    return "\n".join(lines) + "\n\n"
+
+
 def build_user_prompt(
     comparison_dict: dict[str, Any],
     champion_name: str,
     rank_tier: str | None,
+    few_shot_examples: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build the user prompt from a serialized ComparisonResult.
 
@@ -145,6 +181,8 @@ def build_user_prompt(
         comparison_dict: Output of ComparisonResult.to_dict().
         champion_name: Human-readable champion name (e.g. "Yasuo").
         rank_tier: Rank tier string (e.g. "GOLD") or None.
+        few_shot_examples: Optional list of prior analysis dicts for few-shot
+            injection. When provided, they are prepended as reference examples.
 
     Returns:
         Formatted user prompt string with no PII or raw Riot data.
@@ -155,8 +193,10 @@ def build_user_prompt(
     bias_flags = comparison_dict.get("top_selection_bias_flags", [])
     groups = comparison_dict.get("groups", [])
 
+    few_shot_section = _build_few_shot_section(few_shot_examples or [])
+
     prompt = f"""\
-## Player Profile
+{few_shot_section}## Player Profile
 - Champion: {champion_name}
 - Rank: {rank_display}
 

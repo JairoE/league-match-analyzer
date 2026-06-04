@@ -101,3 +101,63 @@ class TestBuildUserPrompt:
         prompt = build_user_prompt(comp, "Yasuo", "GOLD")
         # Should still produce a valid prompt
         assert "Yasuo" in prompt
+
+
+class TestFewShotExamplesInjection:
+    def _make_examples(self) -> list[dict]:
+        return [
+            {
+                "champion_name": "Yasuo",
+                "rank_tier": "GOLD",
+                "recommendations": [
+                    {
+                        "rank": 1,
+                        "title": "Switch to Kraken Slayer",
+                        "current_choice": "Infinity Edge",
+                        "recommended_choice": "Kraken Slayer",
+                        "delta_w_gap": 0.02,
+                        "explanation": "Better true damage proc.",
+                        "category": "item_purchase",
+                    }
+                ],
+                "overall_assessment": "Prioritize anti-tank items.",
+            }
+        ]
+
+    def test_few_shot_section_present_when_examples_provided(self) -> None:
+        comp = _build_comparison_dict()
+        prompt = build_user_prompt(comp, "Yasuo", "GOLD", few_shot_examples=self._make_examples())
+        assert "Reference Examples" in prompt
+        assert "Kraken Slayer" in prompt
+
+    def test_few_shot_includes_champion_and_rank(self) -> None:
+        comp = _build_comparison_dict()
+        prompt = build_user_prompt(comp, "Yasuo", "GOLD", few_shot_examples=self._make_examples())
+        assert "Example 1 — Yasuo, GOLD" in prompt
+
+    def test_few_shot_includes_overall_assessment(self) -> None:
+        comp = _build_comparison_dict()
+        prompt = build_user_prompt(comp, "Yasuo", "GOLD", few_shot_examples=self._make_examples())
+        assert "Prioritize anti-tank items" in prompt
+
+    def test_no_few_shot_section_when_none(self) -> None:
+        comp = _build_comparison_dict()
+        prompt = build_user_prompt(comp, "Yasuo", "GOLD", few_shot_examples=None)
+        assert "Reference Examples" not in prompt
+
+    def test_no_few_shot_section_when_empty_list(self) -> None:
+        comp = _build_comparison_dict()
+        prompt = build_user_prompt(comp, "Yasuo", "GOLD", few_shot_examples=[])
+        assert "Reference Examples" not in prompt
+
+    def test_separator_present_before_current_analysis(self) -> None:
+        comp = _build_comparison_dict()
+        prompt = build_user_prompt(comp, "Yasuo", "GOLD", few_shot_examples=self._make_examples())
+        assert "---" in prompt
+        assert "Now analyze the following" in prompt
+
+    def test_player_profile_still_present_with_few_shot(self) -> None:
+        comp = _build_comparison_dict()
+        prompt = build_user_prompt(comp, "Yasuo", "GOLD", few_shot_examples=self._make_examples())
+        assert "## Player Profile" in prompt
+        assert "GOLD" in prompt

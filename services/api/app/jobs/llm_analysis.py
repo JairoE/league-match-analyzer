@@ -25,6 +25,11 @@ from app.services.ddragon_client import DdragonClient
 from app.services.llm_client import OpenAIClient
 from app.services.llm_prompt import build_system_prompt, build_user_prompt
 from app.services.llm_response_schema import LLMAnalysisResponse
+from app.services.rag_retrieval import (
+    build_embedding_text,
+    format_few_shot_examples,
+    retrieve_few_shot_examples,
+)
 from app.services.worker_metrics import increment_metric_safe
 
 logger = get_logger("league_api.jobs.llm_analysis")
@@ -207,10 +212,48 @@ async def llm_analysis_job(
         if effective_rank is None and comparison.groups:
             effective_rank = comparison.groups[0].rank_tier
 
+        # Step 6.5: RAG — retrieve few-shot examples from similar past analyses
+        few_shot_examples: list[dict] = []
+        if settings.rag_enabled and settings.openai_api_key:
+            comparison_dict_for_embed = comparison.to_dict()
+            embed_text = build_embedding_text(
+                champion_name, effective_rank, comparison_dict_for_embed
+            )
+            try:
+                embed_client = OpenAIClient(
+                    api_key=settings.openai_api_key,
+                    model=settings.llm_model_name,
+                )
+                query_embedding = await embed_client.embed(
+                    embed_text, model=settings.rag_embedding_model
+                )
+                raw_examples = await retrieve_few_shot_examples(
+                    session,
+                    champion_name,
+                    query_embedding,
+                    limit=settings.rag_few_shot_limit,
+                )
+                few_shot_examples = format_few_shot_examples(raw_examples)
+                logger.info(
+                    "rag_few_shot_retrieved",
+                    extra={
+                        "champion": champion_name,
+                        "examples_count": len(few_shot_examples),
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "rag_few_shot_failed",
+                    extra={"riot_account_id": riot_account_id},
+                    exc_info=True,
+                )
+
     # Step 7: Prompt LLM
     comparison_dict = comparison.to_dict()
     system_prompt = build_system_prompt()
-    user_prompt = build_user_prompt(comparison_dict, champion_name, effective_rank)
+    user_prompt = build_user_prompt(
+        comparison_dict, champion_name, effective_rank, few_shot_examples=few_shot_examples or None
+    )
 
     try:
         client = OpenAIClient(
@@ -268,6 +311,32 @@ async def llm_analysis_job(
         await session.commit()
         await session.refresh(analysis)
         analysis_id = str(analysis.id)
+
+        # Post-persist: generate and store embedding for this analysis
+        # so it can be retrieved as a few-shot example in future runs.
+        if settings.rag_enabled and settings.openai_api_key:
+            try:
+                embed_text = build_embedding_text(champion_name, effective_rank, comparison_dict)
+                embed_client = OpenAIClient(
+                    api_key=settings.openai_api_key,
+                    model=settings.llm_model_name,
+                )
+                embedding = await embed_client.embed(
+                    embed_text, model=settings.rag_embedding_model
+                )
+                analysis.embedding = embedding
+                session.add(analysis)
+                await session.commit()
+                logger.info(
+                    "rag_embedding_stored",
+                    extra={"analysis_id": analysis_id},
+                )
+            except Exception:
+                logger.warning(
+                    "rag_embedding_failed",
+                    extra={"analysis_id": analysis_id},
+                    exc_info=True,
+                )
 
     logger.info(
         "llm_analysis_job_done",
