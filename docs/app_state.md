@@ -2,11 +2,11 @@
 
 **Last Updated:** 2026-06-03
 **Branch:** `claude-workflows-rag`
-**Status:** STABLE — RAG feature complete, corpus seeding verified (1 row), unified status doc written. Ready for nit cleanup and PR.
+**Status:** STABLE — RAG feature complete, dead Vector shim removed, corpus seeding verified (1 row), unified status doc written. Ready for PR.
 
 ## Current Phase
 
-**Unified pipeline + RAG status doc created (`claude-workflows-rag`, 2026-06-03).** `docs/LLM_PIPELINE_STATUS.md` supersedes `docs/rag-design.md` and `docs/LLM_RAG_COMPLIMENTARY.md` — it is now the single source of truth for pipeline implementation status, RAG architecture, and the remaining work before `docs/LLM_INTEGRATION.md`. Corpus seeding was also verified end-to-end: 1 `LLMAnalysis` row persisted for Jhin/SILVER with embedding stored (`make corpus-stats` confirmed).
+**Dead Vector shim removed + docs finalized (`claude-workflows-rag`, 2026-06-03).** The only WARN from verify-changes is resolved: the dead `try/except ImportError` shim in `20260601_0004_rag_embedding_column.py` was deleted (~11 lines); `Vector` now imports directly from `pgvector.sqlalchemy`. `docs/LLM_PIPELINE_STATUS.md` was updated to remove the completed item. Branch is clean and ready for PR.
 
 ### RAG architecture (complete)
 
@@ -31,15 +31,33 @@
 
 ## Next Steps
 
-1. **Remove dead Vector shim** in `20260601_0004_rag_embedding_column.py` — only WARN from verify-changes (~11 lines).
-2. **Seed more corpus**: score matches (`make score-account-matches RIOT_ID=...`) then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` targeting 5+ rows per champion. Check with `make corpus-stats`.
-3. (Optional) Build eval harness (`evals/` directory) — ~30–50 labeled cases, precision@k / MRR metrics, LLM-as-judge rubric — for the cold-prompt vs RAG portfolio story. See `docs/LLM_PIPELINE_STATUS.md` for scope.
-4. (Optional cleanup) Reuse one `OpenAIClient` + one `comparison.to_dict()` + one `build_embedding_text()` in `jobs/llm_analysis.py`.
-5. (Optional) Archive/delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md`.
-6. Open PR `claude-workflows-rag` → `main`.
-7. Next feature: `docs/LLM_INTEGRATION.md` — AI Coach button + AnalysisPanel frontend integration.
+1. **Open PR `claude-workflows-rag` → `main`** — branch is clean, all nits resolved.
+2. **Merge `frontend-enhancements`** — independent in-flight branch, ship before starting next feature.
+3. **Seed more corpus** (operational): score matches (`make score-account-matches RIOT_ID=...`) then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` targeting 5+ rows per champion. Check with `make corpus-stats`.
+4. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
+5. (Optional) Build eval harness (`evals/`) — ~30–50 labeled cases, precision@k / MRR, LLM-as-judge rubric — for cold-prompt vs RAG portfolio story.
+6. **Next feature: `docs/LLM_INTEGRATION.md`** — AI Coach button + AnalysisPanel frontend integration.
 
 **Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Full detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
+
+## Recent Changes (2026-06-03 — dead Vector shim removed + docs finalized, `claude-workflows-rag`)
+
+### What changed
+
+- **`services/api/app/db/migrations/versions/20260601_0004_rag_embedding_column.py`**: removed dead `try/except ImportError` shim (~11 lines). `Vector` now imports directly from `pgvector.sqlalchemy`. This was the only WARN from verify-changes. Lint clean.
+- **`docs/LLM_PIPELINE_STATUS.md`**: removed completed "Remove dead Vector shim" item from Recommended section; removed WARN row from Open Nits table; renumbered Eval harness from item 4 → item 3.
+- **Safe-to-delete docs identified**: `docs/rag-design.md` and `docs/LLM_RAG_COMPLIMENTARY.md` are fully superseded by `docs/LLM_PIPELINE_STATUS.md`.
+
+### Key files
+
+- `services/api/app/db/migrations/versions/20260601_0004_rag_embedding_column.py`
+- `docs/LLM_PIPELINE_STATUS.md`
+
+### Tests / lint
+
+- `ruff check services/api/app/db/migrations/versions/20260601_0004_rag_embedding_column.py` — clean.
+
+---
 
 ## Recent Changes (2026-06-03 — unified pipeline status doc, `claude-workflows-rag`)
 
