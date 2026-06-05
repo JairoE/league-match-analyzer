@@ -2,11 +2,11 @@
 
 **Last Updated:** 2026-06-03
 **Branch:** `claude-workflows-rag`
-**Status:** STABLE — RAG feature complete, dead Vector shim removed, corpus seeding verified (1 row), unified status doc written. Ready for PR.
+**Status:** STABLE — RAG feature complete, dead Vector shim removed, corpus seeding verified (1 row), unified status doc written. `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` synced with frontend S1–S5 + Next.js audit. Ready for PR.
 
 ## Current Phase
 
-**Dead Vector shim removed + docs finalized (`claude-workflows-rag`, 2026-06-03).** The only WARN from verify-changes is resolved: the dead `try/except ImportError` shim in `20260601_0004_rag_embedding_column.py` was deleted (~11 lines); `Vector` now imports directly from `pgvector.sqlalchemy`. `docs/LLM_PIPELINE_STATUS.md` was updated to remove the completed item. Branch is clean and ready for PR.
+**Docs sync complete (`claude-workflows-rag`, 2026-06-03).** `docs/TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` now documents the `frontend-enhancements` React/Next perf work (S1–S5), Playwright E2E suite, leveraged vs. not-yet-used Next.js features (§3.7), and the client-first rendering model. Prior RAG work remains stable: dead Vector shim removed, `LLM_PIPELINE_STATUS.md` finalized, corpus at 1 row.
 
 ### RAG architecture (complete)
 
@@ -37,8 +37,39 @@
 4. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
 5. (Optional) Build eval harness (`evals/`) — ~30–50 labeled cases, precision@k / MRR, LLM-as-judge rubric — for cold-prompt vs RAG portfolio story.
 6. **Next feature: `docs/LLM_INTEGRATION.md`** — AI Coach button + AnalysisPanel frontend integration.
+7. (Future) **Next.js server data layer** — Server Components + server `fetch` for match list shells (highest ROI frontend perf win; documented in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` §3.7).
 
-**Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Full detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
+**Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Architecture doc now reflects this work; full implementation detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
+
+## Recent Changes (2026-06-03 — TECHNICAL_ARCHITECTURE Next.js sync)
+
+### What changed
+
+- **`docs/TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`**: brought frontend section in line with `frontend-enhancements` branch reality.
+  - **§3.3**: added `LiveGameSlot/` and `DynamicImportBoundary` to component table.
+  - **§3.6**: replaced generic perf bullets with S1–S5 ( `next/dynamic`, `useTransition`, React Compiler, stable `matchDetails`, chunk error recovery).
+  - **§3.7** (new): Next.js features leveraged today vs. not yet used; documents client-first SPA-on-Next rendering model and highest-ROI future wins (Server Components, server `fetch`, Route Handlers, `generateMetadata`, streaming, parallel routes, full `next/image`).
+  - **§4.3**: Playwright E2E (22 tests, 4 specs) replaces stale "no frontend test suite" note.
+  - **§5 / §7**: frontend perf key update; server-data-layer roadmap item.
+
+### Current phase / status
+
+STABLE — docs-only change; no application code modified.
+
+### Blockers
+
+None.
+
+### Next steps
+
+- Ship `frontend-enhancements` PR (code already landed on branch; doc now describes it).
+- Future: Server Components migration per §3.7 when prioritizing frontend TTFB / bundle size.
+
+### Tests / lint
+
+Not applicable (markdown only).
+
+---
 
 ## Recent Changes (2026-06-03 — dead Vector shim removed + docs finalized, `claude-workflows-rag`)
 

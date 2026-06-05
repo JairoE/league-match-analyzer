@@ -1,6 +1,6 @@
 # Technical Architecture & Design Patterns
 
-**Last Updated:** March 18, 2026
+**Last Updated:** June 3, 2026
 **Scope:** Full codebase of `league-match-analyzer` (FastAPI + Next.js + Infrastructure + LLM Pipeline)
 
 ## Executive Summary
@@ -203,6 +203,8 @@ All components are folderized in `src/components/`, each with its own CSS module
 | `Pagination/` | Previous/Next + "Page X of Y" |
 | `LiveGameCard/` | Live game display with SSE |
 | `Auth/` | `AuthForm`, `SignInForm`, `SignUpForm` |
+| `LiveGameSlot/` | `LiveGameSlot.tsx` | Status UI + dynamic `LiveGameCard` import |
+| `common/` | `DynamicImportBoundary.tsx` | Error boundary for lazy-loaded chunks |
 | `Header/`, `SubHeader/`, `SearchBar/`, `FeatureCard/` | Layout and UI primitives |
 
 ### 3.4 State Management & Data Flow
@@ -233,13 +235,48 @@ All components are folderized in `src/components/`, each with its own CSS module
   - Client-side only state initialization with `useEffect`
 - **Type Safety**: Full TypeScript coverage with shared type definitions
 
-### 3.6 Performance Optimizations
+### 3.6 Performance Optimizations (S1–S5, May 2026)
 
-- **Code Splitting**: Automatic route-based code splitting via App Router
-- **Memoization**: `MatchCard` and `Teams` wrapped in `React.memo`; selective `useMemo` for champion history grouping and date formatting
-- **Selective Fetching**: Champion data fetched only for missing IDs; rank batch only fetches PUUIDs not already cached
-- **Pagination**: Riot API sync gated to page 1; pages 2+ are DB-only (zero Riot API calls)
-- **Effect Separation**: Search page splits account fetch (once per riotId) from matches fetch (per page change) to avoid redundant API calls
+- **S1 — `next/dynamic` (recharts)**: `ChampionKdaChart` is lazy-loaded in `MatchCard` with `ssr: false` and a `ChartSkeleton` placeholder. The recharts bundle ships only when a match with 2+ KDA history points is expanded.
+- **S2 — `useTransition`**: Queue-tab switches in `MatchesTable` and pagination in `useMatchList` use `startTransition` / `startTabTransition` so the UI stays responsive while the next filter/page computes.
+- **S3 — `next/dynamic` (live game)**: `LiveGameCard` is lazy-loaded inside `LiveGameSlot` with `ssr: false`. The chunk loads only when SSE reports an in-game state; idle / `not_in_game` / error paths render lightweight status UI.
+- **S4 — React Compiler (annotation mode)**: `next.config.ts` enables `reactCompiler.compilationMode: "annotation"`. `"use memo"` is opted in on `MatchesTable` (per-file, not repo-wide).
+- **S5 — Stable `matchDetails` reference**: `useMatchList` returns the previous `matchDetails` object when poll ticks do not change content, preventing memo busts on the 3-second detail-poll loop.
+- **Route code splitting**: Automatic per-route bundles via App Router file structure.
+- **Memoization**: `MatchCard`, `MatchRow`, and `Teams` wrapped in `React.memo`; selective `useMemo` for champion history grouping, summary stats, and date formatting.
+- **Selective fetching**: Champion data fetched only for missing IDs; rank batch only fetches PUUIDs not already cached.
+- **Pagination**: Riot API sync gated to page 1; pages 2+ are DB-only (zero Riot API calls).
+- **Effect separation**: Search page splits account fetch (once per riotId) from matches fetch (per page change) to avoid redundant API calls.
+- **Chunk error recovery**: `DynamicImportBoundary` wraps dynamic imports with a `resetKey` prop so transient chunk-load failures do not permanently break the UI.
+
+### 3.7 Next.js Features — Leveraged vs. Not Yet Used
+
+**Leveraged today**
+
+| Feature | Where | Notes |
+|---|---|---|
+| **App Router** | `src/app/` | File-system routes; implicit route-level code splitting |
+| **Server Component root** | `layout.tsx` | No `"use client"`; exports static `metadata` |
+| **`next/font`** | `layout.tsx` | `Geist` / `Geist_Mono` via `next/font/google` |
+| **`next/dynamic`** | `MatchCard`, `LiveGameSlot` | S1/S3 code-splitting with `ssr: false` |
+| **`next/image`** | `MatchRow`, `MatchCard`, `MatchesTable` | Champion portraits (`unoptimized`; API-served URLs). DDragon spell/rune icons stay on `<img>` with `onError` fallbacks |
+| **`Suspense`** | `app/page.tsx` | Wraps `useSearchParams()` on the landing page |
+| **Navigation hooks** | Pages + `SearchBar` | `useRouter`, `useParams`, `useSearchParams` from `next/navigation` |
+| **React Compiler** | `next.config.ts`, `MatchesTable` | Annotation mode (`"use memo"`) |
+| **Playwright E2E** | `league-web/e2e/` | 22 tests regress S1–S3, S2 transitions, S5 reference stability |
+
+**Rendering model**: All data-heavy route pages (`/`, `/home`, `/riot-account/[riotId]`, `/auth`) are `"use client"` and fetch via client-side `apiGet` → FastAPI. The app is effectively a client-rendered SPA on top of Next routing.
+
+**Not yet leveraged (highest ROI next)**
+
+- **Server Components for page shells** — fetch match lists server-side; keep interactive islands (`MatchesTable`, `SearchBar`) as client components.
+- **Server `fetch` + `revalidate` / `cache()`** — replace or complement client `apiGet` for semi-static data (champion catalog, first-page match list).
+- **Route Handlers** (`app/api/.../route.ts`) — optional BFF proxy to FastAPI with typed responses.
+- **Per-route `generateMetadata`** — dynamic titles for `/riot-account/[riotId]` (e.g. summoner name in `<title>`).
+- **Streaming RSC + nested `Suspense`** — stream match list HTML while detail panels load.
+- **Parallel / intercepting routes** — deep-linkable `MatchDetailPanel` as a route segment instead of client-only selection state.
+- **Full `next/image` optimization** — add `images.remotePatterns` for DDragon CDN; remove `unoptimized` where possible.
+- **Route-level `loading.tsx` / `error.tsx`** — standardized loading and error UI per segment.
 
 ## 4. Infrastructure & DevOps
 
@@ -262,7 +299,7 @@ All components are folderized in `src/components/`, each with its own CSS module
 
 - **Backend**: pytest with `asyncio_mode = "auto"` in `services/api/tests/`
 - **Test Coverage**: Riot API client retry, match fetch, state vector extraction (10 tests), action extraction (12 tests), action aggregation (12 tests), action comparison (14 tests), LLM prompt (11 tests), LLM response schema (12 tests), LLM client (6 tests), LLM analysis job (6 tests), background jobs, rate limiting, and more; 160 tests pass.
-- **No frontend test suite** currently.
+- **Frontend E2E**: Playwright v1.59 in `league-web/e2e/` — 22 tests across 4 specs (`matches-table-tabs`, `matches-table-pagination`, `match-card-chart`, `live-game-slot`). Run: `cd league-web && npm run test:e2e`. See `league-web/TESTING.md`.
 
 ## 5. Key Updates
 
@@ -272,6 +309,7 @@ All components are folderized in `src/components/`, each with its own CSS module
 - **Timeline Warmup Refactor**: Timeline enqueue was flattened to direct router->service dispatch, replacing the extra wrapper layer.
 - **LLM Pipeline Complete**: Full 8-step pipeline operational — ingest through LLM analysis and persistence. `llm_analysis_job` orchestrates steps 5→8 with OpenAI provider (swappable via `LLMClient` protocol).
 - **Metric Instrumentation**: Added internal metric tracking (`worker_metrics.py`) for job reliability monitoring.
+- **Frontend Perf (S1–S5)**: `next/dynamic` code-splitting for recharts and live-game UI, `useTransition` for tabs/pagination, React Compiler annotation on `MatchesTable`, stable `matchDetails` polling references, and Playwright E2E regressions.
 
 ## 5b. Design Decisions & Trade-offs
 
@@ -287,8 +325,9 @@ All components are folderized in `src/components/`, each with its own CSS module
 
 ## 7. Roadmap
 
+- **Next.js server data layer**: Server Components + server `fetch` for match list shells; per-route `generateMetadata`; optional Route Handlers
 - **Server-side queue filtering**: Move tab filtering to the API for more accurate pagination counts
-- **Vector embeddings**: `pgvector` is enabled; wire up for semantic search capabilities
+- **Vector embeddings**: `pgvector` is enabled; RAG corpus seeding operational (see `docs/LLM_PIPELINE_STATUS.md`)
 - **Champion kill ΔW**: Add when sample sizes support it
 - **Skill level-up order**: Add when data volume allows per-champion analysis
 - **Production observability**: Trace IDs, latency monitoring, error rates, manual review flags
