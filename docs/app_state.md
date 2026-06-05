@@ -1,81 +1,104 @@
 # App State
 
-**Last Updated:** 2026-06-01
+**Last Updated:** 2026-06-03
 **Branch:** `claude-workflows-rag`
-**Status:** STABLE — RAG few-shot retrieval (Phase 2 of `docs/rag-design.md`) implemented on the backend and verified via `/verify-changes` against `main`: **GO-WITH-NITS**. Lint clean, full backend suite green (181 passed, 2 skipped — real-API integration only), and **zero new dependencies** (`pgvector>=0.3.6` and `openai>=1.58.0` were already declared). One WARN (dead `Vector` import-shim in the migration) plus minor NOTEs; nothing blocking. The Alembic up/down round-trip was not exercised (no DB container up). The earlier `frontend-enhancements` branch (React perf S1–S5 + 22-test Playwright suite) remains a separate in-flight branch — its ship steps live in the Recent Changes history below.
+**Status:** STABLE — RAG feature complete, dead Vector shim removed, corpus seeding verified (1 row), unified status doc written. Ready for PR.
 
 ## Current Phase
 
-**RAG few-shot retrieval on `claude-workflows-rag` — implemented, verified GO-WITH-NITS, ready to address nits + ship.** Adds pipeline Step 6.5 (embed the comparison context, retrieve the most similar prior `LLMAnalysis` records for the same champion via pgvector cosine KNN, inject as few-shot examples) plus a post-persist embedding store so the corpus grows itself. All RAG paths are gated by `rag_enabled` (default True) + `openai_api_key` and are fail-soft (errors logged, pipeline never aborts). `/verify-changes` was run end-to-end for real this time (Phase 1 dependency gate + Phase 4 lint/test executed, not a manual stand-in), partially resolving the prior caveat about the workflow never having been invoked.
+**Dead Vector shim removed + docs finalized (`claude-workflows-rag`, 2026-06-03).** The only WARN from verify-changes is resolved: the dead `try/except ImportError` shim in `20260601_0004_rag_embedding_column.py` was deleted (~11 lines); `Vector` now imports directly from `pgvector.sqlalchemy`. `docs/LLM_PIPELINE_STATUS.md` was updated to remove the completed item. Branch is clean and ready for PR.
+
+### RAG architecture (complete)
+
+- **Step 6.5**: embed query → cosine KNN in pgvector → inject top-3 as `## Reference Examples` in user prompt
+- **Post-persist**: generate + store embedding on new `LLMAnalysis` rows so corpus grows automatically
+- **Cold start**: empty corpus returns `[]`, pipeline never aborts; RAG activates meaningfully at ~5+ rows per champion, quality improves at ~50+ per champion/rank bucket
+- **Seeding**: `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` or `--entry "name#NA1:157"`
+- **Corpus now**: 1 row (Jhin/SILVER, 2026-06-03)
 
 ### verify-changes findings (2026-06-01, RAG branch — all non-blocking)
 
-- **WARN** — `20260601_0004_rag_embedding_column.py:16-26`: dead `try/except ImportError` fallback `Vector` type. `pgvector` is a hard runtime dep (`pyproject.toml:14`, imported unconditionally at `models/llm_analysis.py:13`), so the shim can never run where migrations run. Import `Vector` directly; delete ~11 lines.
+- **WARN** — `20260601_0004_rag_embedding_column.py:16-26`: dead `try/except ImportError` fallback `Vector` type. `pgvector` is a hard runtime dep; shim is dead code. Import `Vector` directly; delete ~11 lines.
 - **NOTE** — `jobs/llm_analysis.py`: `OpenAIClient` instantiated 3×, `comparison.to_dict()` called 3×, `build_embedding_text(...)` computed twice with identical args. Build once and reuse.
-- **NOTE** — HNSW index (`vector_cosine_ops`, m=16/ef=64) is premature-but-harmless at current corpus size (~hundreds of rows); removable, leaks nothing into call sites. Keep as forward-looking.
-- **NOTE** — `rag_enabled=True` by default means 2 embedding calls per job before the corpus is seeded (retrieval returns little until ~50/bucket per the design doc). Negligible cost; decision point.
+- **NOTE** — HNSW index (`vector_cosine_ops`, m=16/ef=64) is premature-but-harmless at current corpus size.
+- **NOTE** — `rag_enabled=True` by default means 2 embedding calls per job before the corpus is seeded.
 
 ## Blockers
 
-- None. The RAG feature passes lint + the full backend suite; all findings are NOTE/WARN.
-- Open integrity gap (not a blocker): the Alembic up/down round-trip for `20260601_0004` was not run (no Postgres container up). Verify before merge.
-- Model change + new migration are AGENTS.md ⚠️ ask-before-doing items; `docs/rag-design.md` pre-authorizes them — confirm reviewer sign-off.
-- Operational note from earlier phase still stands: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
+- None. Lint clean; 181 tests pass (2 skipped — real-API integration only).
+- Open integrity gap (not a blocker): Alembic up/down round-trip for `20260601_0004` was not run (no DB container during implementation). Verify before merge: `make db-up && make db-migrate` then downgrade one step.
+- Operational note: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
 
 ## Next Steps
 
-1. Remove the dead `Vector` ImportError shim in `20260601_0004_rag_embedding_column.py` — import pgvector directly (the only WARN).
-2. Run the migration round-trip (`make db-up && make db-migrate`, then downgrade one step) — not covered by any test.
-3. (Optional cleanup) Reuse one `OpenAIClient` + one embed-text/dict in `jobs/llm_analysis.py`; tighten `few_shot_examples: list[dict]` → `list[dict[str, Any]]`.
-4. (Decision) Confirm `rag_enabled=True`-by-default is intended before the corpus is seeded — otherwise default it off and flip after `make backfill-rag-embeddings`.
-5. Confirm reviewer sign-off on the model + migration (ask-before-doing), then open PR `claude-workflows-rag` → `main`.
-6. Once enough analyses exist (~50+ per champion/rank bucket per the design doc), run `make backfill-rag-embeddings` to embed pre-RAG rows, then evaluate few-shot quality.
+1. **Open PR `claude-workflows-rag` → `main`** — branch is clean, all nits resolved.
+2. **Merge `frontend-enhancements`** — independent in-flight branch, ship before starting next feature.
+3. **Seed more corpus** (operational): score matches (`make score-account-matches RIOT_ID=...`) then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` targeting 5+ rows per champion. Check with `make corpus-stats`.
+4. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
+5. (Optional) Build eval harness (`evals/`) — ~30–50 labeled cases, precision@k / MRR, LLM-as-judge rubric — for cold-prompt vs RAG portfolio story.
+6. **Next feature: `docs/LLM_INTEGRATION.md`** — AI Coach button + AnalysisPanel frontend integration.
 
 **Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Full detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
 
-## Recent Changes (2026-06-01 — documentation audit, read-only)
+## Recent Changes (2026-06-03 — dead Vector shim removed + docs finalized, `claude-workflows-rag`)
 
 ### What changed
 
-- No code changes — audited all of `docs/` to identify which documents/sections
-  describe features that are **not yet implemented** (verified against the
-  codebase, not just the prose).
+- **`services/api/app/db/migrations/versions/20260601_0004_rag_embedding_column.py`**: removed dead `try/except ImportError` shim (~11 lines). `Vector` now imports directly from `pgvector.sqlalchemy`. This was the only WARN from verify-changes. Lint clean.
+- **`docs/LLM_PIPELINE_STATUS.md`**: removed completed "Remove dead Vector shim" item from Recommended section; removed WARN row from Open Nits table; renumbered Eval harness from item 4 → item 3.
+- **Safe-to-delete docs identified**: `docs/rag-design.md` and `docs/LLM_RAG_COMPLIMENTARY.md` are fully superseded by `docs/LLM_PIPELINE_STATUS.md`.
 
-### Current phase / findings
+### Key files
 
-- **Biggest gap — `LLM_INTEGRATION.md` is entirely unbuilt.** Verified missing:
-  `app/api/routers/analysis.py`, `app/schemas/analysis.py`, frontend
-  `AnalysisPanel/` + `AnalysisButton/` + `useAnalysis.ts`; `CompareButton.tsx`
-  (which the doc says to delete) still exists. The full 8-step LLM pipeline has
-  **zero API endpoints and zero UI** — reachable only via CLI debug scripts.
-- **`rag-design.md`** — Phase 2 (few-shot) done this branch; **Phase 1 eval
-  harness (`evals/`)** and **Phase 3 experiments + `docs/rag-deep-dive.md`** both
-  verified missing.
-- **`LLM_RAG_COMPLIMENTARY.md`** — Phase 2 "Game Knowledge Grounding"
-  (`game_knowledge` table + patch-notes/item ingestion) verified not implemented.
-- **`LLM_DATA_PIPELINE.md` "Future Extensions"** + V2 DNN model — pending.
-- **`WIN_PROB_MODEL_NOTES.md`** — `model_version` tagging and `SCORE_VERSION` in
-  the ARQ `_job_id` verified not implemented; model-hardening pass pending.
-- **`LLM_PROMPT_SCALING.md` "Scaling Risks"** and **`TECHNICAL_ARCHITECTURE…` §7
-  Roadmap** are forward-looking mitigations. The architecture doc is also stale
-  (claims 160 tests / no frontend suite; latest migration listed as `0002`, now
-  `0004`; references the removed `backfill_match_details_inline`).
-- Reference-only (no pending features): `TECHNICAL_REQUEST_FLOW.md`,
-  `RAILWAY_API_DEPLOYMENT.md`, `RIOT_API_PARTICIPANT_FIELDS.md`.
+- `services/api/app/db/migrations/versions/20260601_0004_rag_embedding_column.py`
+- `docs/LLM_PIPELINE_STATUS.md`
 
-### Blockers
+### Tests / lint
 
-- None. Read-only audit.
+- `ruff check services/api/app/db/migrations/versions/20260601_0004_rag_embedding_column.py` — clean.
 
-### Next steps
+---
 
-- After the RAG branch lands, the highest-leverage next feature is
-  **`LLM_INTEGRATION.md`** (analysis router + schemas → `useAnalysis` hook →
-  `AnalysisPanel`/`AnalysisButton` → wire into pages, delete `CompareButton`) —
-  it makes the entire pipeline user-facing.
-- Lower priority / scale-gated: rag eval harness (Phase 1), game-knowledge
-  grounding, win-prob model hardening + version tagging, and a refresh of the
-  stale sections in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md`.
+## Recent Changes (2026-06-03 — unified pipeline status doc, `claude-workflows-rag`)
+
+### What changed
+
+- **`docs/LLM_PIPELINE_STATUS.md`** (new): unified status and integration roadmap doc. Supersedes `docs/rag-design.md` and `docs/LLM_RAG_COMPLIMENTARY.md`. Covers: full pipeline status table (Steps 1–8 + 6.5), Phase 1 RAG complete with corpus status, Phase 2 not-started, the two required items before LLM_INTEGRATION.md, eval harness scope, open nits table from verify-changes.
+- **Corpus verified end-to-end**: `make seed-rag-corpus` ran successfully for Jhin/SILVER; `make corpus-stats` confirmed 1 `LLMAnalysis` row with `with_embedding = 1`.
+- **Diagnosed `no_data` skip**: root cause documented — the account exists in DB but the target champion's matches have no scored actions (`delta_w IS NULL` in `match_action`). Fix: `make score-account-matches RIOT_ID=...` before seeding.
+
+### Key files
+
+- `docs/LLM_PIPELINE_STATUS.md` (new — replaces `rag-design.md` and `LLM_RAG_COMPLIMENTARY.md`)
+
+### Tests / lint
+
+- No code changes this session. No lint or test re-run needed.
+
+---
+
+## Recent Changes (2026-06-03 — RAG corpus seeding tooling, `claude-workflows-rag`)
+
+### What changed
+
+- **`scripts/seed_rag_corpus.py`** (new): batch corpus seeding script. Accepts `--entry RIOT_ID:CHAMPION_ID` (repeatable) or `--from-file file.txt` (one entry per line, `#` comments). Calls `llm_analysis_job({}, ...)` directly (ARQ ctx is unused) — runs the full pipeline steps 5→8 including post-persist embedding storage, so every successful run adds an embeddable row to the corpus. Per-entry error handling: skips entries whose account is not yet in DB with an actionable message. Prints a summary table (succeeded / skipped / failed) and the `corpus-stats` query to check coverage.
+- **`Makefile`** (3 new targets):
+  - `make seed-rag-corpus ARGS='--entry "name#NA1:157"'` — run corpus seeding
+  - `make seed-rag-corpus-dry ARGS='...'` — dry-run: resolves accounts, prints plan, no LLM calls or DB writes
+  - `make corpus-stats` — shows `champion_name / rank_tier / total / with_embedding` grouped by champion from `llm_analysis`
+- **Docker service name clarified**: docker-compose service is `postgres` (container `league_postgres`), not `db`. The `\d llm_analysis` verification command must use `docker exec league_postgres psql ...`, not `docker compose exec db`.
+
+### Key files
+
+- `scripts/seed_rag_corpus.py`
+- `Makefile` (seed-rag-corpus, seed-rag-corpus-dry, corpus-stats targets)
+
+### Tests / lint
+
+- No new tests (seeding script is a thin CLI wrapper around `llm_analysis_job` which already has full test coverage including RAG paths).
+- `ruff check scripts/seed_rag_corpus.py` — clean.
+
+---
 
 ## Recent Changes (2026-06-01 — RAG few-shot retrieval, `claude-workflows-rag`)
 
@@ -105,7 +128,7 @@
 ### What changed
 
 - **New reusable workflow command**: `.claude/commands/verify-changes.md`. Invoke as `/verify-changes [base-ref] [--deep]`. It diffs a branch against a base ref and gates it on two bars — (1) **scale-appropriate** (no unneeded deps; optimizations justified at current scale) and (2) **maintainable** (not overengineered) — by orchestrating the agent-skills (`code-simplification`, `code-review-and-quality`, `performance-optimization`) plus an explicit dependency-hygiene gate and a lint/build/e2e integrity check. `--deep` fans out to the `code-reviewer` + `test-engineer` subagents.
-- **Authored the command but did not actually invoke it.** The GO-WITH-NITS verdict below is from a **manual review performed by hand** (real `git diff` + file reads + reasoning) that *mirrors* the workflow's phases — NOT from running `/verify-changes` or its agent-skills (`code-simplification`, `code-review-and-quality`, `performance-optimization`). Phase 4 (lint/build/e2e) and Phase 5 (`--deep` subagents) were not run. The findings are evidence-based, but the workflow itself is unvalidated end-to-end.
+- **Authored the command but did not actually invoke it.** The GO-WITH-NITS verdict below is from a **manual review performed by hand** (real `git diff` + file reads + reasoning) that _mirrors_ the workflow's phases — NOT from running `/verify-changes` or its agent-skills (`code-simplification`, `code-review-and-quality`, `performance-optimization`). Phase 4 (lint/build/e2e) and Phase 5 (`--deep` subagents) were not run. The findings are evidence-based, but the workflow itself is unvalidated end-to-end.
 
 ### Findings (verify-changes, 2026-06-01)
 

@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids backfill-rag-embeddings backfill-rag-embeddings-dry
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids backfill-rag-embeddings backfill-rag-embeddings-dry seed-rag-corpus seed-rag-corpus-dry corpus-stats
 
 help:
 	@echo "Available targets:"
@@ -20,6 +20,9 @@ help:
 	@echo "  aggregate-actions-debug  Print action aggregates for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
 	@echo "  compare-actions-debug  Print action comparison (gaps + bias) for account (RIOT_ACCOUNT_ID= or RIOT_ID=...)"
 	@echo "  llm-analysis-debug  Run LLM analysis for account+champion (RIOT_ID=... CHAMPION=157 [RANK_TIER=GOLD] [DRY_RUN=1])"
+	@echo "  seed-rag-corpus  Seed RAG corpus for multiple accounts (ARGS='--entry name#NA1:157 --entry other#NA1:238' or ARGS='--from-file list.txt')"
+	@echo "  seed-rag-corpus-dry  Dry-run corpus seeding (resolve accounts, no LLM calls)"
+	@echo "  corpus-stats  Show llm_analysis count + embedding coverage per champion"
 	@echo "  capture-riot-fixtures  Capture live Riot JSON fixtures for tests"
 	@echo "  print-champion-ids  Print Riot championId -> name mapping from Data Dragon"
 
@@ -200,6 +203,26 @@ backfill-rag-embeddings:
 
 backfill-rag-embeddings-dry:
 	./.venv/bin/python scripts/backfill_rag_embeddings.py --dry-run
+
+seed-rag-corpus:
+	@if [ -z "$$ARGS" ]; then \
+		echo "Usage: make seed-rag-corpus ARGS='--entry \"name#NA1:157\" --entry \"other#NA1:238\"'"; \
+		echo "       make seed-rag-corpus ARGS='--from-file seeding_list.txt'"; \
+		exit 1; \
+	fi
+	./.venv/bin/python scripts/seed_rag_corpus.py $$ARGS
+
+seed-rag-corpus-dry:
+	@if [ -z "$$ARGS" ]; then \
+		echo "Usage: make seed-rag-corpus-dry ARGS='--entry \"name#NA1:157\"'"; \
+		echo "       make seed-rag-corpus-dry ARGS='--from-file seeding_list.txt'"; \
+		exit 1; \
+	fi
+	./.venv/bin/python scripts/seed_rag_corpus.py $$ARGS --dry-run
+
+corpus-stats:
+	docker exec league_postgres psql -U league -d league -c \
+	  "SELECT champion_name, rank_tier, COUNT(*) AS total, SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) AS with_embedding FROM llm_analysis GROUP BY 1, 2 ORDER BY 3 DESC"
 
 win-prob-model-training:
 	./.venv/bin/python scripts/train_win_prob_model.py --input data/training.csv --output data/win_prob_model.joblib
