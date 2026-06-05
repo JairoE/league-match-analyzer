@@ -12,6 +12,7 @@ from app.core.middleware import RequestLoggingMiddleware
 from app.core.redaction import redact_url
 from app.services.arq_pool import close_arq_pool
 from app.services.champion_seed import schedule_champion_seed_job
+from app.services.demo_seed import seed_demo_data
 
 setup_logging()
 logger = get_logger("league_api.main")
@@ -66,6 +67,14 @@ async def on_startup() -> None:
         },
     )
     schedule_champion_seed_job(reason="startup", force_reset=False)
+
+    # Seed demo data when DEMO_MODE is enabled (idempotent).
+    if settings.demo_mode:
+        from app.db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as session:
+            await seed_demo_data(session)
+        logger.info("demo_seed_complete")
 
 
 @app.on_event("shutdown")

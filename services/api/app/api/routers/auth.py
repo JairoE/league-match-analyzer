@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.session import get_session
 from app.schemas.auth import UserSignInRequest, UserSignUpRequest
@@ -38,6 +39,35 @@ async def sign_up(
         "sign_up_parsed_riot_id",
         extra={"canonical": parsed_riot_id.canonical, "summoner_name": parsed_riot_id.game_name},
     )
+    # In demo mode, skip the Riot API and return the pre-seeded demo account.
+    settings = get_settings()
+    if settings.demo_mode:
+        result = await fetch_sign_in_user(
+            session, parsed_riot_id.canonical, payload.email
+        )
+        if result:
+            user, riot_account = result
+            logger.info(
+                "sign_up_demo_mode",
+                extra={
+                    "user_id": str(user.id),
+                    "riot_account_id": str(riot_account.id),
+                },
+            )
+            return AuthResponse(
+                id=user.id,
+                email=user.email,
+                riot_account=RiotAccountResponse.model_validate(riot_account),
+            )
+        logger.warning(
+            "sign_up_demo_mode_no_seeded_data",
+            extra={"summoner_name": payload.summoner_name},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Demo account not seeded. Ensure DEMO_MODE=true and restart.",
+        )
+
     user, riot_account = await fetch_user_profile(session, parsed_riot_id.canonical, payload.email)
     logger.info(
         "sign_up_success", extra={"user_id": str(user.id), "riot_account_id": str(riot_account.id)}

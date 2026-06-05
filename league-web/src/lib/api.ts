@@ -1,5 +1,6 @@
 import {getFromCache, setInCache} from "./cache";
 import {buildApiErrorFromResponse} from "./errors/parse-api-error";
+import {isDemoMode, resolveMock} from "./mock/resolve-mock";
 
 type ApiFetchOptions = {
   cacheTtlMs?: number;
@@ -27,6 +28,11 @@ export async function apiFetch<T>(
   init: RequestInit = {},
   options: ApiFetchOptions = {}
 ): Promise<T> {
+  // Demo mode: serve everything from the bundled dataset — no network at all.
+  if (isDemoMode()) {
+    return resolveMock<T>(path, init);
+  }
+
   const url = buildUrl(path);
   const method = init.method?.toUpperCase() ?? "GET";
   const useCache = options.useCache ?? method === "GET";

@@ -31,9 +31,16 @@ class Settings(BaseSettings):
         rag_enabled: Whether to retrieve few-shot examples from past analyses.
         rag_embedding_model: OpenAI embedding model for RAG vectors.
         rag_few_shot_limit: Max prior analyses to inject as few-shot examples.
+        demo_mode: When True, seed a demo user+matches on startup and allow
+            sign-up without calling the Riot API.  Set via DEMO_MODE env var.
+        demo_email: Email address for the demo user account.
+        demo_riot_id: Riot ID for the demo account (gameName#tagLine).
     """
 
     environment: str = "development"
+    demo_mode: bool = False
+    demo_email: str = "demo@league-analyzer.dev"
+    demo_riot_id: str = "imaqtpie#USA"
     win_prob_model_path: str = ""
     openai_api_key: str = ""
     llm_model_name: str = "gpt-4o-mini"
