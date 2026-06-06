@@ -675,6 +675,16 @@ This is an active development project. Key areas for contribution:
 - Add tests for new features
 - Update documentation as needed
 
+### STAR story this whole app produces
+
+> **Situation:** After migrating league-match-analyzer to the current stack, I added an LLM pipeline that does match analysis. With no real retrieval layer, users couldn't ask comparative questions across their match history.
+>
+> **Task:** I wanted to add semantic search over match history, but more importantly, I wanted to know whether it was actually working — most RAG implementations I'd seen had no measurement.
+>
+> **Action:** I built the eval harness first — 50 labeled query/result pairs, precision@k, latency p95, cost per query. Established a baseline with naive cosine similarity, then ran controlled experiments on chunk size, hybrid search with BM25, and LLM reranking. Each experiment was a hypothesis with a measured result. I added an LLM-as-judge layer for response quality and calibrated it against my own judgments.
+>
+> **Result:** Precision@5 went from \[X\] to \[Y\], with p95 latency of \[Z\]ms and \[$N\] per query. More importantly, I have a reproducible eval harness, so when I change the model or the chunking strategy, I know within minutes whether it regressed. Cost me about \[N\] hours total.
+
 ---
 
 ## License
