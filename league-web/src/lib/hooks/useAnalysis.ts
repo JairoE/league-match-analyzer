@@ -139,7 +139,8 @@ export function useAnalysis(riotAccountId: string | null): UseAnalysisResult {
     analysis,
     isLoading: status === "requesting" || status === "polling",
     status,
-    error: timeoutMessage ?? errorMessage,
+    // errorMessage is "" (not null) when the scope has no error
+    error: timeoutMessage ?? (errorMessage || null),
     requestAnalysis,
     dismiss,
   };
