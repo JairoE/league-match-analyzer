@@ -4,6 +4,7 @@ from app.api.routers import (
     analysis,
     auth,
     champions,
+    chat,
     live_game,
     matches,
     ops,
@@ -24,4 +25,5 @@ all_routers = [
     ops.router,
     live_game.router,
     analysis.router,
+    chat.router,
 ]
