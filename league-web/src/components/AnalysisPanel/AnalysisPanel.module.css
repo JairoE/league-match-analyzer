@@ -1,0 +1,144 @@
+.panel {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.tierBadge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-chip);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.dismiss {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.dismiss:hover {
+  opacity: 1;
+}
+
+.error {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-danger);
+}
+
+.assessment {
+  margin: 0;
+  font-size: 14px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rankBadge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 14px;
+  flex: 1;
+}
+
+.category {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-chip);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.choices {
+  margin: 0;
+  font-size: 13px;
+}
+
+.deltaW {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.explanation {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.empty {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.bias {
+  font-size: 13px;
+}
+
+.biasSummary {
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.biasBody {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+}
+
+.footnote {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.6;
+}

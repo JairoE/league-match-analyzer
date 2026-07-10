@@ -10,6 +10,7 @@ type MatchPageShellProps = {
   error?: string | null;
   warning?: string | null;
   liveGame?: ReactNode;
+  analysisPanel?: ReactNode;
   children: ReactNode;
 };
 
@@ -18,6 +19,7 @@ export default function MatchPageShell({
   error,
   warning,
   liveGame,
+  analysisPanel,
   children,
 }: MatchPageShellProps) {
   return (
@@ -26,6 +28,7 @@ export default function MatchPageShell({
       {subHeader}
       <SearchBar />
       {liveGame}
+      {analysisPanel}
       {warning ? <p className={styles.warning}>{warning}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
       {children}
