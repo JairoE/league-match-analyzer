@@ -1,13 +1,26 @@
 # LLM Pipeline + RAG: Status & Integration Roadmap
 
-**Last updated:** 2026-06-03
-**Branch:** `claude-workflows-rag`
+**Last updated:** 2026-07-10
+**Branch:** `chat`
 
-This document is the single source of truth for pipeline implementation status and what
-remains before starting `docs/LLM_INTEGRATION.md`. It supersedes `docs/rag-design.md`
-and `docs/LLM_RAG_COMPLIMENTARY.md`. The algorithmic spec (win probability model,
-action ΔW framework, game state vectors, aggregation strategy) lives in
-`docs/LLM_DATA_PIPELINE.md` — keep that doc for the runbook and deep theory.
+This document is the single source of truth for pipeline implementation status. It
+supersedes `docs/rag-design.md` and `docs/LLM_RAG_COMPLIMENTARY.md`. The algorithmic
+spec (win probability model, action ΔW framework, game state vectors, aggregation
+strategy) lives in `docs/LLM_DATA_PIPELINE.md` — keep that doc for the runbook and
+deep theory.
+
+**2026-07-10 — user-facing integration shipped (branch `chat`):**
+
+| Surface | What | Key files |
+|---------|------|-----------|
+| AI Coach button | `POST/GET /riot-accounts/{id}/analysis` (enqueue + poll), `useAnalysis`, `AnalysisPanel`/`AnalysisButton` on both match pages | `app/api/routers/analysis.py`, `league-web/src/lib/hooks/useAnalysis.ts`, `league-web/src/components/AnalysisPanel/` |
+| Coach Chat | `POST /riot-accounts/{id}/chat/stream` SSE; stateless transcript; OpenAI tool-calling loop (≤3 rounds) over 4 tools reusing steps 5–6 services | `app/services/chat/`, `app/api/routers/chat.py`, `league-web/src/lib/hooks/useChat.ts`, `league-web/src/components/ChatPanel/` |
+| Eval harness | `RUN_EVALS=1 pytest evals/` (`make evals`): leave-one-out precision@k / recall@k / MRR + latency + cost, LLM-as-judge rubric | `evals/` |
+
+The "Remaining Work Before `docs/LLM_INTEGRATION.md`" section below is now historical:
+item 3 (eval harness) is **built**; items 1–2 (corpus seeding + match scoring) remain the
+outstanding **operational** steps — the UI works on an empty corpus but returns richer,
+few-shot-grounded results once seeded.
 
 ---
 

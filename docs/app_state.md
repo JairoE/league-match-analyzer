@@ -1,12 +1,12 @@
 # App State
 
-**Last Updated:** 2026-06-03
-**Branch:** `claude-workflows-rag`
-**Status:** STABLE — RAG feature complete, dead Vector shim removed, corpus seeding verified (1 row), unified status doc written. `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` synced with frontend S1–S5 + Next.js audit. Ready for PR.
+**Last Updated:** 2026-07-10
+**Branch:** `chat`
+**Status:** STABLE — LLM/RAG pipeline is now fully user-facing: AI Coach button + AnalysisPanel, streaming tool-calling Coach Chat drawer, and a `RUN_EVALS=1`-gated eval harness. 221 backend tests + 27 Playwright E2E green, lint clean. Ready for PR.
 
 ## Current Phase
 
-**Docs sync complete (`claude-workflows-rag`, 2026-06-03).** `docs/TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` now documents the `frontend-enhancements` React/Next perf work (S1–S5), Playwright E2E suite, leveraged vs. not-yet-used Next.js features (§3.7), and the client-first rendering model. Prior RAG work remains stable: dead Vector shim removed, `LLM_PIPELINE_STATUS.md` finalized, corpus at 1 row.
+**LLM UI integration complete (`chat`, 2026-07-10).** Implemented `tasks/plan.md` end-to-end in 17 atomic commits: (A) the `docs/LLM_INTEGRATION.md` AI Coach flow — `analysis` router (enqueue + poll), `useAnalysis` hook, AnalysisPanel/AnalysisButton on both match pages, CompareButton removed; (B) a stateless SSE-streaming chatbot grounded via OpenAI tool calling over the player's own data (4 tools reusing existing services); (C) `evals/` retrieval + LLM-as-judge harness. Corpus is still 1 row — seeding is the outstanding operational step before both features return rich results in the UI.
 
 ### RAG architecture (complete)
 
@@ -25,21 +25,40 @@
 
 ## Blockers
 
-- None. Lint clean; 181 tests pass (2 skipped — real-API integration only).
-- Open integrity gap (not a blocker): Alembic up/down round-trip for `20260601_0004` was not run (no DB container during implementation). Verify before merge: `make db-up && make db-migrate` then downgrade one step.
+- None. Lint clean; 221 backend tests pass (2 skipped — real-API integration only); 27/27 Playwright E2E.
+- Not yet run (needs live services): manual end-to-end smoke test of AI Coach + chat against a real OpenAI key and running worker; SSE streaming smoke test on Railway.
 - Operational note: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
 
 ## Next Steps
 
-1. **Open PR `claude-workflows-rag` → `main`** — branch is clean, all nits resolved.
-2. **Merge `frontend-enhancements`** — independent in-flight branch, ship before starting next feature.
-3. **Seed more corpus** (operational): score matches (`make score-account-matches RIOT_ID=...`) then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` targeting 5+ rows per champion. Check with `make corpus-stats`.
-4. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
-5. (Optional) Build eval harness (`evals/`) — ~30–50 labeled cases, precision@k / MRR, LLM-as-judge rubric — for cold-prompt vs RAG portfolio story.
-6. **Next feature: `docs/LLM_INTEGRATION.md`** — AI Coach button + AnalysisPanel frontend integration.
-7. (Future) **Next.js server data layer** — Server Components + server `fetch` for match list shells (highest ROI frontend perf win; documented in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` §3.7).
+1. **Open PR `chat` → `main`.**
+2. **Seed the corpus** (operational, required for rich results): score matches (`make score-account-matches RIOT_ID=...`) then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` targeting 5+ rows per champion. Check with `make corpus-stats`.
+3. **Manual smoke test with real key**: `make db-up && make api-dev && make worker-dev` + `npm run dev`; click AI Coach on a scored account, then chat ("How is my dragon control?") and watch tool activity + streaming.
+4. **Run `make evals`** once the corpus has 10+ rows — records precision@k / MRR / judge scores in `evals/results/`.
+5. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
+6. (Future) **Next.js server data layer** — Server Components + server `fetch` for match list shells (documented in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` §3.7).
 
-**Separate in-flight branch — `frontend-enhancements`** (React perf S1–S5 + Playwright suite): still pending its own ship steps — run `cd league-web && npm run test:e2e`, open PR → `main`, and the two non-blocking nits (pin `babel-plugin-react-compiler` / `eslint-plugin-react-compiler` to exact `19.1.0-rc.2`; slim `league-web/e2e/fixtures/matches.ts`). Architecture doc now reflects this work; full implementation detail in the 2026-05-27 / 2026-06-01 Recent Changes history below.
+## Recent Changes (2026-07-10 — LLM UI integration: AI Coach + Coach Chat + evals, `chat`)
+
+### What changed
+
+- **AI Coach (Feature A, per `docs/LLM_INTEGRATION.md` + `tasks/plan.md` corrections)**
+  - `services/api/app/schemas/analysis.py` + `app/api/routers/analysis.py`: `POST /riot-accounts/{id}/analysis` (202; resolves account via `resolve_riot_account_identifier`, champion via `get_champion_by_id`; 24h tz-aware cache short-circuit → `already_exists`; day-bucketed deterministic `_job_id` `llm-{account}-{champ}-{date}` so failed runs can retry next day; `enqueue_job → None` still 202) and `GET ...?champion_name=` (latest row shaped defensively — `parse_error` rows with `{"raw": ...}` payloads return null summaries, invalid recommendation dicts are skipped, never 500).
+  - `league-web/src/lib/hooks/useAnalysis.ts`: POST → poll GET every 2s (max 30) **with `{useCache: false}`** (apiGet caches GETs by default — a cached `null` would never resolve); `already_exists` → immediate GET; 60s timeout message; `useAppError("analysis")`; runId ref invalidates in-flight polls on account switch.
+  - `AnalysisPanel` (recommendation cards, ΔW as percentage, collapsible bias notes, dismiss) + `AnalysisButton` (auto-targets most-played champion via new `getMostPlayedChampion(matchDetails, puuid)` in `match-utils.ts`) wired into `/home` and `/riot-account/[riotId]` via new `MatchPageShell.analysisPanel` slot. `CompareButton` deleted. Buttons hidden in demo mode.
+- **Coach Chat (Feature B — stateless, SSE streaming, tool calling)**
+  - `OpenAIClient.stream_chat()` (`llm_client.py`): streamed chat completions; content deltas yielded immediately, tool-call deltas accumulated by index in pure `accumulate_tool_call_delta`.
+  - `app/services/chat/`: `tools.py` (4 tools reusing existing services — `get_player_profile`, `get_latest_analysis`, `get_action_stats` (aggregate+compare, trimmed), `list_recent_matches`; Pydantic args → OpenAI schemas; `cap_tool_result` 4000-char cap; missing data → `{"message": ...}` never exceptions), `loop.py` (`run_chat_turn`: ≤3 tool rounds, ≤2 executions/round, 12-message window, final round forces `tool_choice="none"`, tool failures become readable error results), `prompts.py` (coach persona + grounding rules, no PII echo).
+  - `app/api/routers/chat.py`: `POST /riot-accounts/{id}/chat/stream` → SSE (`token`/`tool_call`/`tool_result`/`done`/`error`), live_game headers; 404/422/503 raised before streaming; generator opens its own DB session (request session may close before a StreamingResponse drains).
+  - Frontend: `src/lib/sse.ts` (hand-rolled POST-compatible SSE parser), `useChat.ts` (transcript state, streaming append into a placeholder assistant bubble, tool-activity label, AbortController on unmount/account switch, ≤20-message history), `ChatPanel` fixed drawer + `ChatButton` ("Ask Coach") on both pages; transcript survives drawer close, discarded on navigation.
+- **Eval harness (Feature C)**: `evals/` — leave-one-out retrieval eval (precision@k/recall@k/MRR, latency p50/p95, est. cost/query; relevance = same champion + rank + dominant gap category) + LLM-as-judge (relevance/factuality/completeness 1–5, calibration procedure in `evals/README.md`). Gated behind `RUN_EVALS=1` (`make evals`); skips gracefully on missing DB/key/corpus (<10 rows). Pure metric/judge-parsing unit tests run ungated. Results → `evals/results/<ts>_<confighash>.json` (gitignored).
+- **Plan artifacts**: `tasks/plan.md`, `tasks/todo.md`.
+
+### Tests / lint
+
+- Backend: **221 passed, 2 skipped** (40 new: analysis router 10, stream client 8, chat tools 11, chat loop 7, chat router 5 — minus overlaps); `make lint` clean.
+- Frontend: lint clean (pre-existing AuthForm warning only); production build clean; Playwright **27/27** (3 new analysis-flow, 3 new chat-flow; chat E2E streams timed SSE chunks via a fetch override to test real incremental behavior).
+- E2E caught one real bug pre-commit: `useAppError.errorMessage` returns `""` (not null) when clear, which made the AI Coach button mount in "Hide" state — normalized in `useAnalysis`/`useChat`.
 
 ## Recent Changes (2026-06-03 — TECHNICAL_ARCHITECTURE Next.js sync)
 
