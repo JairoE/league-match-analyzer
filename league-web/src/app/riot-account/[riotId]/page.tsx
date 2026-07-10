@@ -6,10 +6,14 @@ import styles from "./page.module.css";
 import MatchPageShell from "../../../components/MatchPageShell/MatchPageShell";
 import SubHeader from "../../../components/SubHeader/SubHeader";
 import MatchesTable from "../../../components/MatchesTable";
-import CompareButton from "./CompareButton";
+import AnalysisButton from "../../../components/AnalysisButton/AnalysisButton";
+import AnalysisPanel from "../../../components/AnalysisPanel/AnalysisPanel";
 import {apiGet} from "../../../lib/api";
 import {isApiError} from "../../../lib/errors/types";
+import {getMostPlayedChampion} from "../../../lib/match-utils";
+import {isDemoMode} from "../../../lib/mock/resolve-mock";
 import {loadSessionUser} from "../../../lib/session";
+import {useAnalysis} from "../../../lib/hooks/useAnalysis";
 import {useLiveGameWhenReady} from "../../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../../lib/hooks/useMatchList";
 import {useRank} from "../../../lib/hooks/useRank";
@@ -103,9 +107,39 @@ export default function RiotAccountPage() {
     !isLoading
   );
 
-  const {rankSubtitle, rankStaleMessage} = useRank(account?.id ?? null, {
+  const {rank, rankSubtitle, rankStaleMessage} = useRank(account?.id ?? null, {
     refreshIndex,
   });
+
+  const {
+    analysis,
+    isLoading: isAnalyzing,
+    error: analysisError,
+    requestAnalysis,
+    dismiss: dismissAnalysis,
+  } = useAnalysis(account?.id ?? null);
+
+  const mostPlayed = useMemo(
+    () => getMostPlayedChampion(matchDetails, accountPuuid),
+    [matchDetails, accountPuuid]
+  );
+
+  const isAnalysisOpen = analysis !== null || analysisError !== null;
+
+  const handleAnalysisClick = useCallback(() => {
+    if (isAnalysisOpen) {
+      dismissAnalysis();
+      return;
+    }
+    if (!mostPlayed) return;
+    void requestAnalysis(mostPlayed.championId, rank?.tier ?? null);
+  }, [
+    isAnalysisOpen,
+    dismissAnalysis,
+    mostPlayed,
+    requestAnalysis,
+    rank?.tier,
+  ]);
 
   // Check session (optional for search)
   useEffect(() => {
@@ -203,9 +237,24 @@ export default function RiotAccountPage() {
                   &larr; My matches
                 </button>
               ) : null}
-              <CompareButton />
+              {!isDemoMode() ? (
+                <AnalysisButton
+                  championName={mostPlayed?.championName ?? null}
+                  isLoading={isAnalyzing}
+                  isPanelOpen={isAnalysisOpen}
+                  disabled={!account?.id || !mostPlayed}
+                  onClick={handleAnalysisClick}
+                />
+              ) : null}
             </>
           }
+        />
+      }
+      analysisPanel={
+        <AnalysisPanel
+          analysis={analysis}
+          error={analysisError}
+          onDismiss={dismissAnalysis}
         />
       }
       liveGame={

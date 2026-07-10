@@ -6,12 +6,17 @@ import styles from "./page.module.css";
 import MatchPageShell from "../../components/MatchPageShell/MatchPageShell";
 import SubHeader from "../../components/SubHeader/SubHeader";
 import MatchesTable from "../../components/MatchesTable";
+import AnalysisButton from "../../components/AnalysisButton/AnalysisButton";
+import AnalysisPanel from "../../components/AnalysisPanel/AnalysisPanel";
+import {getMostPlayedChampion} from "../../lib/match-utils";
+import {isDemoMode} from "../../lib/mock/resolve-mock";
 import {loadSessionUser} from "../../lib/session";
 import {
   getUserDisplayName,
   getRiotAccountId,
   getUserPuuid,
 } from "../../lib/user-utils";
+import {useAnalysis} from "../../lib/hooks/useAnalysis";
 import {useLiveGameWhenReady} from "../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../lib/hooks/useMatchList";
 import {useRank} from "../../lib/hooks/useRank";
@@ -71,9 +76,39 @@ export default function HomePage() {
     !isLoading
   );
 
-  const {rankSubtitle, rankStaleMessage} = useRank(riotAccountId ?? null, {
+  const {rank, rankSubtitle, rankStaleMessage} = useRank(riotAccountId ?? null, {
     refreshIndex,
   });
+
+  const {
+    analysis,
+    isLoading: isAnalyzing,
+    error: analysisError,
+    requestAnalysis,
+    dismiss: dismissAnalysis,
+  } = useAnalysis(riotAccountId ?? null);
+
+  const mostPlayed = useMemo(
+    () => getMostPlayedChampion(matchDetails, userPuuid),
+    [matchDetails, userPuuid]
+  );
+
+  const isAnalysisOpen = analysis !== null || analysisError !== null;
+
+  const handleAnalysisClick = useCallback(() => {
+    if (isAnalysisOpen) {
+      dismissAnalysis();
+      return;
+    }
+    if (!mostPlayed) return;
+    void requestAnalysis(mostPlayed.championId, rank?.tier ?? null);
+  }, [
+    isAnalysisOpen,
+    dismissAnalysis,
+    mostPlayed,
+    requestAnalysis,
+    rank?.tier,
+  ]);
 
   useEffect(() => {
     if (!user) {
@@ -97,13 +132,31 @@ export default function HomePage() {
           title={displayName}
           subtitle={rankSubtitle}
           actions={
-            <button
-              className={styles.secondaryButton}
-              onClick={handleRefresh}
-            >
-              Refresh
-            </button>
+            <>
+              <button
+                className={styles.secondaryButton}
+                onClick={handleRefresh}
+              >
+                Refresh
+              </button>
+              {!isDemoMode() ? (
+                <AnalysisButton
+                  championName={mostPlayed?.championName ?? null}
+                  isLoading={isAnalyzing}
+                  isPanelOpen={isAnalysisOpen}
+                  disabled={!riotAccountId || !mostPlayed}
+                  onClick={handleAnalysisClick}
+                />
+              ) : null}
+            </>
           }
+        />
+      }
+      analysisPanel={
+        <AnalysisPanel
+          analysis={analysis}
+          error={analysisError}
+          onDismiss={dismissAnalysis}
         />
       }
       liveGame={
