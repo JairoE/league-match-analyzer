@@ -99,6 +99,7 @@ export default function ChatPanel({
           placeholder="Ask your coach…"
           rows={2}
           value={draft}
+          disabled={isStreaming}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
