@@ -1,12 +1,12 @@
 # App State
 
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-07-11
 **Branch:** `chat`
-**Status:** STABLE — LLM/RAG pipeline is now fully user-facing: AI Coach button + AnalysisPanel, streaming tool-calling Coach Chat drawer, and a `RUN_EVALS=1`-gated eval harness. 221 backend tests + 27 Playwright E2E green, lint clean. Ready for PR.
+**Status:** STABLE — LLM/RAG pipeline is now fully user-facing: AI Coach button + AnalysisPanel, streaming tool-calling Coach Chat drawer, and a `RUN_EVALS=1`-gated eval harness. Post-implementation review hardening applied. 223 backend tests + 27 Playwright E2E green, lint clean. Ready for PR.
 
 ## Current Phase
 
-**LLM UI integration complete (`chat`, 2026-07-10).** Implemented `tasks/plan.md` end-to-end in 17 atomic commits: (A) the `docs/LLM_INTEGRATION.md` AI Coach flow — `analysis` router (enqueue + poll), `useAnalysis` hook, AnalysisPanel/AnalysisButton on both match pages, CompareButton removed; (B) a stateless SSE-streaming chatbot grounded via OpenAI tool calling over the player's own data (4 tools reusing existing services); (C) `evals/` retrieval + LLM-as-judge harness. Corpus is still 1 row — seeding is the outstanding operational step before both features return rich results in the UI.
+**LLM UI integration complete + review-hardened (`chat`, 2026-07-11).** Implemented `tasks/plan.md` end-to-end in 19 atomic commits: (A) the `docs/LLM_INTEGRATION.md` AI Coach flow — `analysis` router (enqueue + poll), `useAnalysis` hook, AnalysisPanel/AnalysisButton on both match pages, CompareButton removed; (B) a stateless SSE-streaming chatbot grounded via OpenAI tool calling over the player's own data (4 tools reusing existing services); (C) `evals/` retrieval + LLM-as-judge harness. An adversarial review pass then confirmed and fixed 3 chat-hardening issues (see 2026-07-11 Recent Changes). Corpus is still 1 row — seeding is the outstanding operational step before both features return rich results in the UI.
 
 ### RAG architecture (complete)
 
@@ -25,8 +25,9 @@
 
 ## Blockers
 
-- None. Lint clean; 221 backend tests pass (2 skipped — real-API integration only); 27/27 Playwright E2E.
+- None. Lint clean; 223 backend tests pass (2 skipped — real-API integration only); 27/27 Playwright E2E.
 - Not yet run (needs live services): manual end-to-end smoke test of AI Coach + chat against a real OpenAI key and running worker; SSE streaming smoke test on Railway.
+- Known flaky test (pre-existing, not this branch): `live-game-slot.spec.ts` "Retry button triggers a new SSE connection" occasionally fails in full-suite runs; passes in isolation and on re-run.
 - Operational note: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
 
 ## Next Steps
@@ -37,6 +38,24 @@
 4. **Run `make evals`** once the corpus has 10+ rows — records precision@k / MRR / judge scores in `evals/results/`.
 5. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
 6. (Future) **Next.js server data layer** — Server Components + server `fetch` for match list shells (documented in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` §3.7).
+
+## Recent Changes (2026-07-11 — review hardening of chat stream, `chat`)
+
+### What changed
+
+Adversarial review of the branch diff surfaced three chat issues; all fixed in commit `3258fff`:
+
+- **`services/api/app/services/chat/loop.py`** — the forced-text final round sent `tool_choice="none"` without `tools`, which the OpenAI API rejects with a 400. Any conversation using all 3 tool rounds would have ended in a user-visible error instead of an answer. Fix: always send `tools`; `tool_choice="none"` on the final round forces the text answer.
+- **`services/api/app/schemas/chat.py`** — `champion_focus` was an unbounded string interpolated into the system prompt (token-cost amplifier + attacker-controlled system-prompt block). Now capped at 64 chars (champion-name sized).
+- **`services/api/app/api/routers/chat.py`** — chat is the first endpoint converting anonymous HTTP directly into synchronous LLM spend. Added a per-process cap of 4 concurrent streams (`asyncio.Semaphore`); saturated requests get 429 `chat_busy`, the slot releases when the stream drains. Broader auth/per-user rate limiting remains a documented non-goal, consistent with the rest of the API.
+
+### Tests / lint
+
+- 2 new tests (`test_chat_request_rejects_oversized_champion_focus`, `test_chat_stream_busy_returns_429_and_recovers`) + updated max-rounds loop assertion. Backend: **223 passed, 2 skipped**; `make lint` clean; Playwright 27/27.
+
+### Next steps
+
+- Unchanged from below (PR, corpus seeding, real-key smoke test, `make evals`).
 
 ## Recent Changes (2026-07-10 — LLM UI integration: AI Coach + Coach Chat + evals, `chat`)
 
