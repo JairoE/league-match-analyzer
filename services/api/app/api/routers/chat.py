@@ -22,6 +22,11 @@ from app.services.riot_accounts import resolve_riot_account_identifier
 router = APIRouter(tags=["chat"])
 logger = get_logger("league_api.chat")
 
+# Each stream spends LLM tokens synchronously; cap concurrent streams so an
+# anonymous client cannot hold the OpenAI budget / DB pool open at will.
+MAX_CONCURRENT_CHAT_STREAMS = 4
+_chat_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHAT_STREAMS)
+
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
@@ -95,6 +100,13 @@ async def chat_stream(
             detail="chat_unavailable",
         )
 
+    if _chat_semaphore.locked():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="chat_busy",
+        )
+    await _chat_semaphore.acquire()
+
     client = OpenAIClient(
         api_key=settings.openai_api_key,
         model=settings.llm_model_name,
@@ -106,8 +118,16 @@ async def chat_stream(
             "message_count": len(payload.messages),
         },
     )
+
+    async def guarded_stream() -> AsyncIterator[str]:
+        try:
+            async for frame in _chat_event_stream(account, payload, client):
+                yield frame
+        finally:
+            _chat_semaphore.release()
+
     return StreamingResponse(
-        _chat_event_stream(account, payload, client),
+        guarded_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

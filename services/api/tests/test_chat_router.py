@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api.routers import chat
 from app.schemas.chat import ChatMessage, ChatRequest
@@ -145,6 +147,48 @@ async def test_chat_stream_no_api_key_503(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "chat_unavailable"
+
+
+def test_chat_request_rejects_oversized_champion_focus() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            champion_focus="x" * 65,
+        )
+
+
+async def test_chat_stream_busy_returns_429_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = [ChatEvent("done", {"finish_reason": "stop", "rounds": 0})]
+    _patch_common(monkeypatch, _account(), events=events)
+    monkeypatch.setattr(chat, "_chat_semaphore", asyncio.Semaphore(1))
+
+    first = await chat.chat_stream(
+        riot_account_id="TestUser#NA1",
+        payload=_request(("user", "hi")),
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+    )
+
+    # Slot is held until the first stream is consumed
+    with pytest.raises(HTTPException) as exc_info:
+        await chat.chat_stream(
+            riot_account_id="TestUser#NA1",
+            payload=_request(("user", "hi")),
+            session=SimpleNamespace(),  # type: ignore[arg-type]
+        )
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail == "chat_busy"
+
+    # Draining the first stream releases the slot
+    await _collect_body(first)
+    second = await chat.chat_stream(
+        riot_account_id="TestUser#NA1",
+        payload=_request(("user", "hi")),
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+    )
+    body = await _collect_body(second)
+    assert "event: done" in body
 
 
 async def test_chat_stream_generator_failure_emits_error_event(

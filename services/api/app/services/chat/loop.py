@@ -99,9 +99,11 @@ async def run_chat_turn(
         tool_calls: list[dict[str, Any]] | None = None
         finish_reason: str | None = None
 
+        # tools must be sent even on the forced-text round — OpenAI rejects
+        # tool_choice="none" when no tools are present in the request.
         stream = client.stream_chat(
             conversation,
-            tools=None if final_round else tools,
+            tools=tools,
             tool_choice="none" if final_round else None,
             max_tokens=CHAT_MAX_TOKENS,
             temperature=CHAT_TEMPERATURE,

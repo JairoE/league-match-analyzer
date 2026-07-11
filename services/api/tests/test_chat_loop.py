@@ -163,9 +163,10 @@ async def test_max_rounds_forces_text_answer(
 
     assert events[-1].event == "done"
     assert events[-1].data["rounds"] == 3
-    # 4th call is the forced-text round
+    # 4th call is the forced-text round — tools must still be sent
+    # (OpenAI rejects tool_choice="none" without tools).
     final_call = client.calls[3]
-    assert final_call["tools"] is None
+    assert final_call["tools"] is not None
     assert final_call["tool_choice"] == "none"
 
 

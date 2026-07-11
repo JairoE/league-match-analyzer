@@ -18,4 +18,6 @@ class ChatRequest(BaseModel):
     """Request body for a chat turn — the client sends the full transcript."""
 
     messages: list[ChatMessage] = Field(min_length=1, max_length=20)
-    champion_focus: str | None = None
+    # Interpolated into the system prompt — keep it champion-name sized so a
+    # client cannot inflate per-round input tokens through this field.
+    champion_focus: str | None = Field(default=None, max_length=64)
