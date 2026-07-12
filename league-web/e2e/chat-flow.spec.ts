@@ -14,8 +14,15 @@ function frame(delay: number, event: string, data: object): SseFrame {
 }
 
 async function mockChatStream(page: Page, frames: SseFrame[]) {
-  await page.addInitScript((streamFrames: SseFrame[]) => {
+  await mockChatStreamSequence(page, [frames]);
+}
+
+// Serve a different frame-set per successive /chat/stream call. Calls past
+// the end of the sequence reuse the last entry.
+async function mockChatStreamSequence(page: Page, sequence: SseFrame[][]) {
+  await page.addInitScript((streamSequence: SseFrame[][]) => {
     const originalFetch = window.fetch.bind(window);
+    let call = 0;
     window.fetch = async (input, init) => {
       const url =
         typeof input === "string"
@@ -26,10 +33,13 @@ async function mockChatStream(page: Page, frames: SseFrame[]) {
       if (!url.includes("/chat/stream")) {
         return originalFetch(input, init);
       }
+      const frames =
+        streamSequence[Math.min(call, streamSequence.length - 1)];
+      call += 1;
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
-          for (const item of streamFrames) {
+          for (const item of frames) {
             await new Promise((resolve) => setTimeout(resolve, item.delay));
             controller.enqueue(encoder.encode(item.data));
           }
@@ -41,7 +51,7 @@ async function mockChatStream(page: Page, frames: SseFrame[]) {
         headers: {"Content-Type": "text/event-stream"},
       });
     };
-  }, frames);
+  }, sequence);
 }
 
 test.describe("Coach chat flow", () => {
@@ -129,5 +139,39 @@ test.describe("Coach chat flow", () => {
       "Something went wrong. Please try again."
     );
     await expect(page.getByTestId("chat-input")).toBeEnabled();
+  });
+
+  test("empty completion recovers and does not brick the next turn", async ({
+    page,
+  }) => {
+    // First turn: a clean `done` with zero tokens. Second turn: real tokens.
+    // Regression: the empty assistant bubble must not be POSTed back (the
+    // backend rejects empty content and would 422 every later message).
+    await mockChatStreamSequence(page, [
+      [frame(50, "done", {finish_reason: "stop", rounds: 0})],
+      [
+        frame(50, "token", {text: "Second answer."}),
+        frame(50, "done", {finish_reason: "stop", rounds: 0}),
+      ],
+    ]);
+    await gotoAccountAndWait(page);
+
+    await page.getByTestId("chat-button").click();
+    await page.getByTestId("chat-input").fill("First question");
+    await page.getByTestId("chat-send").click();
+
+    // Blank completion is replaced by a fallback, not left empty
+    await expect(
+      page.getByTestId("chat-message-assistant")
+    ).toHaveText("I couldn't generate a response. Please try rephrasing.");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+
+    // Second turn succeeds — no 422 lockout from the empty prior bubble
+    await page.getByTestId("chat-input").fill("Second question");
+    await page.getByTestId("chat-send").click();
+    await expect(
+      page.getByTestId("chat-message-assistant").last()
+    ).toHaveText("Second answer.");
+    await expect(page.getByTestId("chat-error")).not.toBeVisible();
   });
 });

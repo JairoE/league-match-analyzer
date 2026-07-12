@@ -75,7 +75,13 @@ export function useChat(
 
       clearError();
       const userMessage: ChatMessage = {role: "user", content};
-      const history: ChatMessage[] = [...messages, userMessage].slice(
+      // Drop any empty assistant bubble from a prior turn that produced no
+      // text. The backend rejects empty content (min_length=1), so sending
+      // one back would 422 every subsequent turn and brick the conversation.
+      const priorMessages = messages.filter(
+        (m) => m.role !== "assistant" || m.content.trim() !== ""
+      );
+      const history: ChatMessage[] = [...priorMessages, userMessage].slice(
         -MAX_HISTORY_MESSAGES
       );
       // Placeholder assistant message that tokens append into.
@@ -159,6 +165,19 @@ export function useChat(
         if (!sawDone) {
           throw new Error("The connection dropped before the answer finished.");
         }
+        // A clean completion that streamed no text — replace the blank bubble
+        // with a fallback so the UI isn't empty and the turn stays valid.
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === "assistant" && last.content.trim() === "") {
+            next[next.length - 1] = {
+              role: "assistant",
+              content: "I couldn't generate a response. Please try rephrasing.",
+            };
+          }
+          return next;
+        });
       } catch (err) {
         if (isAbortError(err)) {
           console.debug(`[${LOG_TAG}] aborted`);

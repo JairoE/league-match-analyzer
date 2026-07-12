@@ -98,6 +98,7 @@ export default function ChatPanel({
           data-testid="chat-input"
           placeholder="Ask your coach…"
           rows={2}
+          maxLength={4000}
           value={draft}
           disabled={isStreaming}
           onChange={(event) => setDraft(event.target.value)}
