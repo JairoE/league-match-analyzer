@@ -25,10 +25,22 @@
 
 ## Blockers
 
-- None. Lint clean; 223 backend tests pass (2 skipped — real-API integration only); 27/27 Playwright E2E.
+- None. Lint clean; 223 backend tests pass (2 skipped — real-API integration only); 28/28 Playwright E2E.
 - Not yet run (needs live services): manual end-to-end smoke test of AI Coach + chat against a real OpenAI key and running worker; SSE streaming smoke test on Railway.
 - Known flaky test (pre-existing, not this branch): `live-game-slot.spec.ts` "Retry button triggers a new SSE connection" occasionally fails in full-suite runs; passes in isolation and on re-run.
 - Operational note: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
+
+### Security posture (accepted for now, 2026-07-12)
+
+The `POST /riot-accounts/{id}/analysis` and `POST /riot-accounts/{id}/chat/stream`
+endpoints spend OpenAI tokens with **no authentication or per-IP rate limiting**, consistent
+with every other route in this portfolio app. Guards in place: chat caps concurrency at 4
+streams (`MAX_CONCURRENT_CHAT_STREAMS`, best-effort 429 `chat_busy`); analysis dedupes per
+`(account, champion, day)` via the deterministic ARQ job id; per-turn token caps
+(≤3 tool rounds, 12-message window, `max_tokens=700`, gpt-4o-mini). Reviewed 2026-07-12 and
+**accepted as-is** — iterating champions/accounts remains an unbounded token-spend path. If
+this ever goes properly public, add per-IP rate limiting and a spend guard, and make the chat
+semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire race.
 
 ## Next Steps
 
