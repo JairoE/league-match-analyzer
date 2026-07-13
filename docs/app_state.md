@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-13
 **Branch:** `chat`
-**Status:** STABLE — LLM/RAG pipeline is fully user-facing (AI Coach button **with champion picker** + AnalysisPanel, streaming tool-calling Coach Chat drawer, `RUN_EVALS=1`-gated eval harness), five-axis-reviewed, and the **corpus is seeded (36 embedded rows: 5 accounts × 7 champions + 1 Jhin)**. 223 backend tests + 29 Playwright E2E green, lint clean. Branch ready for PR.
+**Status:** STABLE — LLM/RAG pipeline is fully user-facing (AI Coach button **with champion picker** + AnalysisPanel, streaming tool-calling Coach Chat drawer, `RUN_EVALS=1`-gated eval harness), five-axis-reviewed, simplify+ship-passed (**GO**), and the **corpus is seeded (36 embedded rows: 5 accounts × 7 champions + 1 Jhin)**. 224 backend tests + 32 Playwright E2E green, lint clean. **PR #47 open and current** — https://github.com/JairoE/league-match-analyzer/pull/47.
 
 ## Current Phase
 
@@ -89,7 +89,8 @@ semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire 
 
 ### Tests / lint
 
-Backend 223 passed / lint clean; frontend lint + build clean; Playwright **29/29**.
+Backend 223 passed / lint clean; frontend lint + build clean; Playwright 29/29.
+(Superseded by the 2026-07-13 ship pass above: 224 backend, 32/32 Playwright.)
 
 ### Blockers
 
@@ -98,6 +99,50 @@ Running ARQ worker still has the old 1h `keep_result` until restarted.
 ### Next steps
 
 Restart worker; finish the smoke-test walkthrough (chat streaming on a seeded account); open PR.
+
+## Recent Changes (2026-07-13 — simplify + ship pass, PR #47 finalized, `chat`)
+
+### What changed
+
+Ran `/code-simplify` then `/ship` (parallel code-reviewer + security-auditor + test-engineer)
+over the branch. Verdict: **GO** — zero Critical/High findings across all three reports.
+Commits `b1962d5`…`1cb9a3e`, all pushed to PR #47 (title/body refreshed to match the shipped
+champion-picker behavior):
+
+- **Simplify** (`b1962d5`): extracted `league-web/src/lib/hooks/useAiCoach.ts` — both match
+  pages carried identical ~40-line AI Coach wiring (picker state, most-played fallback,
+  panel-open invariant, click handler). Same pattern as `useMatchList`/`useRank`. Only
+  substantive finding of a full scan of the feature diff; the rest was already clean.
+- **Test infra** (`10229d8`): `playwright.config.ts` port is overridable via `E2E_PORT`.
+  Found the hard way: `reuseExistingServer` silently tested a **foreign dev server** on :3000
+  belonging to the `codex/durable-ai-coach` worktree (`/private/tmp/league-match-analyzer-
+  durable-ai-coach`) — 4 bogus failures. Local runs: `E2E_PORT=3100 npm run test:e2e`.
+- **Review fixes** (`e5a287b`, `27698c2`): registration test pins `llm_analysis_job` name +
+  `keep_result_s=10` (reverting the fix can no longer pass silently); stale job-id comment in
+  `analysis.py` refreshed; `useAiCoach` now resets a picked champion on account change
+  (carried over across client-side navigation before).
+- **Security hardening** (`21fb56c`, from audit — both Low/Info): `champion_focus` gets a
+  champion-name character allowlist (blocks newline directive smuggling into the system
+  prompt); `rank_tier` bounded at 32 chars. Audit confirmed: tools strictly account-scoped,
+  no SSE frame injection, no SQLi, no secret leakage, XSS-safe rendering.
+- **E2E coverage** (`1cb9a3e`, from test-engineer gaps): error path + retry, empty champion
+  list (picker hidden/button disabled), account switch mid-poll abandons the polling loop
+  (helpers now yield a distinct account id per riot id), picker locked while analyzing.
+
+### Tests / lint
+
+Backend **224** passed / lint clean; frontend lint + build clean; Playwright **32/32**
+(known pre-existing live-game flake passes in isolation).
+
+### Blockers
+
+None new. Running ARQ worker still needs a restart for `keep_result=10` (any deploy does it).
+
+### Next steps
+
+Merge PR #47; finish chat-streaming smoke walkthrough in the browser; `make evals`; decide
+whether to reconcile with the parallel `codex/durable-ai-coach` branch (its picker sources
+from account eligibility instead of loaded match history).
 
 ## Recent Changes (2026-07-12 — five-axis code review of AI Coach + chat, `chat`)
 
