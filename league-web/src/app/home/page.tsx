@@ -10,7 +10,6 @@ import AnalysisButton from "../../components/AnalysisButton/AnalysisButton";
 import AnalysisPanel from "../../components/AnalysisPanel/AnalysisPanel";
 import ChatButton from "../../components/ChatPanel/ChatButton";
 import ChatPanel from "../../components/ChatPanel/ChatPanel";
-import {getPlayedChampions} from "../../lib/match-utils";
 import {isDemoMode} from "../../lib/mock/resolve-mock";
 import {loadSessionUser} from "../../lib/session";
 import {
@@ -19,6 +18,7 @@ import {
   getUserPuuid,
 } from "../../lib/user-utils";
 import {useAnalysis} from "../../lib/hooks/useAnalysis";
+import {useAnalysisChampions} from "../../lib/hooks/useAnalysisChampions";
 import {useChat} from "../../lib/hooks/useChat";
 import {useLiveGameWhenReady} from "../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../lib/hooks/useMatchList";
@@ -87,17 +87,19 @@ export default function HomePage() {
     dismiss: dismissAnalysis,
   } = useAnalysis(riotAccountId ?? null);
 
-  const playedChampions = useMemo(
-    () => getPlayedChampions(matchDetails, userPuuid),
-    [matchDetails, userPuuid]
-  );
+  const {
+    champions: analysisChampions,
+    isLoading: areAnalysisChampionsLoading,
+    error: analysisChampionsError,
+  } = useAnalysisChampions(riotAccountId ?? null, {refreshIndex});
   const [pickedChampionId, setPickedChampionId] = useState<number | null>(
     null
   );
-  // Fall back to most-played when nothing (or a stale champion) is picked.
+  // Fall back to the endpoint's highest-scored champion when the picker is
+  // stale.
   const selectedChampion =
-    playedChampions.find((c) => c.championId === pickedChampionId) ??
-    playedChampions[0] ??
+    analysisChampions.find((c) => c.champion_id === pickedChampionId) ??
+    analysisChampions[0] ??
     null;
 
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -108,14 +110,30 @@ export default function HomePage() {
     error: chatError,
     sendMessage: sendChatMessage,
   } = useChat(riotAccountId ?? null, {
-    championFocus: selectedChampion?.championName ?? null,
+    championFocus: selectedChampion?.champion_name ?? null,
   });
 
   // "Open" relative to the picker: the visible panel belongs to the
   // currently selected champion, so the button toggles it closed.
+  const isAnalysisForSelectedChampion =
+    requestedChampionId !== null &&
+    requestedChampionId === (selectedChampion?.champion_id ?? null);
   const isAnalysisOpen =
     (analysis !== null || analysisError !== null) &&
-    requestedChampionId === (selectedChampion?.championId ?? null);
+    isAnalysisForSelectedChampion;
+
+  const handleChampionSelect = useCallback(
+    (championId: number) => {
+      if (
+        requestedChampionId !== null &&
+        requestedChampionId !== championId
+      ) {
+        dismissAnalysis();
+      }
+      setPickedChampionId(championId);
+    },
+    [dismissAnalysis, requestedChampionId]
+  );
 
   const handleAnalysisClick = useCallback(() => {
     if (isAnalysisOpen) {
@@ -123,7 +141,7 @@ export default function HomePage() {
       return;
     }
     if (!selectedChampion) return;
-    void requestAnalysis(selectedChampion.championId, rank?.tier ?? null);
+    void requestAnalysis(selectedChampion.champion_id, rank?.tier ?? null);
   }, [
     isAnalysisOpen,
     dismissAnalysis,
@@ -143,7 +161,12 @@ export default function HomePage() {
     return <div className={styles.loading}>Redirecting...</div>;
   }
 
-  const warning = staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
+  const warning =
+    analysisChampionsError ??
+    staleMessage ??
+    rankStaleMessage ??
+    liveGameWarning ??
+    null;
 
   return (
     <>
@@ -164,12 +187,13 @@ export default function HomePage() {
                 {!isDemoMode() ? (
                   <>
                     <AnalysisButton
-                      champions={playedChampions}
+                      champions={analysisChampions}
                       selectedChampionId={
-                        selectedChampion?.championId ?? null
+                        selectedChampion?.champion_id ?? null
                       }
-                      onSelectChampion={setPickedChampionId}
+                      onSelectChampion={handleChampionSelect}
                       isLoading={isAnalyzing}
+                      isOptionsLoading={areAnalysisChampionsLoading}
                       isPanelOpen={isAnalysisOpen}
                       disabled={!riotAccountId || !selectedChampion}
                       onClick={handleAnalysisClick}
@@ -187,8 +211,8 @@ export default function HomePage() {
         }
         analysisPanel={
           <AnalysisPanel
-            analysis={analysis}
-            error={analysisError}
+            analysis={isAnalysisForSelectedChampion ? analysis : null}
+            error={isAnalysisForSelectedChampion ? analysisError : null}
             onDismiss={dismissAnalysis}
           />
         }

@@ -220,38 +220,3 @@ export function getCsPerMinute(participant: Participant | null): number {
   if (minutes <= 0) return 0;
   return total / minutes;
 }
-
-// ── AI Coach ──────────────────────────────────────────────────────────
-
-export type PlayedChampion = {
-  championId: number;
-  championName: string;
-  count: number;
-};
-
-/**
- * Counts champion appearances for a puuid across loaded match details,
- * sorted most-played first. Feeds the AI Coach champion picker.
- */
-export function getPlayedChampions(
-  matchDetails: Record<string, MatchDetail>,
-  puuid: string | null
-): PlayedChampion[] {
-  if (!puuid) return [];
-  const counts = new Map<number, PlayedChampion>();
-  for (const detail of Object.values(matchDetails)) {
-    const participant = getParticipantByPuuid(detail, puuid);
-    if (!participant?.championId || !participant.championName) continue;
-    const entry = counts.get(participant.championId);
-    if (entry) {
-      entry.count += 1;
-    } else {
-      counts.set(participant.championId, {
-        championId: participant.championId,
-        championName: participant.championName,
-        count: 1,
-      });
-    }
-  }
-  return [...counts.values()].sort((a, b) => b.count - a.count);
-}
