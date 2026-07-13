@@ -62,7 +62,11 @@ class WorkerSettings:
         fetch_timeline_cache_job,
         func(extract_match_timeline_job, max_tries=5),
         score_actions_job,
-        llm_analysis_job,
+        # keep_result low so the deterministic day-bucketed job id frees up
+        # right after completion: a run that failed (llm_error, no row
+        # persisted) would otherwise block re-enqueue for the default 1h.
+        # In-flight dedup of concurrent clicks is unaffected.
+        func(llm_analysis_job, keep_result=10),
     ]
 
     # Scheduled cron jobs
