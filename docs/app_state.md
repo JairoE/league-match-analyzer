@@ -1,12 +1,22 @@
 # App State
 
 **Last Updated:** 2026-07-13
-**Branch:** `chat`
-**Status:** STABLE — LLM/RAG pipeline is fully user-facing (AI Coach button **with champion picker** + AnalysisPanel, streaming tool-calling Coach Chat drawer, `RUN_EVALS=1`-gated eval harness), five-axis-reviewed, and the **corpus is seeded (36 embedded rows: 5 accounts × 7 champions + 1 Jhin)**. 223 backend tests + 29 Playwright E2E green, lint clean. Branch ready for PR.
+**Branch:** `codex/durable-ai-coach`
+**Status:** VERIFIED — durable cross-champion AI Coach data selection and the
+server-driven eligibility picker are complete in six atomic commits. Automated
+verification and the live Alistar API/worker/persistence flow pass; only the
+manual in-app click was unavailable to browser automation.
 
 ## Current Phase
 
-**Champion picker + retry fix shipped; corpus seeded (`chat`, 2026-07-13).** The AI Coach button now pairs with a champion `<select>` (all champions from loaded match history, most-played first), so any champion with data can be analyzed — verified live: `jairopractor#NA1` (BRONZE) gets instant cached panels for both **Blitzcrank** and **Lux** (3 recs each, 38 matches). The reported "Blitzcrank error" was diagnosed as a transient OpenAI failure made sticky by ARQ's 1h `keep_result` on the day-bucketed job id — **not rank**; fixed with `keep_result=10`. Earlier phases: full `tasks/plan.md` implementation (AI Coach flow, streaming tool-calling chat, `evals/`), review hardening, and the five-axis code review (2026-07-12).
+**Durable cross-champion fix implemented (`codex/durable-ai-coach`,
+2026-07-13).** The picker now comes from full-history, account-specific scored
+actions rather than paginated match details. Empty historical rank buckets fall
+back to champion-only aggregation while live rank remains coaching context, and
+persisted match ids are scoped to the selected champion. The eligibility API
+reports scored match/action and corpus counts. Alistar is therefore eligible for
+`jairopractor#NA1` alongside Lux and Blitzcrank without extraction, rescoring, or
+corpus reseeding.
 
 ### RAG architecture (complete)
 
@@ -14,7 +24,7 @@
 - **Post-persist**: generate + store embedding on new `LLMAnalysis` rows so corpus grows automatically
 - **Cold start**: empty corpus returns `[]`, pipeline never aborts; RAG activates meaningfully at ~5+ rows per champion, quality improves at ~50+ per champion/rank bucket
 - **Seeding**: `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` or `--entry "name#NA1:157"`
-- **Corpus now**: 1 row (Jhin/SILVER, 2026-06-03)
+- **Corpus now**: 38 embedded rows, including 6 Alistar rows after the live result
 
 ### verify-changes findings (2026-06-01, RAG branch — all non-blocking)
 
@@ -25,8 +35,9 @@
 
 ## Blockers
 
-- None. Lint clean; 223 backend tests pass (2 skipped — real-API integration only); 28/28 Playwright E2E.
-- Not yet run (needs live services): manual end-to-end smoke test of AI Coach + chat against a real OpenAI key and running worker; SSE streaming smoke test on Railway.
+- No code blockers. The in-app browser controller rejected a localhost reload,
+  so the final manual click was not performed. The equivalent live POST/poll
+  path, persisted response, and browser E2E flow all pass.
 - Known flaky test (pre-existing, not this branch): `live-game-slot.spec.ts` "Retry button triggers a new SSE connection" occasionally fails in full-suite runs; passes in isolation and on re-run.
 - Operational note: Railway dashboard must run `release.sh` as the API service's pre-deploy/release command (unchanged from 2026-03-04).
 
@@ -44,12 +55,41 @@ semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire 
 
 ## Next Steps
 
-1. **Open PR `chat` → `main`.**
-2. **Seed the corpus** (operational, required for rich results): score matches (`make score-account-matches RIOT_ID=...`) then `make seed-rag-corpus ARGS='--from-file seeding_list.txt'` targeting 5+ rows per champion. Check with `make corpus-stats`.
-3. **Manual smoke test with real key**: `make db-up && make api-dev && make worker-dev` + `npm run dev`; click AI Coach on a scored account, then chat ("How is my dragon control?") and watch tool activity + streaming.
-4. **Run `make evals`** once the corpus has 10+ rows — records precision@k / MRR / judge scores in `evals/results/`.
-5. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
-6. (Future) **Next.js server data layer** — Server Components + server `fetch` for match list shells (documented in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` §3.7).
+1. Optionally reload the open localhost tab and select Alistar for a final visual check.
+2. Open a PR from `codex/durable-ai-coach`.
+
+## Recent Changes (2026-07-13 — durable cross-champion AI Coach fix)
+
+### What changed
+
+- Added shared rank fallback for the worker and debug script. An empty requested
+  rank bucket retries without rank filtering; fallback use is logged and metered.
+- Scoped analysis `match_ids` to the account participant and selected champion,
+  applying historical rank only when rank-specific aggregation succeeded.
+- Added `GET /riot-accounts/{id}/analysis/champions`, backed by full-history
+  account-specific scored actions and embedded corpus counts.
+- Replaced loaded-page champion inference with the eligibility endpoint on both
+  match pages. Loading/empty states disable AI Coach, failures use
+  `useAppError`, and switching clears stale analysis panels.
+- Preserved `keep_result=10` and added direct regression coverage.
+
+### Verification
+
+- `make test`: 232 passed, 2 skipped. `make lint`: clean. Frontend lint: no
+  errors (one pre-existing `AuthForm` hook warning).
+- Playwright: 30/30, including the 5/5 AI Coach flow with Alistar id 12, all three seeded
+  champion choices, unscored-champion exclusion, stale-panel clearing, and
+  formatted eligibility errors.
+- Live BRONZE debug: rank fallback produced 5 aggregates, 1 comparison group,
+  and 3 opportunities.
+- Live eligibility: Lux 15, Alistar 12, Blitzcrank 6, Vel'Koz 1 scored matches;
+  Alistar had 35 scored actions and 5 pre-existing embedded corpus examples.
+- Live worktree worker persisted analysis `979cb40b-cf2b-4ddc-8bc4-bd000dced397`
+  with rank context BRONZE and 3 recommendations. Direct DB verification found
+  12 persisted matches, all 12 Alistar, all 12 with scored account-player actions.
+- Manual in-app click remains unperformed because the browser controller blocked
+  localhost navigation; the running worktree services and tab are available for
+  a user-driven visual check.
 
 ## Recent Changes (2026-07-12 — Claude Code workflow audit + tooling fixes; no app code changes)
 
