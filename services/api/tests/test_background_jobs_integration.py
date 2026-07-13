@@ -42,6 +42,16 @@ def test_worker_settings_registers_cron_job() -> None:
     )
 
 
+def test_worker_settings_releases_llm_analysis_job_result_quickly() -> None:
+    analysis_job = next(
+        function
+        for function in WorkerSettings.functions
+        if getattr(function, "name", None) == "llm_analysis_job"
+    )
+
+    assert analysis_job.keep_result_s == 10
+
+
 @pytest.mark.asyncio
 async def test_sync_all_riot_accounts_matches_enqueues_all_active_accounts(
     monkeypatch: pytest.MonkeyPatch,
