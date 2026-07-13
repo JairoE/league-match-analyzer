@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from unittest.mock import AsyncMock, MagicMock, call, patch
+from uuid import UUID, uuid4
 
 from app.services.action_aggregation import ActionAggregate, AggregateRow, GroupKey
 from app.services.llm_client import LLMResponse
@@ -133,6 +133,122 @@ class TestLLMAnalysisJob:
         print(_SEPARATOR)
 
         assert result["status"] == "no_data"
+
+    async def test_rank_filter_falls_back_to_unfiltered_aggregates(self) -> None:
+        """A missing historical rank bucket should not hide champion data."""
+        from app.jobs.llm_analysis import llm_analysis_job
+
+        account_id = str(uuid4())
+        mock_session = AsyncMock()
+        fallback_aggregate = _make_agg()
+        mock_aggregate = AsyncMock(side_effect=[[], [fallback_aggregate]])
+        mock_metric = AsyncMock()
+
+        with (
+            patch("app.jobs.llm_analysis.get_settings", return_value=_mock_settings()),
+            patch(
+                "app.jobs.llm_analysis.async_session_factory",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                ),
+            ),
+            patch(
+                "app.jobs.llm_analysis.aggregate_action_stats_for_player",
+                mock_aggregate,
+            ),
+            patch(
+                "app.jobs.llm_analysis.load_item_name_map",
+                AsyncMock(return_value={}),
+            ),
+            patch("app.jobs.llm_analysis.compare_action_stats", return_value=None),
+            patch("app.jobs.llm_analysis.increment_metric_safe", mock_metric),
+        ):
+            result = await llm_analysis_job({}, account_id, "12", "BRONZE")
+
+        assert result["status"] == "no_comparison"
+        assert mock_aggregate.await_args_list == [
+            call(
+                mock_session,
+                UUID(account_id),
+                champion="12",
+                rank_tier="BRONZE",
+            ),
+            call(
+                mock_session,
+                UUID(account_id),
+                champion="12",
+                rank_tier=None,
+            ),
+        ]
+        mock_metric.assert_any_await(
+            "jobs.llm_analysis.rank_filter_fallback",
+            tags={"requested_rank_tier": "BRONZE"},
+        )
+
+    async def test_rank_filter_returns_no_data_when_fallback_is_empty(self) -> None:
+        """A rank miss is terminal only after the unfiltered retry is empty."""
+        from app.jobs.llm_analysis import llm_analysis_job
+
+        account_id = str(uuid4())
+        mock_session = AsyncMock()
+        mock_aggregate = AsyncMock(side_effect=[[], []])
+
+        with (
+            patch("app.jobs.llm_analysis.get_settings", return_value=_mock_settings()),
+            patch(
+                "app.jobs.llm_analysis.async_session_factory",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                ),
+            ),
+            patch(
+                "app.jobs.llm_analysis.aggregate_action_stats_for_player",
+                mock_aggregate,
+            ),
+        ):
+            result = await llm_analysis_job({}, account_id, "12", "BRONZE")
+
+        assert result["status"] == "no_data"
+        assert mock_aggregate.await_count == 2
+
+    async def test_rank_filter_does_not_fallback_when_bucket_has_data(self) -> None:
+        """Existing rank-specific aggregates should remain narrowly scoped."""
+        from app.jobs.llm_analysis import llm_analysis_job
+
+        account_id = str(uuid4())
+        mock_session = AsyncMock()
+        mock_aggregate = AsyncMock(return_value=[_make_agg()])
+
+        with (
+            patch("app.jobs.llm_analysis.get_settings", return_value=_mock_settings()),
+            patch(
+                "app.jobs.llm_analysis.async_session_factory",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(return_value=False),
+                ),
+            ),
+            patch(
+                "app.jobs.llm_analysis.aggregate_action_stats_for_player",
+                mock_aggregate,
+            ),
+            patch(
+                "app.jobs.llm_analysis.load_item_name_map",
+                AsyncMock(return_value={}),
+            ),
+            patch("app.jobs.llm_analysis.compare_action_stats", return_value=None),
+        ):
+            result = await llm_analysis_job({}, account_id, "12", "BRONZE")
+
+        assert result["status"] == "no_comparison"
+        mock_aggregate.assert_awaited_once_with(
+            mock_session,
+            UUID(account_id),
+            champion="12",
+            rank_tier="BRONZE",
+        )
 
     async def test_no_comparison_when_all_none_dw(self) -> None:
         """Job should return no_comparison when compare_action_stats returns None."""

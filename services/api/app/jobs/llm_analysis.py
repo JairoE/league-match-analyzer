@@ -20,7 +20,10 @@ from app.core.logging import get_logger
 from app.db.session import async_session_factory
 from app.models.champion import Champion
 from app.models.llm_analysis import LLMAnalysis
-from app.services.action_aggregation import aggregate_action_stats_for_player
+from app.services.action_aggregation import (
+    ActionAggregate,
+    aggregate_action_stats_for_player,
+)
 from app.services.action_comparison import compare_action_stats
 from app.services.ddragon_client import DdragonClient
 from app.services.llm_client import OpenAIClient
@@ -139,6 +142,57 @@ async def _get_scored_match_ids(
     return [row[0] for row in result.fetchall()]
 
 
+async def _aggregate_action_stats_with_rank_fallback(
+    session: Any,
+    riot_account_id: UUID,
+    champion: str,
+    rank_tier: str | None,
+) -> tuple[list[ActionAggregate], str | None]:
+    """Aggregate a champion at the requested rank, then retry unfiltered.
+
+    Match rank metadata is optional. A live account rank should refine the
+    analysis when matching historical buckets exist, but it must not hide
+    otherwise valid scored actions.
+
+    Args:
+        session: Async database session.
+        riot_account_id: Account UUID.
+        champion: Riot numeric champion ID.
+        rank_tier: Optional live rank tier context.
+
+    Returns:
+        Aggregate rows and the rank filter actually applied to them.
+    """
+    aggregates = await aggregate_action_stats_for_player(
+        session,
+        riot_account_id,
+        champion=champion,
+        rank_tier=rank_tier,
+    )
+    if aggregates or rank_tier is None:
+        return aggregates, rank_tier
+
+    logger.info(
+        "llm_analysis_rank_filter_fallback",
+        extra={
+            "riot_account_id": str(riot_account_id),
+            "champion": champion,
+            "requested_rank_tier": rank_tier,
+        },
+    )
+    await increment_metric_safe(
+        "jobs.llm_analysis.rank_filter_fallback",
+        tags={"requested_rank_tier": rank_tier},
+    )
+    aggregates = await aggregate_action_stats_for_player(
+        session,
+        riot_account_id,
+        champion=champion,
+        rank_tier=None,
+    )
+    return aggregates, None
+
+
 async def llm_analysis_job(
     ctx: dict,
     riot_account_id: str,
@@ -179,11 +233,13 @@ async def llm_analysis_job(
 
     async with async_session_factory() as session:
         # Step 5: Aggregate
-        aggregates = await aggregate_action_stats_for_player(
-            session,
-            account_uuid,
-            champion=champion,
-            rank_tier=rank_tier,
+        aggregates, aggregation_rank_tier = (
+            await _aggregate_action_stats_with_rank_fallback(
+                session,
+                account_uuid,
+                champion,
+                rank_tier,
+            )
         )
 
         if not aggregates:
@@ -221,7 +277,7 @@ async def llm_analysis_job(
 
         # Collect match IDs
         match_ids = await _get_scored_match_ids(
-            session, account_uuid, champion, rank_tier
+            session, account_uuid, champion, aggregation_rank_tier
         )
 
         # Determine rank_tier from comparison if not provided
