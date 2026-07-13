@@ -10,7 +10,7 @@ import AnalysisButton from "../../components/AnalysisButton/AnalysisButton";
 import AnalysisPanel from "../../components/AnalysisPanel/AnalysisPanel";
 import ChatButton from "../../components/ChatPanel/ChatButton";
 import ChatPanel from "../../components/ChatPanel/ChatPanel";
-import {getMostPlayedChampion} from "../../lib/match-utils";
+import {getPlayedChampions} from "../../lib/match-utils";
 import {isDemoMode} from "../../lib/mock/resolve-mock";
 import {loadSessionUser} from "../../lib/session";
 import {
@@ -82,14 +82,23 @@ export default function HomePage() {
     analysis,
     isLoading: isAnalyzing,
     error: analysisError,
+    requestedChampionId,
     requestAnalysis,
     dismiss: dismissAnalysis,
   } = useAnalysis(riotAccountId ?? null);
 
-  const mostPlayed = useMemo(
-    () => getMostPlayedChampion(matchDetails, userPuuid),
+  const playedChampions = useMemo(
+    () => getPlayedChampions(matchDetails, userPuuid),
     [matchDetails, userPuuid]
   );
+  const [pickedChampionId, setPickedChampionId] = useState<number | null>(
+    null
+  );
+  // Fall back to most-played when nothing (or a stale champion) is picked.
+  const selectedChampion =
+    playedChampions.find((c) => c.championId === pickedChampionId) ??
+    playedChampions[0] ??
+    null;
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const {
@@ -99,22 +108,26 @@ export default function HomePage() {
     error: chatError,
     sendMessage: sendChatMessage,
   } = useChat(riotAccountId ?? null, {
-    championFocus: mostPlayed?.championName ?? null,
+    championFocus: selectedChampion?.championName ?? null,
   });
 
-  const isAnalysisOpen = analysis !== null || analysisError !== null;
+  // "Open" relative to the picker: the visible panel belongs to the
+  // currently selected champion, so the button toggles it closed.
+  const isAnalysisOpen =
+    (analysis !== null || analysisError !== null) &&
+    requestedChampionId === (selectedChampion?.championId ?? null);
 
   const handleAnalysisClick = useCallback(() => {
     if (isAnalysisOpen) {
       dismissAnalysis();
       return;
     }
-    if (!mostPlayed) return;
-    void requestAnalysis(mostPlayed.championId, rank?.tier ?? null);
+    if (!selectedChampion) return;
+    void requestAnalysis(selectedChampion.championId, rank?.tier ?? null);
   }, [
     isAnalysisOpen,
     dismissAnalysis,
-    mostPlayed,
+    selectedChampion,
     requestAnalysis,
     rank?.tier,
   ]);
@@ -151,10 +164,14 @@ export default function HomePage() {
                 {!isDemoMode() ? (
                   <>
                     <AnalysisButton
-                      championName={mostPlayed?.championName ?? null}
+                      champions={playedChampions}
+                      selectedChampionId={
+                        selectedChampion?.championId ?? null
+                      }
+                      onSelectChampion={setPickedChampionId}
                       isLoading={isAnalyzing}
                       isPanelOpen={isAnalysisOpen}
-                      disabled={!riotAccountId || !mostPlayed}
+                      disabled={!riotAccountId || !selectedChampion}
                       onClick={handleAnalysisClick}
                     />
                     <ChatButton

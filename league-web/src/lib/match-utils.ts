@@ -223,23 +223,22 @@ export function getCsPerMinute(participant: Participant | null): number {
 
 // ── AI Coach ──────────────────────────────────────────────────────────
 
-export type MostPlayedChampion = {
+export type PlayedChampion = {
   championId: number;
   championName: string;
   count: number;
 };
 
 /**
- * Counts champion appearances for a puuid across loaded match details
- * and returns the most-played one. Used to auto-pick the AI Coach
- * analysis target without a champion picker (V1).
+ * Counts champion appearances for a puuid across loaded match details,
+ * sorted most-played first. Feeds the AI Coach champion picker.
  */
-export function getMostPlayedChampion(
+export function getPlayedChampions(
   matchDetails: Record<string, MatchDetail>,
   puuid: string | null
-): MostPlayedChampion | null {
-  if (!puuid) return null;
-  const counts = new Map<number, MostPlayedChampion>();
+): PlayedChampion[] {
+  if (!puuid) return [];
+  const counts = new Map<number, PlayedChampion>();
   for (const detail of Object.values(matchDetails)) {
     const participant = getParticipantByPuuid(detail, puuid);
     if (!participant?.championId || !participant.championName) continue;
@@ -254,9 +253,5 @@ export function getMostPlayedChampion(
       });
     }
   }
-  let top: MostPlayedChampion | null = null;
-  for (const entry of counts.values()) {
-    if (!top || entry.count > top.count) top = entry;
-  }
-  return top;
+  return [...counts.values()].sort((a, b) => b.count - a.count);
 }

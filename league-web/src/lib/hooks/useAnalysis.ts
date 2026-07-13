@@ -22,6 +22,8 @@ type UseAnalysisResult = {
   isLoading: boolean;
   status: AnalysisStatus;
   error: string | null;
+  /** Champion id of the request behind the current panel/loading state. */
+  requestedChampionId: number | null;
   requestAnalysis: (
     championId: number,
     rankTier: string | null
@@ -42,6 +44,9 @@ export function useAnalysis(riotAccountId: string | null): UseAnalysisResult {
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [status, setStatus] = useState<AnalysisStatus>("idle");
   const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
+  const [requestedChampionId, setRequestedChampionId] = useState<number | null>(
+    null
+  );
   const {errorMessage, reportError, clearError} = useAppError("analysis");
   const runIdRef = useRef(0);
 
@@ -60,6 +65,7 @@ export function useAnalysis(riotAccountId: string | null): UseAnalysisResult {
     setAnalysis(null);
     setStatus("idle");
     setTimeoutMessage(null);
+    setRequestedChampionId(null);
   }
 
   const fetchAnalysis = useCallback(
@@ -79,6 +85,10 @@ export function useAnalysis(riotAccountId: string | null): UseAnalysisResult {
       if (!riotAccountId) return;
       const runId = ++runIdRef.current;
       setStatus("requesting");
+      // Clear any previously shown analysis so switching champions doesn't
+      // leave a stale panel up while the new one loads.
+      setAnalysis(null);
+      setRequestedChampionId(championId);
       setTimeoutMessage(null);
       clearError();
       console.debug(`[${LOG_TAG}] request`, {riotAccountId, championId});
@@ -132,6 +142,7 @@ export function useAnalysis(riotAccountId: string | null): UseAnalysisResult {
     setAnalysis(null);
     setStatus("idle");
     setTimeoutMessage(null);
+    setRequestedChampionId(null);
     clearError();
   }, [clearError]);
 
@@ -141,6 +152,7 @@ export function useAnalysis(riotAccountId: string | null): UseAnalysisResult {
     status,
     // errorMessage is "" (not null) when the scope has no error
     error: timeoutMessage ?? (errorMessage || null),
+    requestedChampionId,
     requestAnalysis,
     dismiss,
   };
