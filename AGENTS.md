@@ -199,3 +199,10 @@ Before finishing any task, run `make test` and `make lint` (backend) and `npm ru
 - **Riot API key**: Without `RIOT_API_KEY` in `services/api/.env`, search endpoints return errors. Health check, champion catalog, and auth pages work without it. Champions auto-seed from Data Dragon on startup.
 - **Frontend env**: `league-web/.env.local` must contain `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
 - **Pre-existing lint issues**: `make lint` reports pre-existing import-sort and line-length warnings. These are not blocking and not your responsibility to fix unless you touch that code.
+- **Shell cwd does not persist between Bash calls**: a `cd league-web` in one command is gone by the next. Use absolute paths, `npm --prefix league-web run ...`, or a single compound command (`cd league-web && ...`) — never assume a prior `cd` stuck.
+
+---
+
+## Session checkpointing
+
+For multi-phase work (plan → implement → review), end each phase by running `/UPDATE_APP_STATE` and committing, then suggest starting a fresh session for the next phase. `docs/app_state.md` is the cold-start context. Do not ride one session into auto-compaction — the summary loses nuance that app_state.md preserves deliberately.

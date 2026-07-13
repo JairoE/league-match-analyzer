@@ -1,12 +1,12 @@
 # App State
 
-**Last Updated:** 2026-07-11
+**Last Updated:** 2026-07-12
 **Branch:** `chat`
-**Status:** STABLE — LLM/RAG pipeline is now fully user-facing: AI Coach button + AnalysisPanel, streaming tool-calling Coach Chat drawer, and a `RUN_EVALS=1`-gated eval harness. Post-implementation review hardening applied. 223 backend tests + 27 Playwright E2E green, lint clean. Session closed 2026-07-11 at 20 commits with the user-facing RAG system design delivered (see conversation / `tasks/plan.md`); branch ready for PR.
+**Status:** STABLE — LLM/RAG pipeline is fully user-facing (AI Coach button + AnalysisPanel, streaming tool-calling Coach Chat drawer, `RUN_EVALS=1`-gated eval harness) and has now passed a full five-axis code review. 223 backend tests + 28 Playwright E2E green, lint clean. Branch ready for PR.
 
 ## Current Phase
 
-**LLM UI integration complete + review-hardened (`chat`, 2026-07-11).** Implemented `tasks/plan.md` end-to-end in 19 atomic commits: (A) the `docs/LLM_INTEGRATION.md` AI Coach flow — `analysis` router (enqueue + poll), `useAnalysis` hook, AnalysisPanel/AnalysisButton on both match pages, CompareButton removed; (B) a stateless SSE-streaming chatbot grounded via OpenAI tool calling over the player's own data (4 tools reusing existing services); (C) `evals/` retrieval + LLM-as-judge harness. An adversarial review pass then confirmed and fixed 3 chat-hardening issues (see 2026-07-11 Recent Changes). Corpus is still 1 row — seeding is the outstanding operational step before both features return rich results in the UI.
+**LLM UI integration complete, review-hardened, and code-reviewed (`chat`, 2026-07-12).** Implemented `tasks/plan.md` end-to-end: (A) the `docs/LLM_INTEGRATION.md` AI Coach flow — `analysis` router (enqueue + poll), `useAnalysis` hook, AnalysisPanel/AnalysisButton on both match pages, CompareButton removed; (B) a stateless SSE-streaming chatbot grounded via OpenAI tool calling over the player's own data (4 tools reusing existing services); (C) `evals/` retrieval + LLM-as-judge harness. Two review passes followed (2026-07-11 adversarial workflow, 2026-07-12 five-axis skill review): the 2026-07-12 review found and fixed one real bug (empty-turn 422 lockout), added an item-name-map cache, and documented the endpoints' accepted no-auth posture. Corpus is still 1 row — seeding is the outstanding operational step before both features return rich results in the UI.
 
 ### RAG architecture (complete)
 
@@ -50,6 +50,51 @@ semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire 
 4. **Run `make evals`** once the corpus has 10+ rows — records precision@k / MRR / judge scores in `evals/results/`.
 5. (Optional) Delete superseded docs: `docs/rag-design.md`, `docs/LLM_RAG_COMPLIMENTARY.md` — both replaced by `docs/LLM_PIPELINE_STATUS.md`.
 6. (Future) **Next.js server data layer** — Server Components + server `fetch` for match list shells (documented in `TECHNICAL_ARCHITECTURE_AND_PATTERNS.md` §3.7).
+
+## Recent Changes (2026-07-12 — Claude Code workflow audit + tooling fixes; no app code changes)
+
+- **What changed:** No application code, tests, or product docs. Session audited recent Claude Code transcripts across projects and applied workflow fixes:
+  - `.claude/hooks/end-checklist.sh` hardened (here and in content-creator-video): fails open when `docs/app_state.md` is absent at the resolved cwd (this pathspec bug made the hook block every Stop regardless of state), and allows Stop on read-only sessions (fully clean tree). Commit-recency window retained.
+  - `.claude/commands/{SUMMARIZE,GENERATE_PR_DESCRIPTION,UPDATE_APP_STATE,UPDATE_DOCS}.md` gained `model: sonnet` frontmatter (cheaper model for mechanical commands; also applied in content-creator-video).
+  - `AGENTS.md` gained a shell-cwd gotcha and a "Session checkpointing" section (checkpoint via /UPDATE_APP_STATE + fresh session instead of auto-compaction).
+  - Consolidated permission allow-lists staged for user review in the session scratchpad (`proposed-global-settings.json`, `proposed-project-settings.local.json`) — direct settings.json writes are permission-gated.
+- **Current phase:** unchanged — `chat` branch stable, ready for PR.
+- **Blockers:** none new.
+- **Next steps:** unchanged; plus: user to review/apply the staged permission consolidations.
+
+## Recent Changes (2026-07-12 — five-axis code review of AI Coach + chat, `chat`)
+
+### What changed
+
+Ran the `code-review-and-quality` skill across correctness/readability/architecture/security/
+performance, using a second independent reviewer subagent for fresh eyes. No Critical findings.
+Verified correct: chat tool data-scoping (no cross-player leak — every executor filters by
+`account.id`/`account.puuid`), the OpenAI tool-calling protocol, SQL parameterization, no
+secrets/PII in logs, analysis polling races, SSE disconnect/session handling. Fixes applied
+(commits `d8f8652`, `135bcf8`):
+
+- **Bug — empty assistant turn 422-bricked the conversation** (`league-web/src/lib/hooks/useChat.ts`). An empty completion (`done` with no tokens) left an assistant bubble with `content: ""`; sending it back on the next turn failed backend validation (`ChatMessage.content` `min_length=1`) → 422 → every later message failed, unrecoverable without an account switch. Now strips empty assistant messages from outgoing history and replaces a blank completed bubble with a fallback. Added E2E regression `chat-flow.spec.ts` "empty completion recovers…". Also capped the chat input at the backend's 4000-char limit.
+- **Perf — item-name-map cache** (`services/api/app/jobs/llm_analysis.py`). `load_item_name_map()` now caches Data Dragon's ~1MB `item.json` in-process for 6h (falls back to last good cache on failure), so the analysis job and the chat `get_action_stats` tool stop re-fetching it per call.
+- **Docs — security posture** recorded in the Blockers section: the analysis + chat endpoints spend OpenAI tokens with no auth/rate-limiting (accepted for this portfolio app), with the follow-ups to add if they go public.
+
+Deferred per owner decision: no per-IP rate limiting / spend guard (accepted as-is); no
+frontend unit-test runner for the SSE parser + hooks (kept E2E-only coverage). Noted-but-not-
+actioned nits: semaphore fast-429 raciness (concurrency still correctly capped at 4),
+interim-round tokens dropped from model context (rare), `champion_focus` raw interpolation
+(64-char, own-data-only), `sse.ts` LF-only framing.
+
+### Current phase / status
+
+STABLE — see top of file. Branch ready for PR at 22 commits.
+
+### Blockers
+
+None new. See the top-level Blockers section (live-services smoke test still pending; one
+pre-existing flaky live-game E2E).
+
+### Next steps
+
+Unchanged — see the top-level Next Steps (open PR, seed corpus, real-key smoke test, `make evals`).
 
 ## Recent Changes (2026-07-11 — review hardening of chat stream, `chat`)
 
