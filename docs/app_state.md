@@ -1,12 +1,12 @@
 # App State
 
-**Last Updated:** 2026-07-12
+**Last Updated:** 2026-07-13
 **Branch:** `chat`
-**Status:** STABLE — LLM/RAG pipeline is fully user-facing (AI Coach button + AnalysisPanel, streaming tool-calling Coach Chat drawer, `RUN_EVALS=1`-gated eval harness) and has now passed a full five-axis code review. 223 backend tests + 28 Playwright E2E green, lint clean. Branch ready for PR.
+**Status:** STABLE — LLM/RAG pipeline is fully user-facing (AI Coach button **with champion picker** + AnalysisPanel, streaming tool-calling Coach Chat drawer, `RUN_EVALS=1`-gated eval harness), five-axis-reviewed, and the **corpus is seeded (36 embedded rows: 5 accounts × 7 champions + 1 Jhin)**. 223 backend tests + 29 Playwright E2E green, lint clean. Branch ready for PR.
 
 ## Current Phase
 
-**LLM UI integration complete, review-hardened, and code-reviewed (`chat`, 2026-07-12).** Implemented `tasks/plan.md` end-to-end: (A) the `docs/LLM_INTEGRATION.md` AI Coach flow — `analysis` router (enqueue + poll), `useAnalysis` hook, AnalysisPanel/AnalysisButton on both match pages, CompareButton removed; (B) a stateless SSE-streaming chatbot grounded via OpenAI tool calling over the player's own data (4 tools reusing existing services); (C) `evals/` retrieval + LLM-as-judge harness. Two review passes followed (2026-07-11 adversarial workflow, 2026-07-12 five-axis skill review): the 2026-07-12 review found and fixed one real bug (empty-turn 422 lockout), added an item-name-map cache, and documented the endpoints' accepted no-auth posture. Corpus is still 1 row — seeding is the outstanding operational step before both features return rich results in the UI.
+**Champion picker + retry fix shipped; corpus seeded (`chat`, 2026-07-13).** The AI Coach button now pairs with a champion `<select>` (all champions from loaded match history, most-played first), so any champion with data can be analyzed — verified live: `jairopractor#NA1` (BRONZE) gets instant cached panels for both **Blitzcrank** and **Lux** (3 recs each, 38 matches). The reported "Blitzcrank error" was diagnosed as a transient OpenAI failure made sticky by ARQ's 1h `keep_result` on the day-bucketed job id — **not rank**; fixed with `keep_result=10`. Earlier phases: full `tasks/plan.md` implementation (AI Coach flow, streaming tool-calling chat, `evals/`), review hardening, and the five-axis code review (2026-07-12).
 
 ### RAG architecture (complete)
 
@@ -61,6 +61,43 @@ semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire 
 - **Current phase:** unchanged — `chat` branch stable, ready for PR.
 - **Blockers:** none new.
 - **Next steps:** unchanged; plus: user to review/apply the staged permission consolidations.
+
+## Recent Changes (2026-07-13 — champion picker, retry fix, corpus seeded, `chat`)
+
+### What changed
+
+- **Diagnosis of the "AI Coach: Blitzcrank error" on `jairopractor#NA1`** — NOT rank-related
+  (the same BRONZE account already had a working Lux analysis; the dry-run pipeline built a
+  full Blitzcrank comparison). Root cause: one transient OpenAI failure (`llm_error`, no row
+  persisted) whose day-bucketed deterministic job id stayed reserved for ARQ's default 1h
+  `keep_result`, silently swallowing every retry into a 60s polling timeout.
+- **`services/api/app/services/background_jobs.py`** (`83520f6`): register the job as
+  `func(llm_analysis_job, keep_result=10)` — the id frees ~10s after completion so retries
+  work, while in-flight dedup of concurrent clicks is preserved. **Worker restart required**
+  to pick this up (`make worker-dev`).
+- **Champion picker** (`b040d60`): `AnalysisButton` now renders a `<select>` of all champions
+  from loaded match history (via new `getPlayedChampions()` in `match-utils.ts`, most-played
+  first, replacing `getMostPlayedChampion`). `useAnalysis` tracks `requestedChampionId` and
+  clears stale panels when a new request starts; the button toggles "Hide" only when the open
+  panel matches the selected champion. Wired on both pages; chat `championFocus` follows the
+  selection. New E2E: pick a non-most-played champion, analyze, switch back (29 total).
+- **Corpus seeded (operational)**: 36 embedded `llm_analysis` rows — 5 distinct accounts each
+  for Brand, Blitzcrank, Zac, Teemo, Alistar, Lux, Vel'Koz (+1 Jhin). RAG retrieval now
+  returns real few-shot examples for those champions.
+- **Verified live**: POST/GET `/riot-accounts/{jairopractor}/analysis` for champion 53 and 99
+  both return `already_exists` → full panels (3 recommendations, 38 matches each).
+
+### Tests / lint
+
+Backend 223 passed / lint clean; frontend lint + build clean; Playwright **29/29**.
+
+### Blockers
+
+Running ARQ worker still has the old 1h `keep_result` until restarted.
+
+### Next steps
+
+Restart worker; finish the smoke-test walkthrough (chat streaming on a seeded account); open PR.
 
 ## Recent Changes (2026-07-12 — five-axis code review of AI Coach + chat, `chat`)
 
