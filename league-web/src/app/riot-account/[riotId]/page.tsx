@@ -12,10 +12,9 @@ import ChatButton from "../../../components/ChatPanel/ChatButton";
 import ChatPanel from "../../../components/ChatPanel/ChatPanel";
 import {apiGet} from "../../../lib/api";
 import {isApiError} from "../../../lib/errors/types";
-import {getPlayedChampions} from "../../../lib/match-utils";
 import {isDemoMode} from "../../../lib/mock/resolve-mock";
 import {loadSessionUser} from "../../../lib/session";
-import {useAnalysis} from "../../../lib/hooks/useAnalysis";
+import {useAiCoach} from "../../../lib/hooks/useAiCoach";
 import {useChat} from "../../../lib/hooks/useChat";
 import {useLiveGameWhenReady} from "../../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../../lib/hooks/useMatchList";
@@ -110,26 +109,21 @@ export default function RiotAccountPage() {
   });
 
   const {
+    playedChampions,
+    selectedChampion,
+    selectChampion,
     analysis,
-    isLoading: isAnalyzing,
-    error: analysisError,
-    requestedChampionId,
-    requestAnalysis,
-    dismiss: dismissAnalysis,
-  } = useAnalysis(account?.id ?? null);
-
-  const playedChampions = useMemo(
-    () => getPlayedChampions(matchDetails, accountPuuid),
-    [matchDetails, accountPuuid]
-  );
-  const [pickedChampionId, setPickedChampionId] = useState<number | null>(
-    null
-  );
-  // Fall back to most-played when nothing (or a stale champion) is picked.
-  const selectedChampion =
-    playedChampions.find((c) => c.championId === pickedChampionId) ??
-    playedChampions[0] ??
-    null;
+    analysisError,
+    isAnalyzing,
+    isAnalysisOpen,
+    handleAnalysisClick,
+    dismissAnalysis,
+  } = useAiCoach({
+    riotAccountId: account?.id ?? null,
+    matchDetails,
+    puuid: accountPuuid,
+    rankTier: rank?.tier ?? null,
+  });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const {
@@ -141,27 +135,6 @@ export default function RiotAccountPage() {
   } = useChat(account?.id ?? null, {
     championFocus: selectedChampion?.championName ?? null,
   });
-
-  // "Open" relative to the picker: the visible panel belongs to the
-  // currently selected champion, so the button toggles it closed.
-  const isAnalysisOpen =
-    (analysis !== null || analysisError !== null) &&
-    requestedChampionId === (selectedChampion?.championId ?? null);
-
-  const handleAnalysisClick = useCallback(() => {
-    if (isAnalysisOpen) {
-      dismissAnalysis();
-      return;
-    }
-    if (!selectedChampion) return;
-    void requestAnalysis(selectedChampion.championId, rank?.tier ?? null);
-  }, [
-    isAnalysisOpen,
-    dismissAnalysis,
-    selectedChampion,
-    requestAnalysis,
-    rank?.tier,
-  ]);
 
   // Check session (optional for search)
   useEffect(() => {
@@ -260,7 +233,7 @@ export default function RiotAccountPage() {
                       selectedChampionId={
                         selectedChampion?.championId ?? null
                       }
-                      onSelectChampion={setPickedChampionId}
+                      onSelectChampion={selectChampion}
                       isLoading={isAnalyzing}
                       isPanelOpen={isAnalysisOpen}
                       disabled={!account?.id || !selectedChampion}
