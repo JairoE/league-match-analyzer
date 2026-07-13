@@ -123,20 +123,52 @@ async def _get_scored_match_ids(
         session: Async database session.
         riot_account_id: Account UUID.
         champion: Optional champion ID filter.
-        rank_tier: Optional rank tier filter (unused in V1, reserved).
+        rank_tier: Optional rank tier filter actually used for aggregation.
 
     Returns:
         List of Riot match IDs (game_id strings).
     """
-    query = text("""
-        SELECT DISTINCT m.game_id
-        FROM match m
-        JOIN riot_account_match ram ON ram.match_id = m.id
-        JOIN match_action ma ON ma.match_id = m.id
-        WHERE ram.riot_account_id = :account_id
-          AND ma.delta_w IS NOT NULL
-    """)
+    filters: list[str] = []
     params: dict[str, Any] = {"account_id": str(riot_account_id)}
+    if champion is not None:
+        filters.append("pm.champion_id = :champion")
+        params["champion"] = champion
+    if rank_tier is not None:
+        filters.append("pm.rank_tier = :rank_tier")
+        params["rank_tier"] = rank_tier
+
+    extra_filters = "".join(f"\n          AND {condition}" for condition in filters)
+    query = text(f"""
+        WITH player_matches AS (
+          SELECT
+            m.id AS match_id,
+            m.game_id,
+            (player.elem->>'participantId')::int AS participant_id,
+            player.elem->>'championId' AS champion_id,
+            (SELECT msv.features->>'average_rank'
+             FROM match_state_vector msv
+             WHERE msv.match_id = m.id
+             ORDER BY msv.minute ASC
+             LIMIT 1) AS rank_tier
+          FROM match m
+          JOIN riot_account_match ram ON ram.match_id = m.id
+          JOIN riot_account ra ON ra.id = ram.riot_account_id
+          CROSS JOIN LATERAL (
+            SELECT participant.elem
+            FROM jsonb_array_elements(
+              m.game_info->'info'->'participants'
+            ) AS participant(elem)
+            WHERE participant.elem->>'puuid' = ra.puuid
+            LIMIT 1
+          ) AS player
+          WHERE ram.riot_account_id = :account_id
+        )
+        SELECT DISTINCT pm.game_id
+        FROM player_matches pm
+        JOIN match_action ma ON ma.match_id = pm.match_id
+        WHERE ma.delta_w IS NOT NULL
+          AND ma.participant_id = pm.participant_id{extra_filters}
+    """)
 
     result = await session.execute(query, params)
     return [row[0] for row in result.fetchall()]

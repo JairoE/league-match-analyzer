@@ -72,6 +72,48 @@ def _mock_settings(api_key: str = "test-key", rag_enabled: bool = False) -> Simp
     )
 
 
+class TestGetScoredMatchIds:
+    """Tests for selecting the match evidence persisted with an analysis."""
+
+    async def test_filters_to_account_participant_and_champion(self) -> None:
+        from app.jobs.llm_analysis import _get_scored_match_ids
+
+        account_id = uuid4()
+        result = MagicMock()
+        result.fetchall.return_value = [("NA1_1",), ("NA1_2",)]
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result)
+
+        match_ids = await _get_scored_match_ids(session, account_id, "12", None)
+
+        statement, params = session.execute.await_args.args
+        sql = str(statement)
+        assert match_ids == ["NA1_1", "NA1_2"]
+        assert "ma.participant_id = pm.participant_id" in sql
+        assert "pm.champion_id = :champion" in sql
+        assert "pm.rank_tier = :rank_tier" not in sql
+        assert params == {"account_id": str(account_id), "champion": "12"}
+
+    async def test_applies_effective_rank_filter_when_present(self) -> None:
+        from app.jobs.llm_analysis import _get_scored_match_ids
+
+        account_id = uuid4()
+        result = MagicMock()
+        result.fetchall.return_value = []
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result)
+
+        await _get_scored_match_ids(session, account_id, "12", "BRONZE")
+
+        statement, params = session.execute.await_args.args
+        assert "pm.rank_tier = :rank_tier" in str(statement)
+        assert params == {
+            "account_id": str(account_id),
+            "champion": "12",
+            "rank_tier": "BRONZE",
+        }
+
+
 class TestLLMAnalysisJob:
     """Tests for llm_analysis_job orchestration."""
 
