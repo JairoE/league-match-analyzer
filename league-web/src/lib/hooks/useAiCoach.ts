@@ -53,6 +53,13 @@ export function useAiCoach({
   const [pickedChampionId, setPickedChampionId] = useState<number | null>(
     null
   );
+  // Drop a stale pick when the account changes (render-time adjustment —
+  // setState in an effect body trips react-hooks/set-state-in-effect).
+  const [lastAccountId, setLastAccountId] = useState(riotAccountId);
+  if (riotAccountId !== lastAccountId) {
+    setLastAccountId(riotAccountId);
+    setPickedChampionId(null);
+  }
   // Fall back to most-played when nothing (or a stale champion) is picked.
   const selectedChampion =
     playedChampions.find((c) => c.championId === pickedChampionId) ??
