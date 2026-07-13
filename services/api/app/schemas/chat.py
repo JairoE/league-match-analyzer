@@ -19,5 +19,10 @@ class ChatRequest(BaseModel):
 
     messages: list[ChatMessage] = Field(min_length=1, max_length=20)
     # Interpolated into the system prompt — keep it champion-name sized so a
-    # client cannot inflate per-round input tokens through this field.
-    champion_focus: str | None = Field(default=None, max_length=64)
+    # client cannot inflate per-round input tokens through this field, and
+    # champion-name shaped so it cannot smuggle directive lines (newlines).
+    champion_focus: str | None = Field(
+        default=None,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9 '.&:-]*$",
+    )
