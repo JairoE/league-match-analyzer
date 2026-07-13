@@ -35,6 +35,16 @@ class AnalysisEnqueueResponse(BaseModel):
     champion_name: str
 
 
+class AnalysisChampionResponse(BaseModel):
+    """A champion with enough account data to request AI Coach analysis."""
+
+    champion_id: int
+    champion_name: str
+    scored_match_count: int
+    scored_action_count: int
+    corpus_example_count: int
+
+
 class RecommendationResponse(BaseModel):
     """A single recommendation from a persisted analysis.
 

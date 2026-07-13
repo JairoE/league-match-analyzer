@@ -13,11 +13,13 @@ from app.core.logging import get_logger
 from app.db.session import get_session
 from app.models.llm_analysis import LLMAnalysis
 from app.schemas.analysis import (
+    AnalysisChampionResponse,
     AnalysisEnqueueRequest,
     AnalysisEnqueueResponse,
     AnalysisResponse,
     RecommendationResponse,
 )
+from app.services.analysis_champions import list_analyzable_champions
 from app.services.arq_pool import get_arq_pool
 from app.services.champions import get_champion_by_id
 from app.services.riot_accounts import resolve_riot_account_identifier
@@ -84,6 +86,42 @@ async def _latest_analysis(
         statement = statement.where(LLMAnalysis.created_at >= since)
     result = await session.execute(statement)
     return result.scalars().first()
+
+
+@router.get(
+    "/riot-accounts/{riot_account_id}/analysis/champions",
+    status_code=status.HTTP_200_OK,
+)
+async def list_analysis_champions(
+    riot_account_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> list[AnalysisChampionResponse]:
+    """List champions with player-specific scored actions for an account.
+
+    Args:
+        riot_account_id: Riot account UUID or Riot ID.
+        session: Async database session.
+
+    Returns:
+        Full-history champion options for the AI Coach picker.
+    """
+    account = await resolve_riot_account_identifier(session, riot_account_id)
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Riot account not found",
+        )
+    champions = await list_analyzable_champions(session, account.id)
+    return [
+        AnalysisChampionResponse(
+            champion_id=champion.champion_id,
+            champion_name=champion.champion_name,
+            scored_match_count=champion.scored_match_count,
+            scored_action_count=champion.scored_action_count,
+            corpus_example_count=champion.corpus_example_count,
+        )
+        for champion in champions
+    ]
 
 
 @router.post(

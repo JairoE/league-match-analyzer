@@ -204,6 +204,61 @@ async def test_enqueue_analysis_duplicate_job_still_enqueued(
     assert len(pool.calls) == 1
 
 
+# ── GET /riot-accounts/{id}/analysis/champions ──────────────────────
+
+
+async def test_list_analysis_champions_returns_account_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    account = _account()
+    options = [
+        SimpleNamespace(
+            champion_id=12,
+            champion_name="Alistar",
+            scored_match_count=12,
+            scored_action_count=35,
+            corpus_example_count=5,
+        )
+    ]
+
+    async def _list(session: object, account_id: object) -> list[SimpleNamespace]:
+        assert account_id == account.id
+        return options
+
+    _patch_lookups(monkeypatch, account, _champion())
+    monkeypatch.setattr(
+        analysis,
+        "list_analyzable_champions",
+        _list,
+        raising=False,
+    )
+    response = await analysis.list_analysis_champions(
+        riot_account_id=str(account.id),
+        session=_FakeSession(),  # type: ignore[arg-type]
+    )
+
+    assert len(response) == 1
+    assert response[0].champion_id == 12
+    assert response[0].champion_name == "Alistar"
+    assert response[0].scored_match_count == 12
+    assert response[0].scored_action_count == 35
+    assert response[0].corpus_example_count == 5
+
+
+async def test_list_analysis_champions_unknown_account_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_lookups(monkeypatch, None, None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await analysis.list_analysis_champions(
+            riot_account_id="missing#NA1",
+            session=_FakeSession(),  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 404
+
+
 # ── GET /riot-accounts/{id}/analysis ─────────────────────────────────
 
 
