@@ -7,6 +7,7 @@ and persistence (step 8) into a single ARQ job.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 from uuid import UUID
 
@@ -41,12 +42,24 @@ OBJECTIVE_LABELS: dict[str, str] = {
 }
 
 
+# Item names only change on a patch; cache in-process so repeated callers
+# (the analysis job and the chat get_action_stats tool) don't re-fetch the
+# ~1MB item.json on every invocation.
+_ITEM_NAME_CACHE: dict[str, str] | None = None
+_ITEM_NAME_CACHE_EXPIRY: float = 0.0
+_ITEM_NAME_CACHE_TTL_SECONDS = 6 * 3600
+
+
 async def load_item_name_map() -> dict[str, str]:
-    """Fetch item_id → name mapping from Data Dragon.
+    """Fetch item_id → name mapping from Data Dragon, cached in-process.
 
     Returns:
-        Mapping of item IDs to display names; empty dict on failure.
+        Mapping of item IDs to display names. Returns the last good cache
+        (or an empty dict) on failure.
     """
+    global _ITEM_NAME_CACHE, _ITEM_NAME_CACHE_EXPIRY
+    if _ITEM_NAME_CACHE is not None and time.monotonic() < _ITEM_NAME_CACHE_EXPIRY:
+        return _ITEM_NAME_CACHE
     try:
         client = DdragonClient()
         version = await client.fetch_latest_version()
@@ -56,14 +69,18 @@ async def load_item_name_map() -> dict[str, str]:
             response.raise_for_status()
             payload: dict[str, Any] = response.json()
         data = payload.get("data", {})
-        return {
+        result = {
             item_id: (info.get("name") or str(item_id))
             for item_id, info in data.items()
             if isinstance(info, dict)
         }
     except Exception:
         logger.warning("load_item_name_map_failed")
-        return {}
+        return _ITEM_NAME_CACHE if _ITEM_NAME_CACHE is not None else {}
+    if result:
+        _ITEM_NAME_CACHE = result
+        _ITEM_NAME_CACHE_EXPIRY = time.monotonic() + _ITEM_NAME_CACHE_TTL_SECONDS
+    return result
 
 
 async def _resolve_champion_name(

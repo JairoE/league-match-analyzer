@@ -6,10 +6,16 @@ import styles from "./page.module.css";
 import MatchPageShell from "../../../components/MatchPageShell/MatchPageShell";
 import SubHeader from "../../../components/SubHeader/SubHeader";
 import MatchesTable from "../../../components/MatchesTable";
-import CompareButton from "./CompareButton";
+import AnalysisButton from "../../../components/AnalysisButton/AnalysisButton";
+import AnalysisPanel from "../../../components/AnalysisPanel/AnalysisPanel";
+import ChatButton from "../../../components/ChatPanel/ChatButton";
+import ChatPanel from "../../../components/ChatPanel/ChatPanel";
 import {apiGet} from "../../../lib/api";
 import {isApiError} from "../../../lib/errors/types";
+import {isDemoMode} from "../../../lib/mock/resolve-mock";
 import {loadSessionUser} from "../../../lib/session";
+import {useAiCoach} from "../../../lib/hooks/useAiCoach";
+import {useChat} from "../../../lib/hooks/useChat";
 import {useLiveGameWhenReady} from "../../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../../lib/hooks/useMatchList";
 import {useRank} from "../../../lib/hooks/useRank";
@@ -34,11 +40,8 @@ export default function RiotAccountPage() {
     }
   }, [params.riotId]);
 
-  const [account, setAccount] =
-    useState<RiotAccountData | null>(null);
-  const [pageError, setPageError] = useState<string | null>(
-    null
-  );
+  const [account, setAccount] = useState<RiotAccountData | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [hasSession, setHasSession] = useState(false);
 
   const accountPuuid = account?.puuid ?? null;
@@ -63,9 +66,7 @@ export default function RiotAccountPage() {
         err.detail === "riot_api_failed" &&
         err.riotStatus === 404
       ) {
-        setPageError(
-          `No search results for the summoner "${riotId}".`
-        );
+        setPageError(`No search results for the summoner "${riotId}".`);
         return true;
       }
       return false;
@@ -103,8 +104,36 @@ export default function RiotAccountPage() {
     !isLoading
   );
 
-  const {rankSubtitle, rankStaleMessage} = useRank(account?.id ?? null, {
+  const {rank, rankSubtitle, rankStaleMessage} = useRank(account?.id ?? null, {
     refreshIndex,
+  });
+
+  const {
+    playedChampions,
+    selectedChampion,
+    selectChampion,
+    analysis,
+    analysisError,
+    isAnalyzing,
+    isAnalysisOpen,
+    handleAnalysisClick,
+    dismissAnalysis,
+  } = useAiCoach({
+    riotAccountId: account?.id ?? null,
+    matchDetails,
+    puuid: accountPuuid,
+    rankTier: rank?.tier ?? null,
+  });
+
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const {
+    messages: chatMessages,
+    isStreaming: isChatStreaming,
+    toolActivity: chatToolActivity,
+    error: chatError,
+    sendMessage: sendChatMessage,
+  } = useChat(account?.id ?? null, {
+    championFocus: selectedChampion?.championName ?? null,
   });
 
   // Check session (optional for search)
@@ -122,12 +151,8 @@ export default function RiotAccountPage() {
 
     const load = async () => {
       if (decodeError) {
-        console.debug(
-          "[riot-account] decode error, aborting account fetch"
-        );
-        setPageError(
-          "Invalid Riot ID in URL. Please re-run your search."
-        );
+        console.debug("[riot-account] decode error, aborting account fetch");
+        setPageError("Invalid Riot ID in URL. Please re-run your search.");
         clearError();
         return;
       }
@@ -160,9 +185,7 @@ export default function RiotAccountPage() {
           err.detail === "riot_api_failed" &&
           err.riotStatus === 404
         ) {
-          setPageError(
-            `No search results for the summoner "${riotId}".`
-          );
+          setPageError(`No search results for the summoner "${riotId}".`);
           clearError();
         } else {
           reportError(err);
@@ -177,62 +200,98 @@ export default function RiotAccountPage() {
   }, [riotId, decodeError, refreshIndex, clearError, reportError]);
 
   const error = pageError ?? errorMessage;
-  const warning =
-    staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
+  const warning = staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
 
   return (
-    <MatchPageShell
-      subHeader={
-        <SubHeader
-          kicker="Viewing matches for"
-          title={displayLabel}
-          subtitle={rankSubtitle}
-          actions={
-            <>
-              <button
-                className={styles.secondaryButton}
-                onClick={handleRefresh}
-              >
-                Refresh
-              </button>
-              {hasSession ? (
+    <>
+      <MatchPageShell
+        subHeader={
+          <SubHeader
+            kicker="Viewing matches for"
+            title={displayLabel}
+            subtitle={rankSubtitle}
+            actions={
+              <>
                 <button
                   className={styles.secondaryButton}
-                  onClick={() => router.push("/home")}
+                  onClick={handleRefresh}
                 >
-                  &larr; My matches
+                  Refresh
                 </button>
-              ) : null}
-              <CompareButton />
-            </>
-          }
-        />
-      }
-      liveGame={
-        <LiveGameSlot
-          status={status}
-          liveGame={liveGame}
+                {hasSession ? (
+                  <button
+                    className={styles.secondaryButton}
+                    onClick={() => router.push("/home")}
+                  >
+                    &larr; My matches
+                  </button>
+                ) : null}
+                {!isDemoMode() ? (
+                  <>
+                    <AnalysisButton
+                      champions={playedChampions}
+                      selectedChampionId={
+                        selectedChampion?.championId ?? null
+                      }
+                      onSelectChampion={selectChampion}
+                      isLoading={isAnalyzing}
+                      isPanelOpen={isAnalysisOpen}
+                      disabled={!account?.id || !selectedChampion}
+                      onClick={handleAnalysisClick}
+                    />
+                    <ChatButton
+                      isOpen={isChatOpen}
+                      disabled={!account?.id}
+                      onClick={() => setIsChatOpen((open) => !open)}
+                    />
+                  </>
+                ) : null}
+              </>
+            }
+          />
+        }
+        analysisPanel={
+          <AnalysisPanel
+            analysis={analysis}
+            error={analysisError}
+            onDismiss={dismissAnalysis}
+          />
+        }
+        liveGame={
+          <LiveGameSlot
+            status={status}
+            liveGame={liveGame}
+            targetPuuid={accountPuuid}
+            onRetry={retry}
+          />
+        }
+        error={error}
+        warning={warning}
+      >
+        <MatchesTable
+          matches={matches}
+          matchDetails={matchDetails}
+          user={null}
+          isSearchView
           targetPuuid={accountPuuid}
-          onRetry={retry}
+          isLoading={isLoading}
+          isLoadingMore={isLoadingMore}
+          isPending={isPending}
+          canLoadMore={canLoadMore}
+          onLoadMore={loadMoreMatches}
+          paginationMeta={paginationMeta}
+          onPageChange={handlePageChange}
         />
-      }
-      error={error}
-      warning={warning}
-    >
-      <MatchesTable
-        matches={matches}
-        matchDetails={matchDetails}
-        user={null}
-        isSearchView
-        targetPuuid={accountPuuid}
-        isLoading={isLoading}
-        isLoadingMore={isLoadingMore}
-        isPending={isPending}
-        canLoadMore={canLoadMore}
-        onLoadMore={loadMoreMatches}
-        paginationMeta={paginationMeta}
-        onPageChange={handlePageChange}
+      </MatchPageShell>
+      <ChatPanel
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        messages={chatMessages}
+        isStreaming={isChatStreaming}
+        toolActivity={chatToolActivity}
+        error={chatError}
+        onSend={sendChatMessage}
       />
-    </MatchPageShell>
+    </>
   );
 }

@@ -4,9 +4,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from arq.worker import Function
 
 from app.core.config import get_settings
 from app.jobs import match_ingestion, scheduled
+from app.jobs.llm_analysis import llm_analysis_job
 from app.jobs.scheduled import sync_all_riot_accounts_matches
 from app.services import enqueue_match_details
 from app.services.background_jobs import WorkerSettings
@@ -39,6 +41,22 @@ def test_worker_settings_registers_cron_job() -> None:
         f"[test_cron_registration] coroutine={cron_job.coroutine.__name__} "
         f"minute={cron_job.minute} hour={cron_job.hour} "
         f"run_at_startup={cron_job.run_at_startup}"
+    )
+
+
+def test_llm_analysis_job_registered_with_short_keep_result() -> None:
+    entry = next(
+        f
+        for f in WorkerSettings.functions
+        if isinstance(f, Function) and f.coroutine is llm_analysis_job
+    )
+    # The analysis router enqueues by this exact string name.
+    assert entry.name == "llm_analysis_job"
+    # A failed run must free the day-bucketed job id quickly so user
+    # retries are not black-holed for arq's default 1h keep_result.
+    assert entry.keep_result_s == 10
+    print(
+        f"[test_llm_registration] name={entry.name} keep_result_s={entry.keep_result_s}"
     )
 
 

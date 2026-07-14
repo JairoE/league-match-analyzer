@@ -7,20 +7,3 @@
   cursor: pointer;
 }
 
-.compareButton {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--color-success);
-  background: var(--color-success);
-  color: #ffffff;
-  cursor: pointer;
-}
-
-.analysisBanner {
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: var(--color-surface-strong);
-  border: 1px solid var(--color-border);
-  font-size: 14px;
-  opacity: 0.9;
-}

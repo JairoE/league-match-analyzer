@@ -1,4 +1,4 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids backfill-rag-embeddings backfill-rag-embeddings-dry seed-rag-corpus seed-rag-corpus-dry corpus-stats
+.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs evals backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids backfill-rag-embeddings backfill-rag-embeddings-dry seed-rag-corpus seed-rag-corpus-dry corpus-stats
 
 help:
 	@echo "Available targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  db-revision  Create new Alembic migration"
 	@echo "  lint         Run backend + frontend lint gates"
 	@echo "  test         Run pytest on all services"
+	@echo "  evals        Run RAG eval harness (needs DB + seeded corpus; see evals/README.md)"
 	@echo "  score-actions  Enqueue score_actions_job for a single match (MATCH_ID=...)"
 	@echo "  score-account-matches  Enqueue score_actions_job for all unscored matches for an account (RIOT_ACCOUNT_ID=... or RIOT_ID=name#NA1)"
 	@echo "  score-account-matches-dry  Print how many unscored matches would be scored for an account (RIOT_ACCOUNT_ID=... or RIOT_ID=name#NA1)"
@@ -69,6 +70,9 @@ lint:
 
 test:
 	./.venv/bin/pytest services/api services/llm
+
+evals:
+	RUN_EVALS=1 ./.venv/bin/pytest evals/ -v
 
 test-logs:
 	./.venv/bin/pytest services/api services/llm -v -s
