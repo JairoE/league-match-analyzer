@@ -1,16 +1,18 @@
 # App State
 
-**Last Updated:** 2026-07-13
+**Last Updated:** 2026-07-14
 **Branch:** `codex/durable-ai-coach`
-**Status:** VERIFIED — durable cross-champion AI Coach data selection and the
-server-driven eligibility picker are complete in six atomic commits. Automated
-verification and the live Alistar API/worker/persistence flow pass; only the
-manual in-app click was unavailable to browser automation.
+**Status:** VERIFIED — `origin/main` at `f62749f` is merged into the durable
+cross-champion AI Coach branch. Conflict resolution preserves `main`'s shared
+frontend hook and hardening while sourcing eligibility from scored actions.
+Combined verification passes: 232 backend tests, Ruff, frontend lint, and all
+34 Playwright tests.
 
 ## Current Phase
 
-**Durable cross-champion fix implemented (`codex/durable-ai-coach`,
-2026-07-13).** The picker now comes from full-history, account-specific scored
+**Durable cross-champion fix integrated with `main`
+(`codex/durable-ai-coach`, 2026-07-14).** The picker now comes from
+full-history, account-specific scored
 actions rather than paginated match details. Empty historical rank buckets fall
 back to champion-only aggregation while live rank remains coaching context, and
 persisted match ids are scoped to the selected champion. The eligibility API
@@ -55,8 +57,8 @@ semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire 
 
 ## Next Steps
 
-1. Optionally reload the open localhost tab and select Alistar for a final visual check.
-2. Open a PR from `codex/durable-ai-coach`.
+1. Push `codex/durable-ai-coach`.
+2. Open a PR targeting `main`.
 
 ## Recent Changes (2026-07-13 — durable cross-champion AI Coach fix)
 
@@ -77,9 +79,10 @@ semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire 
 
 - `make test`: 232 passed, 2 skipped. `make lint`: clean. Frontend lint: no
   errors (one pre-existing `AuthForm` hook warning).
-- Playwright: 30/30, including the 5/5 AI Coach flow with Alistar id 12, all three seeded
-  champion choices, unscored-champion exclusion, stale-panel clearing, and
-  formatted eligibility errors.
+- Playwright: 34/34 after merging `origin/main`, including 9/9 AI Coach tests
+  with Alistar id 12, all three seeded champion choices, unscored-champion
+  exclusion, stale-panel clearing, formatted eligibility errors, empty
+  eligibility, retries, and account switching.
 - Live BRONZE debug: rank fallback produced 5 aggregates, 1 comparison group,
   and 3 opportunities.
 - Live eligibility: Lux 15, Alistar 12, Blitzcrank 6, Vel'Koz 1 scored matches;
@@ -129,7 +132,8 @@ semaphore acquire non-blocking so the 429 fails fast under a check-then-acquire 
 
 ### Tests / lint
 
-Backend 223 passed / lint clean; frontend lint + build clean; Playwright **29/29**.
+Backend 223 passed / lint clean; frontend lint + build clean; Playwright 29/29.
+(Superseded by the 2026-07-13 ship pass above: 224 backend, 32/32 Playwright.)
 
 ### Blockers
 
@@ -138,6 +142,50 @@ Running ARQ worker still has the old 1h `keep_result` until restarted.
 ### Next steps
 
 Restart worker; finish the smoke-test walkthrough (chat streaming on a seeded account); open PR.
+
+## Recent Changes (2026-07-13 — simplify + ship pass, PR #47 finalized, `chat`)
+
+### What changed
+
+Ran `/code-simplify` then `/ship` (parallel code-reviewer + security-auditor + test-engineer)
+over the branch. Verdict: **GO** — zero Critical/High findings across all three reports.
+Commits `b1962d5`…`1cb9a3e`, all pushed to PR #47 (title/body refreshed to match the shipped
+champion-picker behavior):
+
+- **Simplify** (`b1962d5`): extracted `league-web/src/lib/hooks/useAiCoach.ts` — both match
+  pages carried identical ~40-line AI Coach wiring (picker state, most-played fallback,
+  panel-open invariant, click handler). Same pattern as `useMatchList`/`useRank`. Only
+  substantive finding of a full scan of the feature diff; the rest was already clean.
+- **Test infra** (`10229d8`): `playwright.config.ts` port is overridable via `E2E_PORT`.
+  Found the hard way: `reuseExistingServer` silently tested a **foreign dev server** on :3000
+  belonging to the `codex/durable-ai-coach` worktree (`/private/tmp/league-match-analyzer-
+  durable-ai-coach`) — 4 bogus failures. Local runs: `E2E_PORT=3100 npm run test:e2e`.
+- **Review fixes** (`e5a287b`, `27698c2`): registration test pins `llm_analysis_job` name +
+  `keep_result_s=10` (reverting the fix can no longer pass silently); stale job-id comment in
+  `analysis.py` refreshed; `useAiCoach` now resets a picked champion on account change
+  (carried over across client-side navigation before).
+- **Security hardening** (`21fb56c`, from audit — both Low/Info): `champion_focus` gets a
+  champion-name character allowlist (blocks newline directive smuggling into the system
+  prompt); `rank_tier` bounded at 32 chars. Audit confirmed: tools strictly account-scoped,
+  no SSE frame injection, no SQLi, no secret leakage, XSS-safe rendering.
+- **E2E coverage** (`1cb9a3e`, from test-engineer gaps): error path + retry, empty champion
+  list (picker hidden/button disabled), account switch mid-poll abandons the polling loop
+  (helpers now yield a distinct account id per riot id), picker locked while analyzing.
+
+### Tests / lint
+
+Backend **224** passed / lint clean; frontend lint + build clean; Playwright **32/32**
+(known pre-existing live-game flake passes in isolation).
+
+### Blockers
+
+None new. Running ARQ worker still needs a restart for `keep_result=10` (any deploy does it).
+
+### Next steps
+
+Merge PR #47; finish chat-streaming smoke walkthrough in the browser; `make evals`; decide
+whether to reconcile with the parallel `codex/durable-ai-coach` branch (its picker sources
+from account eligibility instead of loaded match history).
 
 ## Recent Changes (2026-07-12 — five-axis code review of AI Coach + chat, `chat`)
 

@@ -18,7 +18,7 @@ class AnalysisEnqueueRequest(BaseModel):
     """
 
     champion_id: int
-    rank_tier: str | None = None
+    rank_tier: str | None = Field(default=None, max_length=32)
 
 
 class AnalysisEnqueueResponse(BaseModel):

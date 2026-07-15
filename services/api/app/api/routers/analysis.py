@@ -172,8 +172,9 @@ async def enqueue_analysis(
             champion_name=champion.name,
         )
 
-    # Day-bucketed deterministic id: dedupes concurrent clicks while still
-    # allowing a retry the next day if a run produced no persisted row.
+    # Deterministic id dedupes concurrent clicks; the worker registers the
+    # job with a short keep_result (background_jobs.py) so a failed run
+    # frees the id for retries in seconds. Day bucket is a residual guard.
     job_id = f"llm-{account.id}-{payload.champion_id}-{date.today().isoformat()}"
     pool = await get_arq_pool()
     job = await pool.enqueue_job(

@@ -17,8 +17,7 @@ import {
   getRiotAccountId,
   getUserPuuid,
 } from "../../lib/user-utils";
-import {useAnalysis} from "../../lib/hooks/useAnalysis";
-import {useAnalysisChampions} from "../../lib/hooks/useAnalysisChampions";
+import {useAiCoach} from "../../lib/hooks/useAiCoach";
 import {useChat} from "../../lib/hooks/useChat";
 import {useLiveGameWhenReady} from "../../lib/hooks/useLiveGameWhenReady";
 import {useMatchList} from "../../lib/hooks/useMatchList";
@@ -79,28 +78,23 @@ export default function HomePage() {
   );
 
   const {
-    analysis,
-    isLoading: isAnalyzing,
-    error: analysisError,
-    requestedChampionId,
-    requestAnalysis,
-    dismiss: dismissAnalysis,
-  } = useAnalysis(riotAccountId ?? null);
-
-  const {
     champions: analysisChampions,
-    isLoading: areAnalysisChampionsLoading,
-    error: analysisChampionsError,
-  } = useAnalysisChampions(riotAccountId ?? null, {refreshIndex});
-  const [pickedChampionId, setPickedChampionId] = useState<number | null>(
-    null
-  );
-  // Fall back to the endpoint's highest-scored champion when the picker is
-  // stale.
-  const selectedChampion =
-    analysisChampions.find((c) => c.champion_id === pickedChampionId) ??
-    analysisChampions[0] ??
-    null;
+    selectedChampion,
+    selectChampion,
+    isOptionsLoading: areAnalysisChampionsLoading,
+    optionsError: analysisChampionsError,
+    analysis,
+    analysisError,
+    isAnalyzing,
+    isAnalysisForSelectedChampion,
+    isAnalysisOpen,
+    handleAnalysisClick,
+    dismissAnalysis,
+  } = useAiCoach({
+    riotAccountId: riotAccountId ?? null,
+    rankTier: rank?.tier ?? null,
+    refreshIndex,
+  });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const {
@@ -112,43 +106,6 @@ export default function HomePage() {
   } = useChat(riotAccountId ?? null, {
     championFocus: selectedChampion?.champion_name ?? null,
   });
-
-  // "Open" relative to the picker: the visible panel belongs to the
-  // currently selected champion, so the button toggles it closed.
-  const isAnalysisForSelectedChampion =
-    requestedChampionId !== null &&
-    requestedChampionId === (selectedChampion?.champion_id ?? null);
-  const isAnalysisOpen =
-    (analysis !== null || analysisError !== null) &&
-    isAnalysisForSelectedChampion;
-
-  const handleChampionSelect = useCallback(
-    (championId: number) => {
-      if (
-        requestedChampionId !== null &&
-        requestedChampionId !== championId
-      ) {
-        dismissAnalysis();
-      }
-      setPickedChampionId(championId);
-    },
-    [dismissAnalysis, requestedChampionId]
-  );
-
-  const handleAnalysisClick = useCallback(() => {
-    if (isAnalysisOpen) {
-      dismissAnalysis();
-      return;
-    }
-    if (!selectedChampion) return;
-    void requestAnalysis(selectedChampion.champion_id, rank?.tier ?? null);
-  }, [
-    isAnalysisOpen,
-    dismissAnalysis,
-    selectedChampion,
-    requestAnalysis,
-    rank?.tier,
-  ]);
 
   useEffect(() => {
     if (!user) {
@@ -191,7 +148,7 @@ export default function HomePage() {
                       selectedChampionId={
                         selectedChampion?.champion_id ?? null
                       }
-                      onSelectChampion={handleChampionSelect}
+                      onSelectChampion={selectChampion}
                       isLoading={isAnalyzing}
                       isOptionsLoading={areAnalysisChampionsLoading}
                       isPanelOpen={isAnalysisOpen}

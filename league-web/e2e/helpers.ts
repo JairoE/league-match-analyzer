@@ -14,12 +14,21 @@ export async function mockRiotAccountRoutes(
   page: Page,
   overrides: {page2?: boolean} = {}
 ) {
-  // Account lookup
+  // Account lookup — echoes the searched riot id with a distinct account
+  // id per id, so tests can navigate between accounts meaningfully.
   await page.route("**/search/**/account", async (route) => {
+    const match = route.request().url().match(/\/search\/([^/]+)\/account/);
+    const riotId = match
+      ? decodeURIComponent(match[1])
+      : ACCOUNT_RESPONSE.riot_id;
+    const body =
+      riotId === ACCOUNT_RESPONSE.riot_id
+        ? ACCOUNT_RESPONSE
+        : {...ACCOUNT_RESPONSE, id: `account-${riotId}`, riot_id: riotId};
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(ACCOUNT_RESPONSE),
+      body: JSON.stringify(body),
     });
   });
 
