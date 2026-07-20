@@ -44,10 +44,10 @@ async def _run(
     from app.models.riot_account import RiotAccount
     from app.jobs.llm_analysis import (
         OBJECTIVE_LABELS,
+        _aggregate_action_stats_with_rank_fallback,
         _get_scored_match_ids,
         load_item_name_map,
     )
-    from app.services.action_aggregation import aggregate_action_stats_for_player
     from app.services.action_comparison import compare_action_stats
     from app.services.llm_client import OpenAIClient
     from app.services.llm_prompt import build_system_prompt, build_user_prompt
@@ -75,12 +75,17 @@ async def _run(
 
         # Step 5: Aggregate
         print("Running step 5 (aggregate)...")
-        aggregates = await aggregate_action_stats_for_player(
-            session,
-            UUID(account_id),
-            champion=champion,
-            rank_tier=rank_tier,
+        aggregates, aggregation_rank_tier = (
+            await _aggregate_action_stats_with_rank_fallback(
+                session,
+                UUID(account_id),
+                champion,
+                rank_tier,
+            )
         )
+
+        if rank_tier is not None and aggregation_rank_tier is None:
+            print(f"  No {rank_tier} match bucket; retried without rank filter.")
 
         if not aggregates:
             print("No action aggregates (no scored actions for this account/filters).")
@@ -194,7 +199,7 @@ async def _run(
     print("Running step 8 (persist)...")
     async with async_session_factory() as session:
         match_ids = await _get_scored_match_ids(
-            session, UUID(account_id), champion, rank_tier
+            session, UUID(account_id), champion, aggregation_rank_tier
         )
 
         analysis = LLMAnalysis(

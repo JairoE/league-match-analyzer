@@ -26,3 +26,11 @@ export type AnalysisEnqueueResponse = {
   analysis_id: string | null;
   champion_name: string;
 };
+
+export type AnalysisChampion = {
+  champion_id: number;
+  champion_name: string;
+  scored_match_count: number;
+  scored_action_count: number;
+  corpus_example_count: number;
+};

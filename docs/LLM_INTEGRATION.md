@@ -1,15 +1,54 @@
-# LLM Pipeline Full-Stack Integration Plan
+# LLM Pipeline Full-Stack Integration
 
 ## Context
 
-The 8-step LLM analysis pipeline (Ingest → Extract → Score → ΔW → Aggregate → Compare → Prompt LLM → Store) is fully implemented as backend infrastructure (160 tests pass), but has **zero API endpoints** and **zero frontend integration**. Users can only trigger it via CLI debug scripts. This plan connects it end-to-end so users can request and view AI coaching recommendations from the web UI.
+The 8-step LLM analysis pipeline (Ingest → Extract → Score → ΔW → Aggregate →
+Compare → Prompt LLM → Store) is available through the AI Coach UI. The original
+implementation plan remains below for historical context; the durable
+cross-champion behavior is the current contract.
+
+## Durable Cross-Champion Flow (2026-07-13)
+
+1. Both account pages request
+   `GET /riot-accounts/{riot_account_id}/analysis/champions`. The endpoint scans
+   the account's full match history and returns only champions with scored
+   player actions. Each option includes champion id/name, scored match and action
+   counts, and available embedded corpus examples. Options are ordered by scored
+   matches, then champion name.
+2. The champion picker uses that response instead of the currently loaded match
+   pages. It remains disabled while eligibility is loading and when no champion
+   is eligible. Switching champions clears a panel from the previous selection.
+3. Analysis first aggregates with the account's live rank tier. Historical match
+   rank metadata can be missing, so an empty rank bucket triggers one retry for
+   the selected champion without a rank constraint. The live rank remains in the
+   prompt and persisted analysis context.
+4. Persisted `match_ids` include only matches where the account played the
+   selected champion. The rank constraint is applied to match ids only when the
+   rank-specific aggregate succeeded.
+5. `llm_analysis_job` retains ARQ results for 10 seconds. This preserves
+   concurrent-click deduplication without making a completed transient failure
+   block same-day retries for an hour.
+
+The eligibility response is:
+
+```json
+[
+  {
+    "champion_id": 12,
+    "champion_name": "Alistar",
+    "scored_match_count": 12,
+    "scored_action_count": 35,
+    "corpus_example_count": 5
+  }
+]
+```
 
 ---
 
 ## Design Decisions
 
 1. **Trigger**: Replace `CompareButton` placeholder with an "AI Coach" button in SubHeader actions slot
-2. **Champion selection**: Auto-detect most-played champion from loaded match history (V1 — no picker needed)
+2. **Champion selection**: Server-provided picker of champions with scored account actions
 3. **Async flow**: POST enqueues ARQ job → frontend polls GET every 2s until result appears in DB (max 60s)
 4. **Display**: Collapsible `AnalysisPanel` rendered between liveGame slot and warning in `MatchPageShell`
 5. **Staleness**: POST short-circuits to cached result if analysis exists within last 24 hours
