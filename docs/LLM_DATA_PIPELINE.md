@@ -17,7 +17,7 @@ Ingest a summoner's match history, compute contextualized win probability statis
 
 ## Pipeline Runbook
 
-Steps 1-2 run automatically when matches are fetched through the API/worker. Steps 3-6 require manual invocation. Steps 7-8 run the full LLM pipeline; steps 9-10 seed and run the integration test.
+Steps 1-2 run automatically when matches are fetched through the API/worker, and step 4 (scoring) now auto-chains after extraction for newly ingested matches. Steps 3, 5-6 require manual invocation; step 4's manual commands remain the backfill path for older matches (see below). Steps 7-8 run the full LLM pipeline; steps 9-10 seed and run the integration test.
 
 **Prerequisites**: `make db-up`, `make db-migrate`, `make install`, and a valid `RIOT_API_KEY` in `services/api/.env`.
 
@@ -54,16 +54,20 @@ make win-prob-model-training
 
 Set `WIN_PROB_MODEL_PATH=../../data/win_prob_model.joblib` in `services/api/.env` so the worker can load it.
 
-### Step 4: Score Actions (manual, per match)
+### Step 4: Score Actions (auto-chained for new matches; manual backfill for the rest)
 
-Enqueues `score_actions_job` via ARQ. Requires the worker to be running with the model loaded.
+`extract_match_timeline_job` now enqueues `score_actions_job` (job id `score-actions:auto:{match_id}`) as its final step, so any match ingested through the API/worker gets its `delta_w` fields populated automatically — no manual scoring needed for new matches. Requires the worker to be running with the win-probability model loaded (`WIN_PROB_MODEL_PATH`).
+
+When the model is **not** loaded, `score_actions_job` returns `status="skipped"` and writes nothing (signal: the `jobs.score_actions.skipped` metric and the `score_actions_job_no_model` log). The auto-chain does **not** retry these — recovery is the manual backfill below, run after the model is deployed. Matches extracted **before** this change are likewise not auto-scored (extraction jobs are not re-enqueued for them) and need the backfill.
+
+Enqueue `score_actions_job` manually via ARQ (worker must be running with the model loaded):
 
 ```bash
 # Score a single match
 make score-actions MATCH_ID=NA1_1234567890
 ```
 
-To score all unscored matches for an account, use:
+To backfill all unscored matches for an account, use:
 
 ```bash
 # By account UUID (preferred when you already have it)
@@ -318,7 +322,7 @@ The LLM is asked to:
 | 2. Extract     | **Done** | `extract_state_vectors()` in `app/services/state_vector.py` — per-minute `GameStateVector` with cumulative KDA/objective trackers. `extract_actions()` in `app/services/action_extraction.py` — legendary item purchases + objective kills with pre/post state linking.                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 1→2 Wiring     | **Done** | `fetch_match_details_job` auto-enqueues `extract_match_timeline_job` after persisting `game_info`. `enqueue_timeline_extraction.py` handles idempotency (skips matches with existing state vectors) and deterministic `_job_id`. Job registered via `func(extract_match_timeline_job, max_tries=5)` in `WorkerSettings.functions`. Rate-limited jobs raise `arq.Retry(defer=120)` instead of failing permanently (up to 5 ARQ retries, ~10 min total). All existing matches backfilled via `scripts/backfill_extraction.py`.                                                                                                                                                  |
 | 3. Score       | **Done** | `scripts/train_win_prob_model.py` trains logistic regression from exported CSV and saves joblib. Scoring service in `app/services/win_prob_scoring.py` loads model (optional `WIN_PROB_MODEL_PATH`), `score_state(features)` returns w(x).                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 4. Compute ΔW  | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 4. Compute ΔW  | **Done** | `score_actions_job` in `app/jobs/score_actions.py` loads state vectors and actions per match, scores pre/post states via `score_state()`, persists `delta_w`, `pre_win_prob`, `post_win_prob` on `match_action`. Idempotent; skips when model not loaded. Auto-chained after `extract_match_timeline_job` (job id `score-actions:auto:{match_id}`) so new matches score without manual invocation; older matches and no-model skips use the `make score-account-matches` backfill.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 5. Aggregate   | **Done** | `app/services/action_aggregation.py` — read-only SQL aggregations on `match_action` joined to `match` and `riot_account_match`. Groups by champion_id, rank_tier, action_type, action_key, opponent_damage_bucket (V1: "mixed"). `aggregate_action_stats_for_player(session, riot_account_id, champion?, rank_tier?)` returns list of `ActionAggregate` with personal_stats, population_stats, and `insufficient_personal_sample` when K < 50. Population restricted to same (champion, rank_tier) buckets. Optional dispersion: stddev(delta_w). Debug script: `scripts/aggregate_actions_debug.py` and `make aggregate-actions-debug RIOT_ACCOUNT_ID=...` or `RIOT_ID=...`. |
 | 6. Compare     | **Done** | `compare_action_stats()` in `app/services/action_comparison.py` — pure sync function consuming step 5 `list[ActionAggregate]`. Groups by (champion, rank, action_type), ranks by effective ΔW (personal K≥50, else population), computes improvement gaps (summoner's top items vs. rank-1 alternative), detects selection bias (W(x) ≥ 0.55 + ΔW below group median). Output: `ComparisonResult` (champion-agnostic top level; each `ComparisonGroup` carries champion/rank) serializable to `LLMAnalysis.input_payload` via `dataclasses.asdict()`. Supports multi-champion analysis. Debug script: `scripts/compare_actions_debug.py` and `make compare-actions-debug`.    |
 | 7. Prompt LLM  | **Done** | `llm_analysis_job` in `app/jobs/llm_analysis.py` orchestrates steps 5→8. Provider abstraction in `app/services/llm_client.py` (`LLMClient` protocol + `OpenAIClient`). Prompt construction in `app/services/llm_prompt.py` (system + user prompt from `ComparisonResult`). Response schema in `app/services/llm_response_schema.py` (`LLMAnalysisResponse` with `Recommendation` Pydantic models). Sanitized: no summoner names, PUUIDs, or raw Riot data in prompts.                                                                                                                                                                                                         |

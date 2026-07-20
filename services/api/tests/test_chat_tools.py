@@ -13,6 +13,7 @@ from app.services.chat import tools
 from app.services.chat.tools import (
     CHAT_TOOLS,
     ActionStatsArgs,
+    ChampionInsightsArgs,
     LatestAnalysisArgs,
     PlayerProfileArgs,
     RecentMatchesArgs,
@@ -64,7 +65,7 @@ def _account() -> SimpleNamespace:
 def test_openai_tool_schemas_are_valid_function_specs() -> None:
     schemas = openai_tool_schemas()
 
-    assert len(schemas) == 4
+    assert len(schemas) == 5
     for schema in schemas:
         assert schema["type"] == "function"
         function = schema["function"]
@@ -325,3 +326,211 @@ async def test_list_recent_matches_no_details_returns_message(
     )
 
     assert "message" in result
+
+
+# ── get_champion_insights ─────────────────────────────────────────────
+
+
+def _rag_settings(**overrides: object) -> SimpleNamespace:
+    base: dict[str, Any] = {
+        "rag_enabled": True,
+        "openai_api_key": "key",
+        "llm_model_name": "gpt-4o-mini",
+        "rag_embedding_model": "text-embedding-3-small",
+        "rag_few_shot_limit": 3,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _install_fake_embed(
+    monkeypatch: pytest.MonkeyPatch, *, raises: bool = False
+) -> dict[str, Any]:
+    """Patch tools.OpenAIClient with a recorder; returns a calls dict."""
+    calls: dict[str, Any] = {"constructed": 0, "init_kwargs": None, "embed": []}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            calls["constructed"] += 1
+            calls["init_kwargs"] = kwargs
+
+        async def embed(self, text: str, model: str | None = None) -> list[float]:
+            calls["embed"].append((text, model))
+            if raises:
+                raise RuntimeError("embed boom")
+            return [0.0, 1.0, 0.0]
+
+    monkeypatch.setattr(tools, "OpenAIClient", _FakeClient)
+    return calls
+
+
+async def test_get_champion_insights_disabled_returns_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tools, "get_settings", lambda: _rag_settings(rag_enabled=False))
+    calls = _install_fake_embed(monkeypatch)
+    session = _FakeSession([])
+
+    result = await CHAT_TOOLS["get_champion_insights"].executor(
+        session, _account(), ChampionInsightsArgs(champion_name="Lux")
+    )
+
+    assert result == {"message": "Champion insights are not available right now."}
+    assert calls["constructed"] == 0
+
+
+async def test_get_champion_insights_no_key_returns_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tools, "get_settings", lambda: _rag_settings(openai_api_key=""))
+    calls = _install_fake_embed(monkeypatch)
+    session = _FakeSession([])
+
+    result = await CHAT_TOOLS["get_champion_insights"].executor(
+        session, _account(), ChampionInsightsArgs(champion_name="Lux")
+    )
+
+    assert result == {"message": "Champion insights are not available right now."}
+    assert calls["constructed"] == 0
+
+
+async def test_get_champion_insights_unknown_champion_returns_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tools, "get_settings", lambda: _rag_settings())
+    calls = _install_fake_embed(monkeypatch)
+    session = _FakeSession([_FakeResult(scalar=None)])
+
+    result = await CHAT_TOOLS["get_champion_insights"].executor(
+        session, _account(), ChampionInsightsArgs(champion_name="NotAChampion")
+    )
+
+    assert result == {"message": "Unknown champion 'NotAChampion'."}
+    assert calls["constructed"] == 0
+
+
+async def test_get_champion_insights_embed_failure_returns_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tools, "get_settings", lambda: _rag_settings())
+    _install_fake_embed(monkeypatch, raises=True)
+    retrieval_calls: list = []
+
+    async def _retrieve(*args: object, **kwargs: object) -> list:
+        retrieval_calls.append((args, kwargs))
+        return []
+
+    monkeypatch.setattr(tools, "retrieve_few_shot_examples", _retrieve)
+    session = _FakeSession([_FakeResult(scalar=SimpleNamespace(name="Lux", champ_id=99))])
+
+    result = await CHAT_TOOLS["get_champion_insights"].executor(
+        session, _account(), ChampionInsightsArgs(champion_name="lux")
+    )
+
+    assert result == {"message": "Champion insights are temporarily unavailable."}
+    assert retrieval_calls == []
+
+
+async def test_get_champion_insights_no_examples_returns_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tools, "get_settings", lambda: _rag_settings())
+    _install_fake_embed(monkeypatch)
+
+    async def _retrieve(*args: object, **kwargs: object) -> list:
+        return []
+
+    monkeypatch.setattr(tools, "retrieve_few_shot_examples", _retrieve)
+    session = _FakeSession([_FakeResult(scalar=SimpleNamespace(name="Lux", champ_id=99))])
+
+    result = await CHAT_TOOLS["get_champion_insights"].executor(
+        session, _account(), ChampionInsightsArgs(champion_name="lux")
+    )
+
+    assert "message" in result
+    assert "Lux" in result["message"]
+
+
+async def test_get_champion_insights_embeds_champion_only_without_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tools, "get_settings", lambda: _rag_settings())
+    calls = _install_fake_embed(monkeypatch)
+
+    async def _retrieve(*args: object, **kwargs: object) -> list:
+        return []
+
+    monkeypatch.setattr(tools, "retrieve_few_shot_examples", _retrieve)
+    session = _FakeSession([_FakeResult(scalar=SimpleNamespace(name="Lux", champ_id=99))])
+
+    await CHAT_TOOLS["get_champion_insights"].executor(
+        session, _account(), ChampionInsightsArgs(champion_name="lux")
+    )
+
+    embed_text, embed_model = calls["embed"][0]
+    assert embed_text == "Lux"
+    assert embed_model == "text-embedding-3-small"
+
+
+async def test_get_champion_insights_happy_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tools, "get_settings", lambda: _rag_settings())
+    calls = _install_fake_embed(monkeypatch)
+    captured: dict[str, Any] = {}
+
+    async def _retrieve(
+        session: object, champion_name: str, embedding: list, limit: int
+    ) -> list:
+        captured["champion_name"] = champion_name
+        captured["limit"] = limit
+        return [
+            SimpleNamespace(
+                champion_name="Jhin",
+                rank_tier="GOLD",
+                recommendations=[
+                    {
+                        "rank": r,
+                        "title": f"Rec {r}",
+                        "current_choice": "A",
+                        "recommended_choice": f"Item {r}",
+                        "delta_w_gap": 0.01 * r,
+                        "explanation": "Because reasons.",
+                        "category": "item_purchase",
+                    }
+                    for r in range(1, 5)  # 4 recs -> trimmed to 3
+                ],
+                output_payload={"overall_assessment": "Strong laner."},
+            )
+        ]
+
+    monkeypatch.setattr(tools, "retrieve_few_shot_examples", _retrieve)
+    session = _FakeSession([_FakeResult(scalar=SimpleNamespace(name="Jhin", champ_id=202))])
+
+    result = await CHAT_TOOLS["get_champion_insights"].executor(
+        session,
+        _account(),
+        ChampionInsightsArgs(champion_name="jhin", question="what should I build"),
+    )
+
+    assert result["source"] == "similar_players"
+    assert "OTHER players" in result["provenance"]
+    assert result["champion_name"] == "Jhin"
+    # Canonicalized display name used for both embed text and retrieval filter.
+    assert captured["champion_name"] == "Jhin"
+    assert captured["limit"] == 3
+    embed_text, embed_model = calls["embed"][0]
+    assert "Jhin" in embed_text
+    assert "what should I build" in embed_text
+    assert embed_model == "text-embedding-3-small"
+    # Recommendations trimmed to 3, each keeping only the coaching fields.
+    example = result["examples"][0]
+    assert len(example["recommendations"]) == 3
+    assert set(example["recommendations"][0]) == {
+        "title",
+        "recommended_choice",
+        "delta_w_gap",
+        "explanation",
+    }
+    assert len(cap_tool_result(result)) <= tools.MAX_TOOL_RESULT_CHARS
+    json.dumps(result)

@@ -19,6 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.jobs.llm_analysis import OBJECTIVE_LABELS, load_item_name_map
 from app.models.champion import Champion
@@ -26,7 +27,9 @@ from app.models.llm_analysis import LLMAnalysis
 from app.models.riot_account import RiotAccount
 from app.services.action_aggregation import aggregate_action_stats_for_player
 from app.services.action_comparison import compare_action_stats
+from app.services.llm_client import OpenAIClient
 from app.services.matches import list_matches_for_riot_account
+from app.services.rag_retrieval import format_few_shot_examples, retrieve_few_shot_examples
 
 logger = get_logger("league_api.services.chat.tools")
 
@@ -78,6 +81,16 @@ class ActionStatsArgs(BaseModel):
 
 class RecentMatchesArgs(BaseModel):
     limit: int = Field(default=5, ge=1, le=10, description="How many matches (max 10).")
+
+
+class ChampionInsightsArgs(BaseModel):
+    champion_name: str = Field(
+        description="Champion to get insights for (e.g. 'Jhin').",
+    )
+    question: str | None = Field(
+        default=None,
+        description="The player's question, used to find the most relevant insights.",
+    )
 
 
 # ── Executors ─────────────────────────────────────────────────────────
@@ -270,6 +283,97 @@ async def _list_recent_matches(
     return {"total_matches": total, "matches": summaries}
 
 
+def _trim_insight_example(example: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a formatted few-shot example to the fields useful for chat.
+
+    Keeps the champion/rank context, the overall assessment, and the top 3
+    recommendations trimmed to their coaching-relevant fields so several
+    examples fit comfortably inside the tool-result char cap.
+
+    Args:
+        example: One entry from ``format_few_shot_examples``.
+
+    Returns:
+        Trimmed dict safe to serialize into the tool result.
+    """
+    recommendations = example.get("recommendations") or []
+    trimmed_recs = [
+        {
+            "title": rec.get("title"),
+            "recommended_choice": rec.get("recommended_choice"),
+            "delta_w_gap": rec.get("delta_w_gap"),
+            "explanation": rec.get("explanation"),
+        }
+        for rec in recommendations[:3]
+        if isinstance(rec, dict)
+    ]
+    return {
+        "champion_name": example.get("champion_name"),
+        "rank_tier": example.get("rank_tier"),
+        "overall_assessment": example.get("overall_assessment"),
+        "recommendations": trimmed_recs,
+    }
+
+
+async def _get_champion_insights(
+    session: AsyncSession,
+    account: RiotAccount,
+    args: ChampionInsightsArgs,
+) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.rag_enabled or not settings.openai_api_key:
+        return {"message": "Champion insights are not available right now."}
+
+    # Canonicalize the champion name so it matches LLMAnalysis.champion_name,
+    # which retrieval filters on exactly (e.g. "lux" -> "Lux").
+    result = await session.execute(
+        select(Champion).where(func.lower(Champion.name) == args.champion_name.lower())
+    )
+    champion = result.scalars().first()
+    if champion is None:
+        return {"message": f"Unknown champion '{args.champion_name}'."}
+
+    query_text = f"{champion.name} {args.question}" if args.question else champion.name
+    try:
+        client = OpenAIClient(
+            api_key=settings.openai_api_key,
+            model=settings.llm_model_name,
+        )
+        embedding = await client.embed(query_text, model=settings.rag_embedding_model)
+    except Exception:
+        logger.warning(
+            "chat_champion_insights_embed_failed",
+            extra={"champion": champion.name},
+            exc_info=True,
+        )
+        return {"message": "Champion insights are temporarily unavailable."}
+
+    examples = await retrieve_few_shot_examples(
+        session,
+        champion.name,
+        embedding,
+        limit=settings.rag_few_shot_limit,
+    )
+    if not examples:
+        return {
+            "message": (
+                f"No coaching insights for {champion.name} yet. "
+                "No analyzed players on this champion."
+            )
+        }
+
+    formatted = format_few_shot_examples(examples)
+    return {
+        "source": "similar_players",
+        "provenance": (
+            f"Insights from AI Coach analyses of OTHER players on {champion.name} — "
+            "not from this player's own games."
+        ),
+        "champion_name": champion.name,
+        "examples": [_trim_insight_example(ex) for ex in formatted],
+    }
+
+
 # ── Registry ──────────────────────────────────────────────────────────
 
 
@@ -348,6 +452,18 @@ CHAT_TOOLS: dict[str, ChatTool] = {
             label="Fetching recent matches…",
             args_model=RecentMatchesArgs,
             executor=_list_recent_matches,
+        ),
+        ChatTool(
+            name="get_champion_insights",
+            description=(
+                "Get coaching insights for a champion drawn from AI Coach analyses of "
+                "OTHER, similar players (not this player's own games). Use when the "
+                "player has no personal scored data on a champion, or asks about a "
+                "champion in general or how to improve on it."
+            ),
+            label="Gathering insights from similar players…",
+            args_model=ChampionInsightsArgs,
+            executor=_get_champion_insights,
         ),
     ]
 }

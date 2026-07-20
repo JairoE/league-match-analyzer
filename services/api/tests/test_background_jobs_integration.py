@@ -7,9 +7,10 @@ import pytest
 from arq.worker import Function
 
 from app.core.config import get_settings
-from app.jobs import match_ingestion, scheduled
+from app.jobs import match_ingestion, scheduled, timeline_extraction
 from app.jobs.llm_analysis import llm_analysis_job
 from app.jobs.scheduled import sync_all_riot_accounts_matches
+from app.jobs.score_actions import score_actions_job
 from app.services import enqueue_match_details
 from app.services.background_jobs import WorkerSettings
 
@@ -268,3 +269,82 @@ async def test_enqueue_missing_detail_jobs_empty_input() -> None:
     result = await enqueue_match_details.enqueue_missing_detail_jobs([])
     assert result == 0
     print(f"[test_empty_input] Empty match_ids list -> enqueued={result} (early return)")
+
+
+# ---------------------------------------------------------------------------
+# _enqueue_scoring_job (chains ΔW scoring after timeline extraction)
+# ---------------------------------------------------------------------------
+
+
+def test_score_actions_job_registered_by_name() -> None:
+    # Both the extraction chain and the manual backfill enqueue by this
+    # exact string name, so it must resolve in the worker's function list.
+    registered_names = {
+        f.name if isinstance(f, Function) else f.__name__
+        for f in WorkerSettings.functions
+    }
+    assert "score_actions_job" in registered_names
+    # Registered as a plain coroutine (name derives from __name__).
+    assert score_actions_job in WorkerSettings.functions
+    print(f"[test_score_registration] registered_names={sorted(registered_names)}")
+
+
+@pytest.mark.asyncio
+async def test_enqueue_scoring_job_uses_deterministic_auto_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = _FakeRedisQueue()
+
+    async def _noop_metric(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(timeline_extraction, "increment_metric_safe", _noop_metric)
+
+    await timeline_extraction._enqueue_scoring_job({"redis": redis}, "NA1_1")
+
+    assert len(redis.calls) == 1
+    name, args, kwargs = redis.calls[0]
+    assert name == "score_actions_job"
+    assert args == ("NA1_1",)
+    # Distinct from the manual script id (score-actions:v0:...) so a manual
+    # retry is never deduped against an auto-run that skipped for no model.
+    assert kwargs == {"_job_id": "score-actions:auto:NA1_1"}
+    print(f"[test_auto_id] enqueued {name} args={args} kwargs={kwargs}")
+
+
+@pytest.mark.asyncio
+async def test_enqueue_scoring_job_without_redis_is_noop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metrics: list[tuple[tuple, dict]] = []
+
+    async def _record_metric(*args: object, **kwargs: object) -> None:
+        metrics.append((args, kwargs))
+
+    monkeypatch.setattr(timeline_extraction, "increment_metric_safe", _record_metric)
+
+    # Missing redis context must not raise; it records the failure metric.
+    await timeline_extraction._enqueue_scoring_job({}, "NA1_1")
+
+    assert metrics == [
+        (("jobs.score_actions.enqueue_failed",), {"tags": {"reason": "no_redis"}})
+    ]
+    print(f"[test_no_redis] metrics={metrics}")
+
+
+@pytest.mark.asyncio
+async def test_enqueue_scoring_job_swallows_enqueue_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailingRedis:
+        async def enqueue_job(self, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("redis down")
+
+    async def _noop_metric(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(timeline_extraction, "increment_metric_safe", _noop_metric)
+
+    # An enqueue failure must be swallowed, never fail the extraction job.
+    await timeline_extraction._enqueue_scoring_job({"redis": _FailingRedis()}, "NA1_1")
+    print("[test_swallow] enqueue RuntimeError swallowed without propagating")
