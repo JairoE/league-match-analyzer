@@ -78,20 +78,22 @@ export default function HomePage() {
   );
 
   const {
-    playedChampions,
+    champions: analysisChampions,
     selectedChampion,
     selectChampion,
+    isOptionsLoading: areAnalysisChampionsLoading,
+    optionsError: analysisChampionsError,
     analysis,
     analysisError,
     isAnalyzing,
+    isAnalysisForSelectedChampion,
     isAnalysisOpen,
     handleAnalysisClick,
     dismissAnalysis,
   } = useAiCoach({
     riotAccountId: riotAccountId ?? null,
-    matchDetails,
-    puuid: userPuuid,
     rankTier: rank?.tier ?? null,
+    refreshIndex,
   });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -102,7 +104,7 @@ export default function HomePage() {
     error: chatError,
     sendMessage: sendChatMessage,
   } = useChat(riotAccountId ?? null, {
-    championFocus: selectedChampion?.championName ?? null,
+    championFocus: selectedChampion?.champion_name ?? null,
   });
 
   useEffect(() => {
@@ -116,7 +118,12 @@ export default function HomePage() {
     return <div className={styles.loading}>Redirecting...</div>;
   }
 
-  const warning = staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
+  const warning =
+    analysisChampionsError ??
+    staleMessage ??
+    rankStaleMessage ??
+    liveGameWarning ??
+    null;
 
   return (
     <>
@@ -137,12 +144,13 @@ export default function HomePage() {
                 {!isDemoMode() ? (
                   <>
                     <AnalysisButton
-                      champions={playedChampions}
+                      champions={analysisChampions}
                       selectedChampionId={
-                        selectedChampion?.championId ?? null
+                        selectedChampion?.champion_id ?? null
                       }
                       onSelectChampion={selectChampion}
                       isLoading={isAnalyzing}
+                      isOptionsLoading={areAnalysisChampionsLoading}
                       isPanelOpen={isAnalysisOpen}
                       disabled={!riotAccountId || !selectedChampion}
                       onClick={handleAnalysisClick}
@@ -160,8 +168,8 @@ export default function HomePage() {
         }
         analysisPanel={
           <AnalysisPanel
-            analysis={analysis}
-            error={analysisError}
+            analysis={isAnalysisForSelectedChampion ? analysis : null}
+            error={isAnalysisForSelectedChampion ? analysisError : null}
             onDismiss={dismissAnalysis}
           />
         }

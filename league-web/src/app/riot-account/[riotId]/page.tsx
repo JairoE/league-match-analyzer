@@ -109,20 +109,22 @@ export default function RiotAccountPage() {
   });
 
   const {
-    playedChampions,
+    champions: analysisChampions,
     selectedChampion,
     selectChampion,
+    isOptionsLoading: areAnalysisChampionsLoading,
+    optionsError: analysisChampionsError,
     analysis,
     analysisError,
     isAnalyzing,
+    isAnalysisForSelectedChampion,
     isAnalysisOpen,
     handleAnalysisClick,
     dismissAnalysis,
   } = useAiCoach({
     riotAccountId: account?.id ?? null,
-    matchDetails,
-    puuid: accountPuuid,
     rankTier: rank?.tier ?? null,
+    refreshIndex,
   });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -133,7 +135,7 @@ export default function RiotAccountPage() {
     error: chatError,
     sendMessage: sendChatMessage,
   } = useChat(account?.id ?? null, {
-    championFocus: selectedChampion?.championName ?? null,
+    championFocus: selectedChampion?.champion_name ?? null,
   });
 
   // Check session (optional for search)
@@ -200,7 +202,12 @@ export default function RiotAccountPage() {
   }, [riotId, decodeError, refreshIndex, clearError, reportError]);
 
   const error = pageError ?? errorMessage;
-  const warning = staleMessage ?? rankStaleMessage ?? liveGameWarning ?? null;
+  const warning =
+    analysisChampionsError ??
+    staleMessage ??
+    rankStaleMessage ??
+    liveGameWarning ??
+    null;
 
   return (
     <>
@@ -229,12 +236,13 @@ export default function RiotAccountPage() {
                 {!isDemoMode() ? (
                   <>
                     <AnalysisButton
-                      champions={playedChampions}
+                      champions={analysisChampions}
                       selectedChampionId={
-                        selectedChampion?.championId ?? null
+                        selectedChampion?.champion_id ?? null
                       }
                       onSelectChampion={selectChampion}
                       isLoading={isAnalyzing}
+                      isOptionsLoading={areAnalysisChampionsLoading}
                       isPanelOpen={isAnalysisOpen}
                       disabled={!account?.id || !selectedChampion}
                       onClick={handleAnalysisClick}
@@ -252,8 +260,8 @@ export default function RiotAccountPage() {
         }
         analysisPanel={
           <AnalysisPanel
-            analysis={analysis}
-            error={analysisError}
+            analysis={isAnalysisForSelectedChampion ? analysis : null}
+            error={isAnalysisForSelectedChampion ? analysisError : null}
             onDismiss={dismissAnalysis}
           />
         }

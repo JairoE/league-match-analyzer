@@ -1,41 +1,43 @@
 "use client";
 
-import {useCallback, useMemo, useState} from "react";
-import {getPlayedChampions} from "../match-utils";
+import {useCallback, useState} from "react";
 import {useAnalysis} from "./useAnalysis";
-import type {PlayedChampion} from "../match-utils";
-import type {AnalysisResponse} from "../types/analysis";
-import type {MatchDetail} from "../types/match";
+import {useAnalysisChampions} from "./useAnalysisChampions";
+import type {
+  AnalysisChampion,
+  AnalysisResponse,
+} from "../types/analysis";
 
 type UseAiCoachArgs = {
   riotAccountId: string | null;
-  matchDetails: Record<string, MatchDetail>;
-  puuid: string | null;
   rankTier: string | null;
+  refreshIndex?: number;
 };
 
 type UseAiCoachResult = {
-  playedChampions: PlayedChampion[];
-  selectedChampion: PlayedChampion | null;
+  champions: AnalysisChampion[];
+  selectedChampion: AnalysisChampion | null;
   selectChampion: (championId: number) => void;
+  isOptionsLoading: boolean;
+  optionsError: string | null;
   analysis: AnalysisResponse | null;
   analysisError: string | null;
   isAnalyzing: boolean;
+  isAnalysisForSelectedChampion: boolean;
   isAnalysisOpen: boolean;
   handleAnalysisClick: () => void;
   dismissAnalysis: () => void;
 };
 
 /**
- * Shared AI Coach wiring for the match pages: champion picker state
- * (most-played fallback), the analysis request/poll flow, and the
+ * Shared AI Coach wiring for the match pages: server-provided champion
+ * eligibility, picker state, the analysis request/poll flow, and the
  * panel-open invariant tying the visible panel to the picked champion.
  */
 export function useAiCoach({
   riotAccountId,
-  matchDetails,
-  puuid,
   rankTier,
+  refreshIndex = 0,
 }: UseAiCoachArgs): UseAiCoachResult {
   const {
     analysis,
@@ -45,11 +47,12 @@ export function useAiCoach({
     requestAnalysis,
     dismiss: dismissAnalysis,
   } = useAnalysis(riotAccountId);
+  const {
+    champions,
+    isLoading: isOptionsLoading,
+    error: optionsError,
+  } = useAnalysisChampions(riotAccountId, {refreshIndex});
 
-  const playedChampions = useMemo(
-    () => getPlayedChampions(matchDetails, puuid),
-    [matchDetails, puuid]
-  );
   const [pickedChampionId, setPickedChampionId] = useState<number | null>(
     null
   );
@@ -60,17 +63,32 @@ export function useAiCoach({
     setLastAccountId(riotAccountId);
     setPickedChampionId(null);
   }
-  // Fall back to most-played when nothing (or a stale champion) is picked.
+  // Fall back to the endpoint's highest-scored eligible champion when the
+  // current pick is absent or becomes ineligible after a refresh.
   const selectedChampion =
-    playedChampions.find((c) => c.championId === pickedChampionId) ??
-    playedChampions[0] ??
+    champions.find((champion) => champion.champion_id === pickedChampionId) ??
+    champions[0] ??
     null;
 
-  // "Open" relative to the picker: the visible panel belongs to the
-  // currently selected champion, so the button toggles it closed.
+  const isAnalysisForSelectedChampion =
+    requestedChampionId !== null &&
+    requestedChampionId === (selectedChampion?.champion_id ?? null);
   const isAnalysisOpen =
     (analysis !== null || analysisError !== null) &&
-    requestedChampionId === (selectedChampion?.championId ?? null);
+    isAnalysisForSelectedChampion;
+
+  const selectChampion = useCallback(
+    (championId: number) => {
+      if (
+        requestedChampionId !== null &&
+        requestedChampionId !== championId
+      ) {
+        dismissAnalysis();
+      }
+      setPickedChampionId(championId);
+    },
+    [dismissAnalysis, requestedChampionId]
+  );
 
   const handleAnalysisClick = useCallback(() => {
     if (isAnalysisOpen) {
@@ -78,7 +96,7 @@ export function useAiCoach({
       return;
     }
     if (!selectedChampion) return;
-    void requestAnalysis(selectedChampion.championId, rankTier);
+    void requestAnalysis(selectedChampion.champion_id, rankTier);
   }, [
     isAnalysisOpen,
     dismissAnalysis,
@@ -88,12 +106,15 @@ export function useAiCoach({
   ]);
 
   return {
-    playedChampions,
+    champions,
     selectedChampion,
-    selectChampion: setPickedChampionId,
+    selectChampion,
+    isOptionsLoading,
+    optionsError,
     analysis,
     analysisError,
     isAnalyzing,
+    isAnalysisForSelectedChampion,
     isAnalysisOpen,
     handleAnalysisClick,
     dismissAnalysis,

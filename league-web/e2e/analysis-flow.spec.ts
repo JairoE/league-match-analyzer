@@ -13,10 +13,46 @@ type AnalysisMockOptions = {
   postStatus?: "enqueued" | "already_exists";
   nullPollsBeforeResult?: number;
   alwaysNull?: boolean;
+  championOptionsStatus?: number;
+  championOptionsResponses?: AnalysisChampionFixture[][];
+  requestedChampionIds?: number[];
 };
 
-// Champion ids from e2e/fixtures/matches.ts participants
+type AnalysisChampionFixture = {
+  champion_id: number;
+  champion_name: string;
+  scored_match_count: number;
+  scored_action_count: number;
+  corpus_example_count: number;
+};
+
+const ANALYZABLE_CHAMPIONS: AnalysisChampionFixture[] = [
+  {
+    champion_id: 99,
+    champion_name: "Lux",
+    scored_match_count: 15,
+    scored_action_count: 40,
+    corpus_example_count: 6,
+  },
+  {
+    champion_id: 12,
+    champion_name: "Alistar",
+    scored_match_count: 12,
+    scored_action_count: 35,
+    corpus_example_count: 5,
+  },
+  {
+    champion_id: 53,
+    champion_name: "Blitzcrank",
+    scored_match_count: 6,
+    scored_action_count: 22,
+    corpus_example_count: 5,
+  },
+];
+
 const CHAMPION_NAMES: Record<number, string> = {
+  12: "Alistar",
+  53: "Blitzcrank",
   157: "Yasuo",
   238: "Zed",
   99: "Lux",
@@ -33,12 +69,36 @@ async function mockAnalysisRoutes(
     postStatus = "enqueued",
     nullPollsBeforeResult = 1,
     alwaysNull = false,
+    championOptionsStatus = 200,
+    championOptionsResponses = [ANALYZABLE_CHAMPIONS],
+    requestedChampionIds,
   }: AnalysisMockOptions = {}
 ) {
   let getCalls = 0;
-  await page.route("**/riot-accounts/**/analysis*", async (route) => {
+  let championOptionsCalls = 0;
+  await page.route("**/riot-accounts/**/analysis**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/analysis/champions")) {
+      await route.fulfill({
+        status: championOptionsStatus,
+        contentType: "application/json",
+        body:
+          championOptionsStatus === 200
+            ? JSON.stringify(
+                championOptionsResponses[
+                  Math.min(
+                    championOptionsCalls++,
+                    championOptionsResponses.length - 1
+                  )
+                ]
+              )
+            : "{}",
+      });
+      return;
+    }
     if (route.request().method() === "POST") {
       const body = route.request().postDataJSON() as {champion_id: number};
+      requestedChampionIds?.push(body.champion_id);
       await route.fulfill({
         status: 202,
         contentType: "application/json",
@@ -54,7 +114,6 @@ async function mockAnalysisRoutes(
     }
     getCalls += 1;
     const ready = !alwaysNull && getCalls > nullPollsBeforeResult;
-    const url = new URL(route.request().url());
     const championName =
       url.searchParams.get("champion_name") ?? ANALYSIS_RESPONSE.champion_name;
     await route.fulfill({
@@ -78,9 +137,9 @@ test.describe("AI Coach analysis flow", () => {
     await mockAnalysisRoutes(page, {nullPollsBeforeResult: 1});
     await gotoAccountAndWait(page);
 
-    // Picker defaults to the most-played champion: Yasuo (2 ranked matches)
+    // Picker defaults to the endpoint's first (most-scored) champion.
     const select = page.getByTestId("ai-coach-champion-select");
-    await expect(select).toHaveValue("157");
+    await expect(select).toHaveValue("99");
     const button = page.getByTestId("ai-coach-button");
     await expect(button).toHaveText(/AI Coach/);
 
@@ -93,7 +152,7 @@ test.describe("AI Coach analysis flow", () => {
     // First poll returns null, second returns the analysis (~4s)
     const panel = page.getByTestId("analysis-panel");
     await expect(panel).toBeVisible({timeout: 15_000});
-    await expect(panel).toContainText("AI Coach: Yasuo");
+    await expect(panel).toContainText("AI Coach: Lux");
     await expect(
       page.getByTestId("analysis-recommendation")
     ).toHaveCount(3);
@@ -144,37 +203,74 @@ test.describe("AI Coach analysis flow", () => {
     );
   });
 
-  test("champion picker: analyze a non-most-played champion, then switch", async ({
+  test("champion picker uses eligible server options and switches", async ({
     page,
   }) => {
+    const requestedChampionIds: number[] = [];
     await mockAnalysisRoutes(page, {
       postStatus: "already_exists",
       nullPollsBeforeResult: 0,
+      requestedChampionIds,
+      championOptionsResponses: [
+        ANALYZABLE_CHAMPIONS,
+        ANALYZABLE_CHAMPIONS.filter(
+          (champion) => champion.champion_id !== 12
+        ),
+      ],
     });
     await gotoAccountAndWait(page);
 
-    // Pick Lux (1 game — not the default) and analyze her
     const select = page.getByTestId("ai-coach-champion-select");
-    await select.selectOption("99");
+    await expect(select.locator("option")).toHaveText([
+      "Lux (15)",
+      "Alistar (12)",
+      "Blitzcrank (6)",
+    ]);
+    await expect(select.locator('option[value="238"]')).toHaveCount(0);
+
+    // Alistar is provided by the eligibility endpoint, not the loaded matches.
+    await select.selectOption("12");
     await page.getByTestId("ai-coach-button").click();
 
     const panel = page.getByTestId("analysis-panel");
     await expect(panel).toBeVisible({timeout: 5000});
-    await expect(panel).toContainText("AI Coach: Lux");
+    await expect(panel).toContainText("AI Coach: Alistar");
     await expect(page.getByTestId("ai-coach-button")).toHaveText(
       "Hide AI Coach"
     );
 
-    // Switch the picker back to Yasuo: the button offers a fresh analysis
-    await select.selectOption("157");
+    // A server refresh can make the selected champion ineligible. The old
+    // champion panel must disappear even though the select handler did not run.
+    await page.getByRole("button", {name: "Refresh"}).click();
+    await expect(select).toHaveValue("99");
+    await expect(panel).not.toBeVisible();
     await expect(page.getByTestId("ai-coach-button")).toHaveText("AI Coach");
     await page.getByTestId("ai-coach-button").click();
-
     await expect(panel).toBeVisible({timeout: 5000});
-    await expect(panel).toContainText("AI Coach: Yasuo");
+    await expect(panel).toContainText("AI Coach: Lux");
+
+    await select.selectOption("53");
+    await page.getByTestId("ai-coach-button").click();
+    await expect(panel).toContainText("AI Coach: Blitzcrank");
+    expect(requestedChampionIds).toEqual([12, 99, 53]);
   });
 
-  test("no loaded champions: picker hidden and button disabled", async ({
+  test("champion picker disables analysis and formats loading errors", async ({
+    page,
+  }) => {
+    await mockAnalysisRoutes(page, {championOptionsStatus: 503});
+    await gotoAccountAndWait(page);
+
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select).toBeDisabled();
+    await expect(select).toHaveText("No scored champions");
+    await expect(page.getByTestId("ai-coach-button")).toBeDisabled();
+    await expect(
+      page.getByText("Server error. Please try again later.")
+    ).toBeVisible();
+  });
+
+  test("server eligibility remains available with no loaded matches", async ({
     page,
   }) => {
     // Registered after the beforeEach mock, so this empty list wins.
@@ -193,7 +289,24 @@ test.describe("AI Coach analysis flow", () => {
     await page.goto(riotAccountUrl());
 
     await expect(page.getByText("Viewing matches for")).toBeVisible();
-    await expect(page.getByTestId("ai-coach-champion-select")).toHaveCount(0);
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select.locator("option")).toHaveText([
+      "Lux (15)",
+      "Alistar (12)",
+      "Blitzcrank (6)",
+    ]);
+    await expect(page.getByTestId("ai-coach-button")).toBeEnabled();
+  });
+
+  test("no eligible champions disables the picker and analysis", async ({
+    page,
+  }) => {
+    await mockAnalysisRoutes(page, {championOptionsResponses: [[]]});
+    await gotoAccountAndWait(page);
+
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select).toBeDisabled();
+    await expect(select).toHaveText("No scored champions");
     await expect(page.getByTestId("ai-coach-button")).toBeDisabled();
   });
 
@@ -201,7 +314,16 @@ test.describe("AI Coach analysis flow", () => {
     page,
   }) => {
     let postCalls = 0;
-    await page.route("**/riot-accounts/**/analysis*", async (route) => {
+    await page.route("**/riot-accounts/**/analysis**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith("/analysis/champions")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(ANALYZABLE_CHAMPIONS),
+        });
+        return;
+      }
       if (route.request().method() === "POST") {
         postCalls += 1;
         if (postCalls === 1) {
