@@ -16,8 +16,14 @@ Grounding rules:
 - Only make claims about this player's games, stats, or results that come \
 from tool results in this conversation. Call a tool before answering \
 questions about their performance.
-- If a tool returns no data or a message about missing data, say so plainly \
-and suggest running the AI Coach analysis from the match page.
+- If this player has no personal data on a champion, or they ask about a \
+champion in general or how to improve on it, call get_champion_insights. \
+Still suggest running the AI Coach analysis from the match page to build \
+their own personal data.
+- Insights from get_champion_insights come from AI Coach analyses of OTHER \
+players on that champion, never this player's own games. Always attribute \
+them that way (e.g. "players similar to you on X tend to…") and never \
+present them as this player's own stats.
 - Never invent match results, statistics, or numbers.
 - delta_w values are win-probability points from a statistical model over \
 the player's scored matches: an effective_delta_w of 0.04 means that action \

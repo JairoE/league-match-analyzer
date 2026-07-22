@@ -161,12 +161,65 @@ async def extract_match_timeline_job(
         )
         await increment_metric_safe("jobs.timeline_extraction.success")
 
+        await _enqueue_scoring_job(ctx, match_id)
+
         return {
             "match_id": match_id,
             "status": "ok",
             "state_vectors": len(state_vectors),
             "actions": len(actions),
         }
+
+
+async def _enqueue_scoring_job(ctx: dict, match_id: str) -> None:
+    """Enqueue win-probability scoring for a freshly extracted match.
+
+    Chains ``score_actions_job`` after extraction so newly ingested matches
+    get their ΔW fields populated automatically, instead of waiting on a
+    manual ``make score-account-matches`` backfill.
+
+    Best-effort: a missing Redis context or an enqueue failure is logged and
+    swallowed so it never fails the extraction job. Uses a job id distinct
+    from the manual backfill script (``score-actions:v0:...``) so a manual
+    retry is never deduped against an auto-run that skipped for lack of a
+    win-probability model.
+
+    Args:
+        ctx: ARQ worker context with redis pool.
+        match_id: Riot match ID (e.g., "NA1_12345").
+    """
+    redis = ctx.get("redis")
+    if not redis:
+        logger.warning(
+            "extract_match_timeline_job_no_redis_context",
+            extra={"match_id": match_id},
+        )
+        await increment_metric_safe(
+            "jobs.score_actions.enqueue_failed",
+            tags={"reason": "no_redis"},
+        )
+        return
+
+    try:
+        await redis.enqueue_job(
+            "score_actions_job",
+            match_id,
+            _job_id=f"score-actions:auto:{match_id}",
+        )
+        logger.info(
+            "extract_match_timeline_job_scoring_enqueued",
+            extra={"match_id": match_id},
+        )
+        await increment_metric_safe("jobs.score_actions.enqueued")
+    except Exception:
+        logger.warning(
+            "extract_match_timeline_job_scoring_enqueue_failed",
+            extra={"match_id": match_id},
+        )
+        await increment_metric_safe(
+            "jobs.score_actions.enqueue_failed",
+            tags={"reason": "enqueue_error"},
+        )
 
 
 async def _fetch_timeline_cached(
