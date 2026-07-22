@@ -340,11 +340,19 @@ async def test_enqueue_scoring_job_swallows_enqueue_errors(
         async def enqueue_job(self, *args: object, **kwargs: object) -> None:
             raise RuntimeError("redis down")
 
-    async def _noop_metric(*args: object, **kwargs: object) -> None:
-        return None
+    metrics: list[tuple[tuple, dict]] = []
 
-    monkeypatch.setattr(timeline_extraction, "increment_metric_safe", _noop_metric)
+    async def _record_metric(*args: object, **kwargs: object) -> None:
+        metrics.append((args, kwargs))
 
-    # An enqueue failure must be swallowed, never fail the extraction job.
+    monkeypatch.setattr(timeline_extraction, "increment_metric_safe", _record_metric)
+
+    # An enqueue failure must be swallowed, never fail the extraction job,
+    # and must record the failure metric for observability parity with the
+    # no-redis path.
     await timeline_extraction._enqueue_scoring_job({"redis": _FailingRedis()}, "NA1_1")
-    print("[test_swallow] enqueue RuntimeError swallowed without propagating")
+
+    assert metrics == [
+        (("jobs.score_actions.enqueue_failed",), {"tags": {"reason": "enqueue_error"}})
+    ]
+    print(f"[test_swallow] enqueue RuntimeError swallowed; metrics={metrics}")

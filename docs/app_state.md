@@ -1,24 +1,55 @@
 # App State
 
-**Last Updated:** 2026-07-14
-**Branch:** `codex/durable-ai-coach`
-**Status:** VERIFIED — `origin/main` at `f62749f` is merged into the durable
-cross-champion AI Coach branch. Conflict resolution preserves `main`'s shared
-frontend hook and hardening while sourcing eligibility from scored actions.
-Combined verification passes: 232 backend tests, Ruff, frontend lint, and all
-34 Playwright tests.
+**Last Updated:** 2026-07-22
+**Branch:** `agent-workflow-improvements`
+**Status:** VERIFIED — two workflow features on top of `codex/durable-ai-coach`:
+(1) ΔW scoring auto-chains after timeline extraction, and (2) a
+`get_champion_insights` chat tool surfaces RAG insights from other players.
+Reviewed across five axes (approve, no blockers); applied one observability fix.
+Changed backend tests pass (42 across `test_chat_tools.py` +
+`test_background_jobs_integration.py`) and Ruff is clean on touched files.
 
 ## Current Phase
 
-**Durable cross-champion fix integrated with `main`
-(`codex/durable-ai-coach`, 2026-07-14).** The picker now comes from
-full-history, account-specific scored
-actions rather than paginated match details. Empty historical rank buckets fall
-back to champion-only aggregation while live rank remains coaching context, and
-persisted match ids are scoped to the selected champion. The eligibility API
-reports scored match/action and corpus counts. Alistar is therefore eligible for
-`jairopractor#NA1` alongside Lux and Blitzcrank without extraction, rescoring, or
-corpus reseeding.
+**Agent workflow improvements (`agent-workflow-improvements`, 2026-07-22).**
+Two features shipped on this branch:
+
+- **Auto-chain scoring.** `extract_match_timeline_job` now enqueues
+  `score_actions_job` (`_job_id=score-actions:auto:{match_id}`) as its final
+  step, *after* `session.commit()`, so newly ingested matches get `delta_w`
+  populated without the manual `make score-account-matches` backfill. Best-effort:
+  missing Redis context and enqueue failures are logged, metered
+  (`jobs.score_actions.enqueue_failed{reason=no_redis|enqueue_error}`), and
+  swallowed so they never fail extraction. Auto id is namespaced apart from the
+  manual script id (`score-actions:v0:{id}`) so a manual retry is never deduped
+  against a no-model auto-skip. Older matches and no-model skips still use the
+  manual backfill.
+- **`get_champion_insights` chat tool.** When a player has no personal data on a
+  champion (or asks generally / how to improve), the chatbot can pull coaching
+  insights from AI Coach analyses of *other* similar players via RAG (embed →
+  cosine KNN → trimmed few-shot). Provenance is enforced in both the tool result
+  and the system prompt so the model never presents others' data as the player's
+  own. All failure branches (RAG disabled / no key / unknown champion / embed
+  failure / no examples) return graceful messages.
+
+Also on this branch: `docs/app_state.md` was split — historical changelog moved to
+`docs/app_state_archive.md`, leaving this file current-state only; and
+`docs/LLM_DATA_PIPELINE.md` Step 4 updated to document the auto-chain.
+
+### Review fix applied (2026-07-22)
+
+- Enqueue exception path in `_enqueue_scoring_job` now emits
+  `jobs.score_actions.enqueue_failed{reason=enqueue_error}` for observability
+  parity with the no-redis path; `test_enqueue_scoring_job_swallows_enqueue_errors`
+  asserts it fires.
+
+### Prior phase — durable cross-champion AI Coach (`codex/durable-ai-coach`, 2026-07-14)
+
+The champion picker comes from full-history, account-specific scored actions
+rather than paginated match details. Empty historical rank buckets fall back to
+champion-only aggregation while live rank remains coaching context, and persisted
+match ids are scoped to the selected champion. The eligibility API reports scored
+match/action and corpus counts.
 
 ### RAG architecture (complete)
 
@@ -57,8 +88,15 @@ non-blocking so the 429 fails fast under a check-then-acquire race.
 
 ## Next Steps
 
-1. Push `codex/durable-ai-coach`.
-2. Open a PR targeting `main`.
+1. Reword the two branch commits to conventional-commits (`merge conflict` →
+   `feat: auto-chain action scoring after timeline extraction`; `ask coach` →
+   `feat: add get_champion_insights chat tool`) — current messages are
+   non-descriptive and break the `AGENTS.md` convention.
+2. Run the full `make test` + `npm run lint` suite before PR (this session
+   verified only the touched backend files).
+3. Push `agent-workflow-improvements` and open a PR targeting `main`.
+4. Optional: split the `app_state` doc restructuring into its own commit,
+   separate from the two feature commits.
 
 ## Recent Changes (2026-07-13 — durable cross-champion AI Coach fix)
 

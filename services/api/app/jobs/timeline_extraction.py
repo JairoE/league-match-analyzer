@@ -216,6 +216,10 @@ async def _enqueue_scoring_job(ctx: dict, match_id: str) -> None:
             "extract_match_timeline_job_scoring_enqueue_failed",
             extra={"match_id": match_id},
         )
+        await increment_metric_safe(
+            "jobs.score_actions.enqueue_failed",
+            tags={"reason": "enqueue_error"},
+        )
 
 
 async def _fetch_timeline_cached(
