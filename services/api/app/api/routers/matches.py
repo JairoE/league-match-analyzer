@@ -8,6 +8,7 @@ from app.core.logging import get_logger
 from app.db.session import get_session
 from app.schemas.match import LaneStats, MatchListItem, PaginatedMatchList, PaginationMeta
 from app.services.enqueue_match_timelines import enqueue_missing_timeline_jobs
+from app.services.enqueue_timeline_extraction import enqueue_missing_extraction_jobs
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import list_matches_for_riot_account
 from app.services.rate_limiter import get_rate_limiter
@@ -116,6 +117,10 @@ async def list_riot_account_matches(
                     session, new_ids, max_fetch=limit
                 )
                 background_tasks.add_task(enqueue_missing_timeline_jobs, new_ids)
+                # Also extract + score newly-ingested matches so recently-played
+                # champions become eligible for AI Coach (delta_w populated),
+                # instead of only warming the timeline cache.
+                background_tasks.add_task(enqueue_missing_extraction_jobs, new_ids)
         except RiotRequestError as exc:
             sync_skipped, sync_skip_reason = _mark_rate_limited_or_reraise(exc)
             logger.warning(
