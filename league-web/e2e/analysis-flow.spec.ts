@@ -163,6 +163,26 @@ test.describe("AI Coach analysis flow", () => {
     await expect(panel).not.toBeVisible();
   });
 
+  test("picker lives in a dedicated AI Coach card, apart from the matches", async ({
+    page,
+  }) => {
+    await mockAnalysisRoutes(page, {
+      postStatus: "already_exists",
+      nullPollsBeforeResult: 0,
+    });
+    await gotoAccountAndWait(page);
+
+    // The champion picker + trigger live inside the AI Coach card, not the
+    // top action bar next to Refresh — so it never reads as if it were
+    // derived from the games shown below.
+    const card = page.getByTestId("ai-coach-card");
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId("ai-coach-champion-select")).toBeVisible();
+    await expect(card.getByTestId("ai-coach-button")).toBeVisible();
+    // The scope caption states the full-history basis explicitly.
+    await expect(card).toContainText("full ranked history");
+  });
+
   test("cached path: already_exists loads panel without polling", async ({
     page,
   }) => {

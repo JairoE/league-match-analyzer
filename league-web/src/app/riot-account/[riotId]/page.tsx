@@ -6,8 +6,7 @@ import styles from "./page.module.css";
 import MatchPageShell from "../../../components/MatchPageShell/MatchPageShell";
 import SubHeader from "../../../components/SubHeader/SubHeader";
 import MatchesTable from "../../../components/MatchesTable";
-import AnalysisButton from "../../../components/AnalysisButton/AnalysisButton";
-import AnalysisPanel from "../../../components/AnalysisPanel/AnalysisPanel";
+import AiCoachCard from "../../../components/AiCoachCard/AiCoachCard";
 import ChatButton from "../../../components/ChatPanel/ChatButton";
 import ChatPanel from "../../../components/ChatPanel/ChatPanel";
 import {apiGet} from "../../../lib/api";
@@ -234,36 +233,32 @@ export default function RiotAccountPage() {
                   </button>
                 ) : null}
                 {!isDemoMode() ? (
-                  <>
-                    <AnalysisButton
-                      champions={analysisChampions}
-                      selectedChampionId={
-                        selectedChampion?.champion_id ?? null
-                      }
-                      onSelectChampion={selectChampion}
-                      isLoading={isAnalyzing}
-                      isOptionsLoading={areAnalysisChampionsLoading}
-                      isPanelOpen={isAnalysisOpen}
-                      disabled={!account?.id || !selectedChampion}
-                      onClick={handleAnalysisClick}
-                    />
-                    <ChatButton
-                      isOpen={isChatOpen}
-                      disabled={!account?.id}
-                      onClick={() => setIsChatOpen((open) => !open)}
-                    />
-                  </>
+                  <ChatButton
+                    isOpen={isChatOpen}
+                    disabled={!account?.id}
+                    onClick={() => setIsChatOpen((open) => !open)}
+                  />
                 ) : null}
               </>
             }
           />
         }
         analysisPanel={
-          <AnalysisPanel
-            analysis={isAnalysisForSelectedChampion ? analysis : null}
-            error={isAnalysisForSelectedChampion ? analysisError : null}
-            onDismiss={dismissAnalysis}
-          />
+          !isDemoMode() ? (
+            <AiCoachCard
+              champions={analysisChampions}
+              selectedChampionId={selectedChampion?.champion_id ?? null}
+              onSelectChampion={selectChampion}
+              isAnalyzing={isAnalyzing}
+              isOptionsLoading={areAnalysisChampionsLoading}
+              isPanelOpen={isAnalysisOpen}
+              disabled={!account?.id || !selectedChampion}
+              onAnalysisClick={handleAnalysisClick}
+              analysis={isAnalysisForSelectedChampion ? analysis : null}
+              error={isAnalysisForSelectedChampion ? analysisError : null}
+              onDismiss={dismissAnalysis}
+            />
+          ) : null
         }
         liveGame={
           <LiveGameSlot
