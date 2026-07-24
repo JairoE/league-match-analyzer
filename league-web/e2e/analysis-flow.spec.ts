@@ -275,6 +275,44 @@ test.describe("AI Coach analysis flow", () => {
     expect(requestedChampionIds).toEqual([12, 99, 53]);
   });
 
+  test("re-polls eligibility after a refresh so a newly-scored champion surfaces", async ({
+    page,
+  }) => {
+    const two = ANALYZABLE_CHAMPIONS.slice(0, 2);
+    const three = [
+      ...two,
+      {
+        champion_id: 63,
+        champion_name: "Brand",
+        scored_match_count: 1,
+        scored_action_count: 3,
+        corpus_example_count: 0,
+      },
+    ];
+    // Stay at two until the post-refresh re-poll (a later options call)
+    // returns the freshly-scored Brand — so Brand arrives via the re-poll,
+    // not the refresh fetch itself.
+    await mockAnalysisRoutes(page, {
+      championOptionsResponses: [two, two, two, three],
+    });
+    await gotoAccountAndWait(page);
+
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select.locator("option")).toHaveText([
+      "Lux (15)",
+      "Alistar (12)",
+    ]);
+
+    // A refresh ingests + scores recent matches asynchronously; the picker
+    // re-polls and surfaces the newly-scored champion without a 2nd refresh.
+    await page.getByRole("button", {name: "Refresh"}).click();
+
+    await expect(select.locator('option[value="63"]')).toHaveText(
+      "Brand (1)",
+      {timeout: 12_000}
+    );
+  });
+
   test("champion picker disables analysis and formats loading errors", async ({
     page,
   }) => {
