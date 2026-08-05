@@ -49,8 +49,8 @@ export default function AiCoachCard({
         <div className={styles.heading}>
           <h3 className={styles.title}>AI Coach</h3>
           <p className={styles.caption}>
-            Coaching draws on your full ranked history — not just the games
-            shown below.
+            Coaching draws on your full scored match history — not just the
+            games shown below.
           </p>
         </div>
         <AnalysisButton

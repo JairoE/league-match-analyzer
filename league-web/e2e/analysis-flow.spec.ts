@@ -192,7 +192,7 @@ test.describe("AI Coach analysis flow", () => {
     await expect(card.getByTestId("ai-coach-champion-select")).toBeVisible();
     await expect(card.getByTestId("ai-coach-button")).toBeVisible();
     // The scope caption states the full-history basis explicitly.
-    await expect(card).toContainText("full ranked history");
+    await expect(card).toContainText("full scored match history");
   });
 
   test("cached path: already_exists loads panel without polling", async ({
