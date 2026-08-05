@@ -11,6 +11,7 @@ from app.jobs import match_ingestion, scheduled, timeline_extraction
 from app.jobs.llm_analysis import llm_analysis_job
 from app.jobs.scheduled import sync_all_riot_accounts_matches
 from app.jobs.score_actions import score_actions_job
+from app.jobs.timeline_extraction import extract_match_timeline_job
 from app.services import enqueue_match_details
 from app.services.background_jobs import WorkerSettings
 
@@ -42,6 +43,27 @@ def test_worker_settings_registers_cron_job() -> None:
         f"[test_cron_registration] coroutine={cron_job.coroutine.__name__} "
         f"minute={cron_job.minute} hour={cron_job.hour} "
         f"run_at_startup={cron_job.run_at_startup}"
+    )
+
+
+def test_extract_match_timeline_job_registered_with_short_keep_result() -> None:
+    entry = next(
+        f
+        for f in WorkerSettings.functions
+        if isinstance(f, Function) and f.coroutine is extract_match_timeline_job
+    )
+    # enqueue_missing_extraction_jobs enqueues by this exact string name.
+    assert entry.name == "extract_match_timeline_job"
+    # extract_match_timeline_job returns error dicts (timeline_fetch_failed,
+    # no_state_vectors) rather than raising, so a FAILED extraction is an
+    # ARQ *success* whose retained result would otherwise block re-enqueue
+    # of the deterministic timeline-extract:<match_id> job id for the
+    # default 1h keep_result — a Refresh click could not recover a
+    # coachable champion. keep_result=10 frees the id quickly instead.
+    assert entry.keep_result_s == 10
+    print(
+        f"[test_extraction_registration] name={entry.name} "
+        f"keep_result_s={entry.keep_result_s}"
     )
 
 
