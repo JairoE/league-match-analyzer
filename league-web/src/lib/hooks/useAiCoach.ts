@@ -96,6 +96,10 @@ export function useAiCoach({
       return;
     }
     if (!selectedChampion) return;
+    // Pin the implicit selection at request time so a later re-poll reorder
+    // of `champions` can't change what `selectedChampion` resolves to out
+    // from under an in-flight or already-open analysis.
+    setPickedChampionId(selectedChampion.champion_id);
     void requestAnalysis(selectedChampion.champion_id, rankTier);
   }, [
     isAnalysisOpen,

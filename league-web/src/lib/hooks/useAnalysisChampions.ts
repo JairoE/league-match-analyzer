@@ -7,11 +7,12 @@ import type {AnalysisChampion} from "../types/analysis";
 
 const LOG_TAG = "useAnalysisChampions";
 
-// After a refresh, freshly-ingested matches are extracted and scored
-// asynchronously (a few seconds later). Re-poll the eligibility list a bounded
-// number of times so a newly-scored champion surfaces in the picker without a
-// manual second refresh. Silent (no loading state); stops early once a new
-// champion appears.
+// After a refresh — or the first search of a summoner, which triggers the
+// same async extraction+scoring on the backend — freshly-ingested matches
+// are extracted and scored asynchronously (a few seconds later). Re-poll the
+// eligibility list a bounded number of times so a newly-scored champion
+// surfaces in the picker without a manual second refresh. Silent (no loading
+// state); stops early once a champion outside the baseline appears.
 const REPOLL_ATTEMPTS = 3;
 const REPOLL_INTERVAL_MS = 5000;
 
@@ -36,9 +37,10 @@ export function useAnalysisChampions(
   const {errorMessage, reportError, clearError} = useAppError(
     "analysis.champions"
   );
-  // Track the previous account + refreshIndex so re-polling fires only for an
-  // actual refresh of the same account — not the initial mount or an account
-  // switch (where nothing new is being scored).
+  // Track the previous account + refreshIndex so re-polling fires for an
+  // actual refresh of the same account, or for an account becoming known for
+  // the first time (first search) — not a subsequent bare re-render where
+  // nothing new is being scored.
   const prevAccountRef = useRef<string | null>(null);
   const prevRefreshIndexRef = useRef<number | null>(null);
 
@@ -46,10 +48,13 @@ export function useAnalysisChampions(
     let isActive = true;
     const timers: ReturnType<typeof setTimeout>[] = [];
 
-    const triggeredByRefresh =
+    const accountBecameKnown =
+      prevAccountRef.current !== riotAccountId && riotAccountId !== null;
+    const refreshedSameAccount =
       prevAccountRef.current === riotAccountId &&
       prevRefreshIndexRef.current !== null &&
       prevRefreshIndexRef.current !== refreshIndex;
+    const shouldRepoll = accountBecameKnown || refreshedSameAccount;
     prevAccountRef.current = riotAccountId;
     prevRefreshIndexRef.current = refreshIndex;
 
@@ -66,7 +71,7 @@ export function useAnalysisChampions(
     const fetchChampions = () =>
       apiGet<AnalysisChampion[]>(url, {useCache: false});
 
-    const scheduleRepoll = (attempt: number, baselineCount: number) => {
+    const scheduleRepoll = (attempt: number, baselineIds: Set<number>) => {
       if (attempt > REPOLL_ATTEMPTS) return;
       const timer = setTimeout(async () => {
         if (!isActive) return;
@@ -79,13 +84,18 @@ export function useAnalysisChampions(
             attempt,
             count: next.length,
           });
-          // Stop once a newly-scored champion has appeared; keep polling
-          // (up to the cap) while the list is unchanged.
-          if (next.length > baselineCount) return;
-          scheduleRepoll(attempt + 1, baselineCount);
+          // Stop once a champion outside the baseline has appeared (a true
+          // newly-scored champion, not just a same-length reorder from
+          // scores changing); keep polling (up to the cap) otherwise.
+          const hasNewChampion = next.some(
+            (champion) => !baselineIds.has(champion.champion_id)
+          );
+          if (hasNewChampion) return;
+          scheduleRepoll(attempt + 1, baselineIds);
         } catch (error) {
           // Re-polls are best-effort: keep the last good list, never surface.
           console.debug(`[${LOG_TAG}] repoll failed`, {riotAccountId, error});
+          if (isActive) scheduleRepoll(attempt + 1, baselineIds);
         }
       }, REPOLL_INTERVAL_MS);
       timers.push(timer);
@@ -104,8 +114,8 @@ export function useAnalysisChampions(
           riotAccountId,
           count: response.length,
         });
-        if (triggeredByRefresh) {
-          scheduleRepoll(1, response.length);
+        if (shouldRepoll) {
+          scheduleRepoll(1, new Set(response.map((c) => c.champion_id)));
         }
       } catch (error) {
         if (!isActive) return;
