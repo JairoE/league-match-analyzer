@@ -145,7 +145,11 @@ async def test_search_matches_page1_uses_captured_riot_payload_chain(
     assert backfill_calls[0][2] == 5
     assert list_calls[0][2:] == (1, 5)
 
-    assert len(background_tasks.tasks) == 1
-    task = background_tasks.tasks[0]
-    assert task.func is search.enqueue_missing_timeline_jobs
-    assert task.args == (match_ids[:5],)
+    # First sync schedules both timeline caching and extraction+scoring so
+    # recently-played champions become eligible for AI Coach (delta_w populated).
+    assert len(background_tasks.tasks) == 2
+    timeline_task, extraction_task = background_tasks.tasks
+    assert timeline_task.func is search.enqueue_missing_timeline_jobs
+    assert timeline_task.args == (match_ids[:5],)
+    assert extraction_task.func is search.enqueue_missing_extraction_jobs
+    assert extraction_task.args == (match_ids[:5],)

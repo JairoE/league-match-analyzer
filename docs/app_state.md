@@ -1,18 +1,91 @@
 # App State
 
-**Last Updated:** 2026-07-22
-**Branch:** `agent-workflow-improvements`
-**Status:** VERIFIED — two workflow features on top of `codex/durable-ai-coach`:
-(1) ΔW scoring auto-chains after timeline extraction, and (2) a
-`get_champion_insights` chat tool surfaces RAG insights from other players.
-Reviewed across five axes (approve, no blockers); applied one observability fix.
-Changed backend tests pass (42 across `test_chat_tools.py` +
-`test_background_jobs_integration.py`) and Ruff is clean on touched files.
+**Last Updated:** 2026-08-05
+**Branch:** `fix/ai-coach-picker-and-recent-match-scoring`
+**Status:** FIXES COMPLETE AND GREEN — but NOT re-reviewed, NOT merged, NOT
+pushed (no upstream, no PR). Adversarial review confirmed 10 findings (6 medium,
+4 low, 0 critical) against 14 refuted; 8 were fixed and 2 deferred deliberately.
+Verification: backend 257 passed + ruff clean; frontend lint 0 errors (1
+pre-existing warning in untouched `AuthForm.tsx`) + 39/39 Playwright E2E passed.
+The fixes are themselves unreviewed code and the original review loop never
+converged — see Blockers.
 
 ## Current Phase
 
-**Agent workflow improvements (`agent-workflow-improvements`, 2026-07-22).**
-Two features shipped on this branch:
+**Post-review fixes on `fix/ai-coach-picker-and-recent-match-scoring` (2026-08-05).**
+
+The branch (3 commits ahead of `main`, 0 behind) extracts+scores newly-ingested
+matches so recent champions become AI Coach-eligible, moves the champion picker
+into `AiCoachCard`, and re-polls eligibility after a refresh.
+
+### Adversarial review result (2026-08-05)
+
+10 confirmed / 14 refuted. **Coverage is incomplete** — finder rounds 1–3 ran
+(11 → 8 → 5 fresh findings, still confirming 2 in round 3), but rounds 4–5 died
+on a monthly spend limit and the loop counted those empty results as "dry", so
+the run terminated on the limit rather than on exhausting the search.
+
+Headline: the branch's own claim was only partly delivered. The re-poll never
+armed on a first search (the case where the picker is *guaranteed* to start
+empty), and `search.py:134` — the one ingest site the AI Coach page's Refresh
+button actually routes through — had zero test coverage.
+
+### Fixes landed and diff-reviewed
+
+- **Frontend hooks.** `useAnalysisChampions.ts`: re-poll now arms on
+  `accountBecameKnown || refreshedSameAccount` (was refresh-only, so first
+  search never re-polled); the `catch` path now reschedules (a single transient
+  502 previously ended the chain permanently); the stop condition is a
+  set-difference on `champion_id` rather than `next.length > baselineCount`, so
+  a same-length reorder is no longer mistaken for "nothing new".
+  `useAiCoach.ts`: `handleAnalysisClick` now pins
+  `setPickedChampionId(selectedChampion.champion_id)` before requesting, so a
+  re-poll reorder can no longer silently discard an open/in-flight analysis.
+- **Backend coverage.** New `services/api/tests/test_search_router_refresh.py`
+  covers the refresh and `after > 0` ("see more") branches by task identity
+  (not by patching the enqueue helpers). Mutation-checked: commenting out
+  `search.py:134` fails 2 of 3 tests; restoring passes all 3.
+- **Backend service.** `enqueue_timeline_extraction.py`: the DB block and
+  `get_arq_pool()` are now guarded (an unguarded raise propagated out of the
+  ASGI app after the response body was flushed, tearing down the keepalive
+  connection and skipping tasks queued behind it); `enqueue_job`'s return is
+  captured so ARQ dedupe rejections count as `deduped` rather than inflating
+  `enqueued`; the `game_info` gate is now
+  `isnot(None) AND cast(..., String) != "null"`, matching `riot_sync.py` —
+  JSONB persists Python `None` as JSON `'null'`, not SQL NULL.
+  `background_jobs.py`: `extract_match_timeline_job` gets `keep_result=10`,
+  because it returns error *dicts* rather than raising, so a failed extraction
+  was an ARQ success whose retained result blocked re-enqueue for a full hour.
+- **Caption.** `AiCoachCard` claimed "full ranked history" but no queue filter
+  exists anywhere in the pipeline; corrected to "full scored match history".
+- **E2E regressions.** Three new specs in `analysis-flow.spec.ts` (first-search
+  re-poll, transient-failure recovery, analysis surviving a reorder), each
+  verified non-vacuous by running them against a worktree at `33cfcc5` where
+  all three fail.
+
+### Verified during review (no fix needed)
+
+`useAppError` is referentially stable — provider callbacks are
+`useCallback(..., [])` and the scoped wrappers depend only on those plus a
+constant `scope`. Unrelated re-renders do not re-run the effect, so pending
+re-poll timers survive.
+
+### Deferred deliberately
+
+- **Timeline-cache race** (low/efficiency): extraction jobs are enqueued
+  alongside `fetch_timeline_cache_job` for the same ids and mostly lose the
+  race, re-fetching ~1MB timelines themselves (~61 Riot calls per refresh vs
+  ~41). Needs a scheduling design call — return enqueued ids so they are
+  excluded from the cache-warm job, `_defer_by` the extraction jobs, or a
+  per-match Redis `SET NX` lock. Not a mechanical edit.
+- **"See more" re-poll**: `loadMoreMatches` never bumps `refreshIndex`, so the
+  `after > 0` ingest branch gets no re-poll. Needs an `ingestIndex` threaded
+  through `useMatchList` → both pages. Lower value (nobody is waiting on a
+  champion there).
+
+### Prior phase — agent workflow improvements (`agent-workflow-improvements`, 2026-07-22)
+
+Two features shipped on that branch:
 
 - **Auto-chain scoring.** `extract_match_timeline_job` now enqueues
   `score_actions_job` (`_job_id=score-actions:auto:{match_id}`) as its final
@@ -68,6 +141,12 @@ match/action and corpus counts.
 
 ## Blockers
 
+- **Adversarial review coverage is incomplete.** Rounds 4–5 of the find→refute
+  loop never ran (monthly spend limit), and the loop miscounted those failures
+  as "dry" rounds. Round 3 was still confirming findings, so the branch has NOT
+  been searched to exhaustion. Re-run before merge.
+- **The fixes are unreviewed code.** Eight findings were fixed across 6 files
+  this session and have not been through a review pass of their own.
 - No code blockers. The in-app browser controller rejected a localhost reload,
   so the final manual click was not performed. The equivalent live POST/poll
   path, persisted response, and browser E2E flow all pass.
@@ -88,15 +167,28 @@ non-blocking so the 429 fails fast under a check-then-acquire race.
 
 ## Next Steps
 
-1. Reword the two branch commits to conventional-commits (`merge conflict` →
-   `feat: auto-chain action scoring after timeline extraction`; `ask coach` →
-   `feat: add get_champion_insights chat tool`) — current messages are
-   non-descriptive and break the `AGENTS.md` convention.
-2. Run the full `make test` + `npm run lint` suite before PR (this session
-   verified only the touched backend files).
-3. Push `agent-workflow-improvements` and open a PR targeting `main`.
-4. Optional: split the `app_state` doc restructuring into its own commit,
-   separate from the two feature commits.
+1. Commit the fixes as separate conventional commits (`fix:` for the four
+   backend fixes, `fix:` for the hook fixes, `test:` for the new coverage,
+   `fix:` for the caption).
+2. **Re-run `/adversarial-review` on the fixes** — they are unreviewed code,
+   and the original loop never converged (see Blockers). Pin finder agents to
+   `model: 'sonnet'`, `effort: 'medium'` per the routing rule in
+   `~/.claude/CLAUDE.md`; the first run left them unpinned on the session model
+   and burned ~2.5M tokens across 39 agents.
+3. Decide the two deferred items (timeline-cache race; "see more" re-poll) —
+   fix or file as follow-up tickets.
+4. Push `fix/ai-coach-picker-and-recent-match-scoring` and open a PR targeting
+   `main`. No upstream is configured yet.
+
+### Open product question
+
+The AI Coach caption claimed "full ranked history" but no queue filter exists
+anywhere in the pipeline. This session took the proportionate fix (correct the
+copy to match behavior). If ranked-only was the actual product intent, the real
+fix is a backend queue filter — `&type=ranked`/`queue=420` in
+`fetch_match_ids_by_puuid`, plus queueId predicates in `analysis_champions.py`
+and `action_aggregation.py` — which is a behavioral change that would also
+shrink the eligible-champion list.
 
 ## Recent Changes (2026-07-13 — durable cross-champion AI Coach fix)
 

@@ -15,6 +15,11 @@ type AnalysisMockOptions = {
   alwaysNull?: boolean;
   championOptionsStatus?: number;
   championOptionsResponses?: AnalysisChampionFixture[][];
+  // Call indexes (0-based, across the eligibility endpoint's own call
+  // count) that should fail with a transient server error instead of
+  // returning championOptionsResponses — simulates a re-poll attempt
+  // hitting a 502/network error without aborting the repoll chain.
+  championOptionsFailIndexes?: number[];
   requestedChampionIds?: number[];
 };
 
@@ -71,6 +76,7 @@ async function mockAnalysisRoutes(
     alwaysNull = false,
     championOptionsStatus = 200,
     championOptionsResponses = [ANALYZABLE_CHAMPIONS],
+    championOptionsFailIndexes = [],
     requestedChampionIds,
   }: AnalysisMockOptions = {}
 ) {
@@ -79,6 +85,15 @@ async function mockAnalysisRoutes(
   await page.route("**/riot-accounts/**/analysis**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith("/analysis/champions")) {
+      const callIndex = championOptionsCalls++;
+      if (championOptionsFailIndexes.includes(callIndex)) {
+        await route.fulfill({
+          status: 502,
+          contentType: "application/json",
+          body: JSON.stringify({detail: "riot_api_failed"}),
+        });
+        return;
+      }
       await route.fulfill({
         status: championOptionsStatus,
         contentType: "application/json",
@@ -86,10 +101,7 @@ async function mockAnalysisRoutes(
           championOptionsStatus === 200
             ? JSON.stringify(
                 championOptionsResponses[
-                  Math.min(
-                    championOptionsCalls++,
-                    championOptionsResponses.length - 1
-                  )
+                  Math.min(callIndex, championOptionsResponses.length - 1)
                 ]
               )
             : "{}",
@@ -161,6 +173,26 @@ test.describe("AI Coach analysis flow", () => {
     // Dismiss via the X button
     await page.getByRole("button", {name: "Dismiss analysis"}).click();
     await expect(panel).not.toBeVisible();
+  });
+
+  test("picker lives in a dedicated AI Coach card, apart from the matches", async ({
+    page,
+  }) => {
+    await mockAnalysisRoutes(page, {
+      postStatus: "already_exists",
+      nullPollsBeforeResult: 0,
+    });
+    await gotoAccountAndWait(page);
+
+    // The champion picker + trigger live inside the AI Coach card, not the
+    // top action bar next to Refresh — so it never reads as if it were
+    // derived from the games shown below.
+    const card = page.getByTestId("ai-coach-card");
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId("ai-coach-champion-select")).toBeVisible();
+    await expect(card.getByTestId("ai-coach-button")).toBeVisible();
+    // The scope caption states the full-history basis explicitly.
+    await expect(card).toContainText("full scored match history");
   });
 
   test("cached path: already_exists loads panel without polling", async ({
@@ -253,6 +285,154 @@ test.describe("AI Coach analysis flow", () => {
     await page.getByTestId("ai-coach-button").click();
     await expect(panel).toContainText("AI Coach: Blitzcrank");
     expect(requestedChampionIds).toEqual([12, 99, 53]);
+  });
+
+  test("re-polls eligibility after a refresh so a newly-scored champion surfaces", async ({
+    page,
+  }) => {
+    const two = ANALYZABLE_CHAMPIONS.slice(0, 2);
+    const three = [
+      ...two,
+      {
+        champion_id: 63,
+        champion_name: "Brand",
+        scored_match_count: 1,
+        scored_action_count: 3,
+        corpus_example_count: 0,
+      },
+    ];
+    // Stay at two until the post-refresh re-poll (a later options call)
+    // returns the freshly-scored Brand — so Brand arrives via the re-poll,
+    // not the refresh fetch itself.
+    await mockAnalysisRoutes(page, {
+      championOptionsResponses: [two, two, two, three],
+    });
+    await gotoAccountAndWait(page);
+
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select.locator("option")).toHaveText([
+      "Lux (15)",
+      "Alistar (12)",
+    ]);
+
+    // A refresh ingests + scores recent matches asynchronously; the picker
+    // re-polls and surfaces the newly-scored champion without a 2nd refresh.
+    await page.getByRole("button", {name: "Refresh"}).click();
+
+    await expect(select.locator('option[value="63"]')).toHaveText(
+      "Brand (1)",
+      {timeout: 12_000}
+    );
+  });
+
+  test("re-poll arms on the first search, without a manual refresh", async ({
+    page,
+  }) => {
+    // Regression: the re-poll gate used to require the *previous* account id
+    // to equal the current one, which a first search (null -> uuid) can
+    // never satisfy — so a freshly-scored champion never surfaced without
+    // an explicit Refresh click. No Refresh button is touched below.
+    const oneChampion = [ANALYZABLE_CHAMPIONS[0]];
+    await mockAnalysisRoutes(page, {
+      championOptionsResponses: [[], oneChampion],
+    });
+    await gotoAccountAndWait(page);
+
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select).toBeDisabled();
+    await expect(select).toHaveText("No scored champions");
+
+    // The mount-triggered re-poll (account becomes known for the first
+    // time) should surface Lux without any further user action.
+    await expect(select.locator('option[value="99"]')).toHaveText(
+      "Lux (15)",
+      {timeout: 12_000}
+    );
+    await expect(select).toBeEnabled();
+  });
+
+  test("a transient re-poll failure does not abort the remaining attempts", async ({
+    page,
+  }) => {
+    // Regression: scheduleRepoll used to recurse only inside the try block,
+    // so the first failed attempt (502/network error) permanently ended the
+    // chain. Attempt 1 fails below; attempt 2 must still fire and land.
+    const two = ANALYZABLE_CHAMPIONS.slice(0, 2);
+    const three = [
+      ...two,
+      {
+        champion_id: 63,
+        champion_name: "Brand",
+        scored_match_count: 1,
+        scored_action_count: 3,
+        corpus_example_count: 0,
+      },
+    ];
+    await mockAnalysisRoutes(page, {
+      championOptionsResponses: [two, two, three],
+      championOptionsFailIndexes: [1],
+    });
+    await gotoAccountAndWait(page);
+
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select.locator("option")).toHaveText([
+      "Lux (15)",
+      "Alistar (12)",
+    ]);
+
+    // Attempt 1 (~5s) fails; attempt 2 (~10s) must still be scheduled and
+    // surface Brand.
+    await expect(select.locator('option[value="63"]')).toHaveText(
+      "Brand (1)",
+      {timeout: 16_000}
+    );
+  });
+
+  test("an open analysis survives a re-poll reorder of the champion list", async ({
+    page,
+  }) => {
+    // Regression: with no explicit pick, selectedChampion used to be plain
+    // champions[0]. Re-polling exists because scoring changes
+    // scored_match_count, which can reorder the server's list — a same-
+    // length reorder silently swapped the selection, flipped
+    // isAnalysisForSelectedChampion false, and made an open analysis panel
+    // vanish with no message. handleAnalysisClick now pins the champion id
+    // at request time so the open analysis survives the reorder.
+    const luxFirst = ANALYZABLE_CHAMPIONS.slice(0, 2); // Lux (99), Alistar (12)
+    const alistarFirst = [luxFirst[1], luxFirst[0]]; // same ids, reordered
+    await mockAnalysisRoutes(page, {
+      postStatus: "already_exists",
+      nullPollsBeforeResult: 0,
+      // Stay at luxFirst through the initial load and the refresh's own
+      // fetch; the reorder only arrives via the post-refresh re-poll, so
+      // this isolates the reorder scenario (not just "a re-poll happened").
+      championOptionsResponses: [luxFirst, luxFirst, alistarFirst],
+    });
+    await gotoAccountAndWait(page);
+
+    const select = page.getByTestId("ai-coach-champion-select");
+    await expect(select).toHaveValue("99");
+
+    // No explicit pick — the click analyzes the implicit first (highest-
+    // scored) champion, Lux.
+    await page.getByTestId("ai-coach-button").click();
+    const panel = page.getByTestId("analysis-panel");
+    await expect(panel).toBeVisible({timeout: 5000});
+    await expect(panel).toContainText("AI Coach: Lux");
+
+    // Refresh re-fetches (still luxFirst) and arms the re-poll; the re-poll
+    // then returns the SAME two champions reordered (Alistar now outranks
+    // Lux) — the open analysis must not vanish or flip to the new first
+    // champion.
+    await page.getByRole("button", {name: "Refresh"}).click();
+
+    await expect(select.locator("option")).toHaveText(
+      ["Alistar (12)", "Lux (15)"],
+      {timeout: 12_000}
+    );
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("AI Coach: Lux");
+    await expect(select).toHaveValue("99");
   });
 
   test("champion picker disables analysis and formats loading errors", async ({

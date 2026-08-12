@@ -60,7 +60,14 @@ class WorkerSettings:
         fetch_riot_account_matches_job,
         fetch_match_details_job,
         fetch_timeline_cache_job,
-        func(extract_match_timeline_job, max_tries=5),
+        # keep_result low so the deterministic timeline-extract:<match_id> job
+        # id frees up quickly: extract_match_timeline_job returns error dicts
+        # (timeline_fetch_failed, no_state_vectors) rather than raising, so a
+        # FAILED extraction is an ARQ *success* whose result would otherwise
+        # block re-enqueue for the default 1h — "click Refresh again" could
+        # not recover a coachable champion. In-flight dedup of concurrent
+        # clicks is unaffected (the arq:job:<id> key covers queued+running).
+        func(extract_match_timeline_job, max_tries=5, keep_result=10),
         score_actions_job,
         # keep_result low so the deterministic day-bucketed job id frees up
         # right after completion: a run that failed (llm_error, no row

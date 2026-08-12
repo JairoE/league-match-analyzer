@@ -11,6 +11,7 @@ from app.models.riot_account import RiotAccount
 from app.schemas.match import MatchListItem, PaginatedMatchList, PaginationMeta
 from app.schemas.user import RiotAccountResponse
 from app.services.enqueue_match_timelines import enqueue_missing_timeline_jobs
+from app.services.enqueue_timeline_extraction import enqueue_missing_extraction_jobs
 from app.services.match_sync import upsert_matches_for_riot_account
 from app.services.matches import list_matches_for_riot_account
 from app.services.rate_limiter import get_rate_limiter
@@ -94,6 +95,9 @@ async def _first_sync_account_and_matches(
             session, match_ids, max_fetch=limit
         )
         background_tasks.add_task(enqueue_missing_timeline_jobs, match_ids)
+        # Extract + score on first sync so recently-played champions become
+        # eligible for AI Coach (delta_w populated), not just timeline-cached.
+        background_tasks.add_task(enqueue_missing_extraction_jobs, match_ids)
     return (riot_account, sync_skipped, sync_skip_reason)
 
 
@@ -125,6 +129,9 @@ async def _refresh_matches_if_requested(
                 session, new_ids, max_fetch=limit
             )
             background_tasks.add_task(enqueue_missing_timeline_jobs, new_ids)
+            # Extract + score on refresh/see-more so recently-played champions
+            # become eligible for AI Coach (delta_w populated).
+            background_tasks.add_task(enqueue_missing_extraction_jobs, new_ids)
     except RiotRequestError as exc:
         if exc.status == 429:
             sync_skipped = True

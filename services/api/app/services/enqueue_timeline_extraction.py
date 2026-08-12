@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from sqlalchemy import String, cast
 from sqlmodel import select
 
 from app.core.logging import get_logger
@@ -20,7 +21,9 @@ logger = get_logger("league_api.services.enqueue_timeline_extraction")
 
 
 class _EnqueuePool(Protocol):
-    async def enqueue_job(self, function_name: str, *args: object, **kwargs: object) -> object: ...
+    async def enqueue_job(
+        self, function_name: str, *args: object, **kwargs: object
+    ) -> object | None: ...
 
 
 async def enqueue_missing_extraction_jobs(
@@ -46,21 +49,33 @@ async def enqueue_missing_extraction_jobs(
     if not match_ids:
         return 0
 
-    async with async_session_factory() as session:
-        already_extracted_result = await session.execute(
-            select(MatchStateVector.game_id)
-            .where(MatchStateVector.game_id.in_(match_ids))
-            .distinct()
-        )
-        already_extracted = {row[0] for row in already_extracted_result.fetchall()}
-
-        needs_game_info_result = await session.execute(
-            select(Match.game_id).where(
-                Match.game_id.in_(match_ids),
-                Match.game_info.isnot(None),
+    try:
+        async with async_session_factory() as session:
+            already_extracted_result = await session.execute(
+                select(MatchStateVector.game_id)
+                .where(MatchStateVector.game_id.in_(match_ids))
+                .distinct()
             )
+            already_extracted = {row[0] for row in already_extracted_result.fetchall()}
+
+            # JSONB stores Python None as JSON 'null' (SQLAlchemy
+            # none_as_null=False default), so `.isnot(None)` alone lets
+            # JSON-null rows through. Mirror the "missing details" gate in
+            # riot_sync.py (inverted) to require real game_info.
+            needs_game_info_result = await session.execute(
+                select(Match.game_id).where(
+                    Match.game_id.in_(match_ids),
+                    Match.game_info.isnot(None),
+                    cast(Match.game_info, String) != "null",
+                )
+            )
+            has_game_info = {row[0] for row in needs_game_info_result.fetchall()}
+    except Exception:
+        logger.warning(
+            "enqueue_missing_extraction_db_unavailable",
+            extra={"match_count": len(match_ids)},
         )
-        has_game_info = {row[0] for row in needs_game_info_result.fetchall()}
+        return 0
 
     missing = sorted(
         mid for mid in match_ids
@@ -75,21 +90,32 @@ async def enqueue_missing_extraction_jobs(
         return 0
 
     if pool is None:
-        pool = await get_arq_pool()
+        try:
+            pool = await get_arq_pool()
+        except Exception:
+            logger.warning("enqueue_missing_extraction_pool_unavailable")
+            return 0
 
     enqueued = 0
+    deduped = 0
     for match_id in missing:
         job_id = f"timeline-extract:{match_id}"
         try:
-            await pool.enqueue_job(
+            job = await pool.enqueue_job(
                 "extract_match_timeline_job", match_id, _job_id=job_id,
             )
-            enqueued += 1
         except Exception:
             logger.warning(
                 "enqueue_extraction_job_failed",
                 extra={"match_id": match_id, "job_id": job_id},
             )
+            continue
+        # A None job means the id was already enqueued/in-flight (arq
+        # dedupe via _job_id) — not a genuine new enqueue.
+        if job is None:
+            deduped += 1
+        else:
+            enqueued += 1
 
     logger.info(
         "enqueue_missing_extraction_done",
@@ -97,6 +123,7 @@ async def enqueue_missing_extraction_jobs(
             "checked": len(match_ids),
             "already_extracted": len(already_extracted),
             "enqueued": enqueued,
+            "deduped": deduped,
         },
     )
     return enqueued
