@@ -1,18 +1,106 @@
 # App State
 
-**Last Updated:** 2026-08-05
-**Branch:** `fix/ai-coach-picker-and-recent-match-scoring`
-**Status:** FIXES COMPLETE AND GREEN — but NOT re-reviewed, NOT merged, NOT
-pushed (no upstream, no PR). Adversarial review confirmed 10 findings (6 medium,
-4 low, 0 critical) against 14 refuted; 8 were fixed and 2 deferred deliberately.
-Verification: backend 257 passed + ruff clean; frontend lint 0 errors (1
-pre-existing warning in untouched `AuthForm.tsx`) + 39/39 Playwright E2E passed.
-The fixes are themselves unreviewed code and the original review loop never
-converged — see Blockers.
+**Last Updated:** 2026-09-23
+**Branch:** `feat/one-command-dev-pipeline` (off `main` @ `a3a3988`; PR #50 already merged)
+**Status:** IMPLEMENTED AND VERIFIED LIVE — uncommitted, not reviewed, no PR.
+Backend 276 passed / 2 skipped, ruff clean. No frontend changes.
 
 ## Current Phase
 
-**Post-review fixes on `fix/ai-coach-picker-and-recent-match-scoring` (2026-08-05).**
+**One-command dev bring-up + idempotent account pipeline (2026-09-23).**
+
+`make up RIOT_ID='name#NA1'` handles the whole local flow:
+
+1. Docker (`compose up --wait`) → migrations → API + ARQ worker in the foreground.
+   Logs are `[api]`/`[worker]`-prefixed and also written to `.run/*.log`. Ctrl-C
+   stops everything.
+2. For the account:
+   - fetch the latest match ids
+   - enqueue missing details, extraction and scoring across the full linked history
+   - wait for the worker to drain
+   - run AI Coach for every eligible champion without an analysis in the last 24h
+
+Other entry points: `make pipeline RIOT_ID=... [DRY_RUN=1] [SKIP_LLM=1] [COUNT=N]` runs
+only the pipeline against services that are already running. Omitting `RIOT_ID` only
+boots the services.
+
+**Design decision: the worker stays the only executor.** `services/account_pipeline.py`
+only finds gaps in the DB and enqueues with the *same deterministic `_job_id`s* the
+API and worker use. It then polls the DB. That gives two layers of "skip what the
+background worker already did":
+
+- finished work → the gap query excludes it
+- queued or in-flight work → ARQ dedupes the enqueue
+
+Drain exit conditions, checked in order:
+
+- `complete`: every linked match is scored
+- `settled`: the queue was empty on 2 consecutive polls; chained jobs enqueue their
+  successor before finishing
+- `stalled`: 120s with no progress while the queue is busy
+- `timeout`
+
+Scoring uses the manual `score-actions:v0:` namespace.
+
+### What changed
+
+- New files:
+  - `services/api/app/services/account_pipeline.py`
+  - `services/api/app/services/llm_analyses.py`: the 24h cache rule + `analysis_job_id`,
+    promoted from the analysis router so the router and pipeline share them. Router
+    behavior is unchanged.
+  - `scripts/run_pipeline.py` (CLI)
+  - `scripts/dev_up.sh` (bash 3.2-safe; the signal handler exits directly)
+  - `tests/test_account_pipeline.py` (19 tests)
+- `Makefile` gained the `up` and `pipeline` targets; `.run/` is gitignored; `README.md`
+  and `AGENTS.md` document the new commands.
+- **Bug fix found by the live run:**
+  - `fetch_match_details_job` is now registered with `keep_result=10`. A timed-out
+    batch's failure result previously blocked its deterministic
+    `match-details:<first>..<last>:<n>` id, and so those matches, for 1h. That also
+    affected the UI's Refresh.
+  - `enqueue_missing_detail_jobs` now excludes ARQ dedupe rejections from its count.
+    This mirrors the 2026-08-05 extraction fix.
+  - Two regression tests in `test_background_jobs_integration.py` failed before the fix.
+
+### Verified live (`jairopractor#NA1`)
+
+- **Run 1:** found 10 matches needing details, 1 needing extraction and 1 needing
+  scoring, and enqueued exactly those. The worker froze for about 9 minutes (see
+  Blockers), so the pipeline correctly reported `stalled` and continued. AI Coach
+  produced new analyses for all 4 eligible champions (9,340 tokens).
+- **Re-run:** 0 LLM spend, all champions `cached`, 4.5s. This exposed the details
+  keep_result bug above.
+- **Run 2, after the fix:** details 46→56, extracted 56, scored 39→49. Miss Fortune
+  became eligible and was analyzed (1,756 tokens); the other 4 were `cached`.
+- **Dry run:** enqueued nothing (queue stayed at 0).
+- **Ctrl-C:** no leftover uvicorn/arq processes, port 8000 free, no false
+  "unexpected exit".
+- **Preflight:** failure paths (Docker down, missing `RIOT_ID`) print actionable
+  messages.
+
+### Ruled out / noted
+
+- The worker freeze was **not** a code bug. The repo lives on the iCloud-synced
+  Desktop, and 3,861 `.venv` files were dataless. The first sklearn import in
+  `score_actions_job` triggered synchronous on-demand downloads, which blocked the
+  worker's event loop; the in-flight detail jobs then hit ARQ's 300s timeout. Cold
+  pytest runs are slow for the same reason (57s wall time, 1s CPU).
+- 7 of the 56 matches never score, and the pipeline reports the remainder instead of
+  failing. 1 of the account's analyses has no embedding; the summary points to
+  `make backfill-rag-embeddings`.
+
+### Next steps
+
+1. Commit as conventional commits: `feat:` pipeline + make targets, `fix:` details
+   keep_result/dedupe count, `docs:`. Then open a PR.
+2. Consider moving the repo (or at least `.venv`) off the iCloud-synced Desktop, or
+   pinning it with "Keep Downloaded". Optionally, load the win-prob model once in the
+   worker's `on_startup` so the first scoring job can't block the event loop.
+3. Carried over from the previous phase: the timeline-cache race and the "see more"
+   re-poll are still deferred (see below).
+
+### Prior phase: post-review fixes on `fix/ai-coach-picker-and-recent-match-scoring` (2026-08-05, merged as PR #50)
 
 The branch (3 commits ahead of `main`, 0 behind) extracts+scores newly-ingested
 matches so recent champions become AI Coach-eligible, moves the champion picker
@@ -141,6 +229,16 @@ match/action and corpus counts.
 
 ## Blockers
 
+- **(2026-09-23) iCloud-evicted `.venv` on this machine.**
+  - The repo sits on the iCloud-synced Desktop, and 3,861 `.venv` files were dataless.
+  - First-time imports of native modules (sklearn/scipy) block for minutes while macOS
+    downloads them. This froze the ARQ worker for about 9 minutes on the first scoring
+    job.
+  - Not a code issue. The fix is to move the repo off Desktop or mark it "Keep
+    Downloaded".
+- `feat/one-command-dev-pipeline` is uncommitted and unreviewed.
+- The items below refer to the `fix/ai-coach-picker-and-recent-match-scoring` branch,
+  since merged as PR #50.
 - **Adversarial review coverage is incomplete.** Rounds 4–5 of the find→refute
   loop never ran (monthly spend limit), and the loop miscounted those failures
   as "dry" rounds. Round 3 was still confirming findings, so the branch has NOT
