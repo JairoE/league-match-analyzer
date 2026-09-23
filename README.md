@@ -154,6 +154,27 @@ NEXT_PUBLIC_API_BASE_URL=https://league-match-analyzer-production.up.railway.app
 
 ### Running the Backend Locally
 
+**Shortcut: one command.** After `make install` and creating `services/api/.env`
+(steps 1, 2 and 5 below), run:
+
+```bash
+make up RIOT_ID='name#NA1'
+```
+
+This starts Postgres + Redis (it waits for their healthchecks), applies migrations, and
+runs the API and ARQ worker in the foreground with `[api]`/`[worker]` log prefixes, also
+written to `.run/*.log`. It then brings the account fully up to date:
+
+1. Fetches the latest match ids.
+2. Enqueues whatever detail fetch, timeline extraction and ΔW scoring is still missing
+   across the account's whole history.
+3. Runs AI Coach analysis for every eligible champion without an analysis in the last 24h.
+
+Work that a background run already finished is skipped. Ctrl-C stops everything. Omit
+`RIOT_ID` to only boot services. Use `make pipeline RIOT_ID=... [DRY_RUN=1]` to re-run
+just the pipeline against services that are already running. Options: `COUNT=40`,
+`SKIP_LLM=1`.
+
 **1. Create Virtual Environment:**
 
 ```bash
@@ -383,6 +404,8 @@ pytest services/api/tests/test_users.py
 | Command            | Description                                 |
 | ------------------ | ------------------------------------------- |
 | `make install`     | Install all packages in editable (dev) mode |
+| `make up`          | Docker + migrations + API + worker; with `RIOT_ID=` also runs the full pipeline |
+| `make pipeline`    | Idempotent fetch → score → AI Coach run for `RIOT_ID=` (services must be up) |
 | `make api-dev`     | Start API with hot reload                   |
 | `make worker-dev`  | Start ARQ background worker                 |
 | `make llm-dev`     | Start LLM worker                            |

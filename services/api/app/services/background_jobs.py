@@ -58,7 +58,12 @@ class WorkerSettings:
     # On-demand job functions
     functions = [
         fetch_riot_account_matches_job,
-        fetch_match_details_job,
+        # keep_result low so a batch that fails (e.g. hits the ARQ job
+        # timeout) frees its deterministic match-details:<first>..<last>:<n>
+        # id quickly; otherwise Refresh / `make pipeline` cannot re-enqueue
+        # those matches for the default 1h. Successful batches are excluded
+        # by the NULL-game_info gap query anyway.
+        func(fetch_match_details_job, keep_result=10),
         fetch_timeline_cache_job,
         # keep_result low so the deterministic timeline-extract:<match_id> job
         # id frees up quickly: extract_match_timeline_job returns error dicts

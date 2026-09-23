@@ -34,6 +34,10 @@ Key directories:
 ### Backend
 
 ```bash
+make up RIOT_ID='name#NA1'   # one command: docker + migrate + API + worker, then the full
+                             # idempotent fetch → extract → score → AI Coach pipeline
+                             # (omit RIOT_ID to only boot; Ctrl-C stops all; logs in .run/)
+make pipeline RIOT_ID='name#NA1' [DRY_RUN=1]  # pipeline only, against running services
 make install          # install Python deps in editable mode (.venv)
 make db-up            # start Postgres + Redis containers
 make db-down          # stop containers

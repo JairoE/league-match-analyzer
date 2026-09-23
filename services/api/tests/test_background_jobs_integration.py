@@ -25,11 +25,19 @@ class _DummySessionContext:
 
 
 class _FakeRedisQueue:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple, dict]] = []
+    """Mimics ArqRedis.enqueue_job: a job object, or None for a taken _job_id."""
 
-    async def enqueue_job(self, function_name: str, *args: object, **kwargs: object) -> None:
+    def __init__(self, taken_job_ids: set[str] | None = None) -> None:
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self.taken_job_ids = taken_job_ids or set()
+
+    async def enqueue_job(
+        self, function_name: str, *args: object, **kwargs: object
+    ) -> object | None:
         self.calls.append((function_name, args, kwargs))
+        if kwargs.get("_job_id") in self.taken_job_ids:
+            return None
+        return SimpleNamespace(job_id=kwargs.get("_job_id"))
 
 
 def test_worker_settings_registers_cron_job() -> None:
@@ -65,6 +73,21 @@ def test_extract_match_timeline_job_registered_with_short_keep_result() -> None:
         f"[test_extraction_registration] name={entry.name} "
         f"keep_result_s={entry.keep_result_s}"
     )
+
+
+def test_fetch_match_details_job_registered_with_short_keep_result() -> None:
+    entry = next(
+        f
+        for f in WorkerSettings.functions
+        if isinstance(f, Function) and f.coroutine is match_ingestion.fetch_match_details_job
+    )
+    # enqueue_missing_detail_jobs enqueues by this exact string name.
+    assert entry.name == "fetch_match_details_job"
+    # A batch that fails (e.g. hits the ARQ job timeout) stores a failure
+    # result under its deterministic match-details:<first>..<last>:<n> id; with
+    # the default 1h keep_result that id — and so those matches — could not be
+    # re-enqueued by Refresh or `make pipeline` for an hour.
+    assert entry.keep_result_s == 10
 
 
 def test_llm_analysis_job_registered_with_short_keep_result() -> None:
@@ -284,6 +307,38 @@ async def test_enqueue_missing_detail_jobs_accepts_explicit_pool(
         f"[test_explicit_pool] 2 IDs with pool= param -> "
         f"enqueued={result}, job={redis.calls[0][0]}"
     )
+
+
+@pytest.mark.asyncio
+async def test_enqueue_missing_detail_jobs_excludes_deduped_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    match_ids = [f"NA1_{index}" for index in range(7)]
+    # First batch's id is already taken (queued, running, or a retained result).
+    redis = _FakeRedisQueue(taken_job_ids={"match-details:NA1_0..NA1_4:5"})
+
+    class _Result:
+        def fetchall(self) -> list[tuple[str]]:
+            return [(mid,) for mid in match_ids]
+
+    class _DummySession:
+        async def execute(self, stmt: object) -> _Result:
+            return _Result()
+
+    class _DummyDbContext:
+        async def __aenter__(self) -> _DummySession:
+            return _DummySession()
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            return False
+
+    monkeypatch.setattr(enqueue_match_details, "async_session_factory", lambda: _DummyDbContext())
+
+    result = await enqueue_match_details.enqueue_missing_detail_jobs(match_ids, pool=redis)
+
+    assert len(redis.calls) == 2
+    # Only the second batch (2 ids) was genuinely enqueued.
+    assert result == 2
 
 
 @pytest.mark.asyncio
