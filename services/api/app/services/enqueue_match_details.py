@@ -43,7 +43,7 @@ async def enqueue_missing_detail_jobs(
               singleton from ``get_arq_pool()`` when not provided.
 
     Returns:
-        Number of match IDs enqueued.
+        Number of match IDs genuinely enqueued (ARQ dedupe rejections excluded).
     """
     if not match_ids:
         return 0
@@ -72,14 +72,20 @@ async def enqueue_missing_detail_jobs(
         pool = await get_arq_pool()
 
     enqueued = 0
+    deduped = 0
     for i in range(0, len(missing_details), BATCH_SIZE):
         batch = missing_details[i : i + BATCH_SIZE]
         job_id = f"match-details:{batch[0]}..{batch[-1]}:{len(batch)}"
-        await pool.enqueue_job("fetch_match_details_job", batch, _job_id=job_id)
-        enqueued += len(batch)
+        job = await pool.enqueue_job("fetch_match_details_job", batch, _job_id=job_id)
+        # A None job means the id is already queued, running, or held by a
+        # retained result (arq dedupe via _job_id) — not a genuine new enqueue.
+        if job is None:
+            deduped += len(batch)
+        else:
+            enqueued += len(batch)
 
     logger.info(
         "enqueue_missing_details_done",
-        extra={"total": len(missing_details), "enqueued": enqueued},
+        extra={"total": len(missing_details), "enqueued": enqueued, "deduped": deduped},
     )
     return enqueued
