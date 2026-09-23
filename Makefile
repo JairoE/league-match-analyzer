@@ -1,7 +1,9 @@
-.PHONY: help install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs evals backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids backfill-rag-embeddings backfill-rag-embeddings-dry seed-rag-corpus seed-rag-corpus-dry corpus-stats
+.PHONY: help up pipeline install api-dev worker-dev worker-dev-verbose llm-dev db-up db-down db-migrate db-reset db-revision lint test test-logs evals backfill-extraction backfill-extraction-dry backfill-rank score-actions score-account-matches score-account-matches-dry account-match-stats aggregate-actions-debug compare-actions-debug llm-analysis-debug capture-riot-fixtures print-champion-ids backfill-rag-embeddings backfill-rag-embeddings-dry seed-rag-corpus seed-rag-corpus-dry corpus-stats
 
 help:
 	@echo "Available targets:"
+	@echo "  up           One command: Docker + migrations + API + worker; with RIOT_ID=name#NA1 also runs the full pipeline [COUNT=20] [SKIP_LLM=1]"
+	@echo "  pipeline     Run the idempotent fetch->score->AI Coach pipeline against running services (RIOT_ID=name#NA1 [COUNT=20] [SKIP_LLM=1] [DRY_RUN=1])"
 	@echo "  install      Install all services in dev mode"
 	@echo "  api-dev      Start API with hot reload"
 	@echo "  worker-dev   Start ARQ background worker"
@@ -26,6 +28,16 @@ help:
 	@echo "  corpus-stats  Show llm_analysis count + embedding coverage per champion"
 	@echo "  capture-riot-fixtures  Capture live Riot JSON fixtures for tests"
 	@echo "  print-champion-ids  Print Riot championId -> name mapping from Data Dragon"
+
+up:
+	@RIOT_ID="$$RIOT_ID" COUNT="$$COUNT" SKIP_LLM="$$SKIP_LLM" ./scripts/dev_up.sh
+
+pipeline:
+	@if [ -z "$$RIOT_ID" ]; then \
+		echo "Usage: make pipeline RIOT_ID=name#NA1 [COUNT=20] [SKIP_LLM=1] [DRY_RUN=1]"; \
+		exit 1; \
+	fi
+	./.venv/bin/python scripts/run_pipeline.py --riot-id "$$RIOT_ID" --count "$${COUNT:-20}" $$([ -n "$$SKIP_LLM" ] && echo "--skip-llm") $$([ -n "$$DRY_RUN" ] && echo "--dry-run")
 
 install:
 	python3 -m venv .venv || true

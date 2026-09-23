@@ -7,7 +7,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.core.logging import get_logger
 from app.db.session import get_session
@@ -22,13 +21,15 @@ from app.schemas.analysis import (
 from app.services.analysis_champions import list_analyzable_champions
 from app.services.arq_pool import get_arq_pool
 from app.services.champions import get_champion_by_id
+from app.services.llm_analyses import (
+    ANALYSIS_CACHE_HOURS,
+    analysis_job_id,
+    latest_analysis,
+)
 from app.services.riot_accounts import resolve_riot_account_identifier
 
 router = APIRouter(tags=["analysis"])
 logger = get_logger("league_api.analysis")
-
-ANALYSIS_CACHE_HOURS = 24
-
 
 def _payload_str(payload: dict[str, Any], key: str) -> str | None:
     """Extract a string field from output_payload, tolerating parse_error rows."""
@@ -64,28 +65,6 @@ def build_analysis_response(row: LLMAnalysis) -> AnalysisResponse:
         model_name=row.model_name,
         created_at=row.created_at,
     )
-
-
-async def _latest_analysis(
-    session: AsyncSession,
-    riot_account_id: Any,
-    champion_name: str,
-    since: datetime | None = None,
-) -> LLMAnalysis | None:
-    """Return the newest analysis row for an account + champion."""
-    statement = (
-        select(LLMAnalysis)
-        .where(
-            LLMAnalysis.riot_account_id == riot_account_id,
-            LLMAnalysis.champion_name == champion_name,
-        )
-        .order_by(LLMAnalysis.created_at.desc())  # type: ignore[attr-defined]
-        .limit(1)
-    )
-    if since is not None:
-        statement = statement.where(LLMAnalysis.created_at >= since)
-    result = await session.execute(statement)
-    return result.scalars().first()
 
 
 @router.get(
@@ -160,7 +139,7 @@ async def enqueue_analysis(
         )
 
     cutoff = datetime.now(UTC) - timedelta(hours=ANALYSIS_CACHE_HOURS)
-    existing = await _latest_analysis(session, account.id, champion.name, since=cutoff)
+    existing = await latest_analysis(session, account.id, champion.name, since=cutoff)
     if existing is not None:
         logger.info(
             "analysis_cache_hit",
@@ -175,7 +154,7 @@ async def enqueue_analysis(
     # Deterministic id dedupes concurrent clicks; the worker registers the
     # job with a short keep_result (background_jobs.py) so a failed run
     # frees the id for retries in seconds. Day bucket is a residual guard.
-    job_id = f"llm-{account.id}-{payload.champion_id}-{date.today().isoformat()}"
+    job_id = analysis_job_id(account.id, payload.champion_id, date.today())
     pool = await get_arq_pool()
     job = await pool.enqueue_job(
         "llm_analysis_job",
@@ -216,7 +195,7 @@ async def get_analysis(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Riot account not found",
         )
-    row = await _latest_analysis(session, account.id, champion_name)
+    row = await latest_analysis(session, account.id, champion_name)
     if row is None:
         return None
     return build_analysis_response(row)
